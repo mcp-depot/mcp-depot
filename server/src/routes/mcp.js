@@ -13,13 +13,17 @@ const encryption = require('../services/encryption');
 
 const router = express.Router();
 
+const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED !== 'false';
+const TOOLS_CACHE_TTL = parseInt(process.env.TOOLS_CACHE_TTL) || 300000;
+
 const toolsCache = {
   data: null,
   timestamp: 0,
-  ttl: parseInt(process.env.TOOLS_CACHE_TTL) || 300000
+  ttl: TOOLS_CACHE_TTL
 };
 
 function getCachedTools() {
+  if (!TOOLS_CACHE_ENABLED) return null;
   const now = Date.now();
   if (toolsCache.data && (now - toolsCache.timestamp) < toolsCache.ttl) {
     return toolsCache.data;
@@ -28,6 +32,7 @@ function getCachedTools() {
 }
 
 function setCachedTools(tools) {
+  if (!TOOLS_CACHE_ENABLED) return;
   toolsCache.data = tools;
   toolsCache.timestamp = Date.now();
 }
