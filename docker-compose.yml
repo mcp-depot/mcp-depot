@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: mcpconnect-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_DB: ${POSTGRES_DB:-mcpconnect}
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mcpconnect-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d mcpconnect"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: mcpconnect-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "mcpconnect.local:host-gateway"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcpconnect
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
+      - JWT_EXPIRE=15m
+      - JWT_REFRESH_EXPIRE=7d
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-change-this-encryption-key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mcpconnect-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: mcpconnect-client
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://server:3000
+    depends_on:
+      - server
+    networks:
+      - mcpconnect-network
+
+  demo-mcp:
+    image: node:20-alpine
+    container_name: mcpconnect-demo-mcp
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "demo-mcp-server.js"]
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./demo-mcp:/app
+    networks:
+      - mcpconnect-network
+
+volumes:
+  postgres_data:
+    name: mcpconnect_postgres_data
+
+networks:
+  mcpconnect-network:
+    driver: bridge
