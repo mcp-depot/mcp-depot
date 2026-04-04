@@ -426,8 +426,16 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
 
       let mcpInputSchema = { type: 'object', properties: {} };
       if (inputSchema.properties) {
-        mcpInputSchema.properties = { ...inputSchema.properties };
-        mcpInputSchema.required = [...(inputSchema.required || [])];
+        mcpInputSchema.properties = {};
+        Object.entries(inputSchema.properties).forEach(([key, val]) => {
+          if (key === 'allOf' || key === 'anyOf' || key === 'oneOf' || key.startsWith('$')) return;
+          if (val && typeof val === 'object' && val.type) {
+            mcpInputSchema.properties[key] = val;
+          } else {
+            mcpInputSchema.properties[key] = { type: 'string', description: val?.description || key };
+          }
+        });
+        mcpInputSchema.required = [...(inputSchema.required || [])].filter(k => mcpInputSchema.properties[k]);
       }
 
       const pathParams = t.endpoint.path.match(/\{([^}]+)\}/g) || [];
