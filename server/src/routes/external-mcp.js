@@ -7,6 +7,12 @@ const encryption = require('../services/encryption');
 
 const router = express.Router();
 
+let clearToolsCache = null;
+
+function setClearToolsCache(fn) {
+  clearToolsCache = fn;
+}
+
 const externalMcpSchema = Joi.object({
   name: Joi.string(),
   transportType: Joi.string().valid('http', 'stdio', 'sse'),
@@ -176,6 +182,8 @@ router.post('/', auth, async (req, res) => {
       userId: req.user.id
     });
     
+    if (clearToolsCache) clearToolsCache();
+    
     res.status(201).json({
       ...server.toJSON(),
       _id: server.id,
@@ -214,6 +222,8 @@ router.put('/:id', auth, async (req, res) => {
     
     await server.update(updates);
     
+    if (clearToolsCache) clearToolsCache();
+    
     res.json({
       ...server.toJSON(),
       _id: server.id,
@@ -239,6 +249,8 @@ router.delete('/:id', auth, async (req, res) => {
     }
     
     await server.destroy();
+    
+    if (clearToolsCache) clearToolsCache();
     
     res.json({ message: 'External MCP server deleted' });
   } catch (error) {
@@ -399,4 +411,4 @@ router.post('/install', auth, async (req, res) => {
   }
 });
 
-module.exports = router;
+module.exports = { router, setClearToolsCache };

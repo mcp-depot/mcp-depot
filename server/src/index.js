@@ -13,7 +13,7 @@ const workflowRoutes = require('./routes/workflows');
 const { router: mcpRoutes, clearToolsCache } = require('./routes/mcp');
 const monitoringRoutes = require('./routes/monitoring');
 const userCredentialsRoutes = require('./routes/user-credentials');
-const externalMcpRoutes = require('./routes/external-mcp');
+const { router: externalMcpRoutes, setClearToolsCache: setExternalMcpClearCache } = require('./routes/external-mcp');
 const promptLibraryRoutes = require('./routes/prompt-library');
 const systemRoutes = require('./routes/system');
 
@@ -50,6 +50,8 @@ app.use('/api/user-credentials', userCredentialsRoutes);
 app.use('/api/external-mcp', externalMcpRoutes);
 app.use('/api/prompt-library', promptLibraryRoutes);
 app.use('/api/system', systemRoutes);
+
+setExternalMcpClearCache(clearToolsCache);
 
 console.log('Routes loaded: auth, integrations, consume, jira, jenkins, bitbucket, github, gitlab, workflows, mcp, external-mcp');
 
