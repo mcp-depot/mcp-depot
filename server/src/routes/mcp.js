@@ -139,6 +139,8 @@ const fetchExternalMcpTools = async (userId, role) => {
           (tools.tools || []).forEach(tool => {
             allExternalTools.push({
               ...tool,
+              input_schema: tool.input_schema || tool.inputSchema || null,
+              inputSchema: tool.inputSchema || tool.input_schema || null,
               _id: `external-${server.id}-${tool.id || tool.name}`,
               source: 'external',
               externalServerId: server.id,
@@ -176,6 +178,8 @@ const fetchExternalMcpTools = async (userId, role) => {
           tools.forEach(tool => {
             allExternalTools.push({
               ...tool,
+              input_schema: tool.input_schema || tool.inputSchema || null,
+              inputSchema: tool.inputSchema || tool.input_schema || null,
               _id: `external-${server.id}-${tool.id || tool.name}`,
               source: 'external',
               externalServerId: server.id,
