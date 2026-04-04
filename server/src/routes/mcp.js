@@ -13,7 +13,7 @@ const encryption = require('../services/encryption');
 
 const router = express.Router();
 
-const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED !== 'false';
+const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED === 'true';
 const TOOLS_CACHE_TTL = parseInt(process.env.TOOLS_CACHE_TTL) || 300000;
 
 const toolsCache = {
