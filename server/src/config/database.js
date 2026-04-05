@@ -24,6 +24,24 @@ const loadModels = () => {
   const ExternalMcpServer = require('../models/ExternalMcpServer');
   const PromptLibrary = require('../models/PromptLibrary')(sequelize);
   const SystemSetting = require('../models/SystemSetting');
+  
+  // Define associations
+  User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
+  User.hasMany(Tool, { foreignKey: 'userId', as: 'tools' });
+  User.hasMany(ExternalMcpServer, { foreignKey: 'userId', as: 'externalServers' });
+  
+  Integration.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  Integration.hasMany(Tool, { foreignKey: 'integrationId', as: 'tools' });
+  
+  Tool.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  Tool.belongsTo(Integration, { foreignKey: 'integrationId', as: 'integration' });
+  
+  ToolCall.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  ToolCall.belongsTo(Tool, { foreignKey: 'toolId', as: 'tool' });
+  ToolCall.belongsTo(Integration, { foreignKey: 'integrationId', as: 'integration' });
+  
+  ExternalMcpServer.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  
   return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting };
 };
 
@@ -274,6 +292,8 @@ const connectDB = async () => {
         CREATE INDEX IF NOT EXISTS "idx_tool_calls_createdAt" ON tool_calls("createdAt");
         CREATE INDEX IF NOT EXISTS "idx_tool_calls_success" ON tool_calls(success);
         CREATE INDEX IF NOT EXISTS "idx_tool_calls_callerType" ON tool_calls("callerType");
+        CREATE INDEX IF NOT EXISTS "idx_tool_calls_userId_createdAt" ON tool_calls("userId", "createdAt");
+        CREATE INDEX IF NOT EXISTS "idx_tool_calls_integrationId_success" ON tool_calls("integrationId", success);
       `);
       console.log('Tool calls table ready');
     } catch (e) {
@@ -318,6 +338,7 @@ const connectDB = async () => {
         );
         CREATE INDEX IF NOT EXISTS "idx_ems_userId" ON external_mcp_servers("userId");
         CREATE INDEX IF NOT EXISTS "idx_ems_isActive" ON external_mcp_servers("isActive");
+        CREATE INDEX IF NOT EXISTS "idx_ems_userId_isActive" ON external_mcp_servers("userId", "isActive");
       `);
       console.log('External MCP servers table ready');
     } catch (e) {

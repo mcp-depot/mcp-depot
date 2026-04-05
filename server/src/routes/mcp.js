@@ -12,6 +12,7 @@ const { logToolCall } = require('../services/tool-logger');
 const encryption = require('../services/encryption');
 const config = require('../config/env');
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
+const { checkRateLimit } = require('../services/rate-limiter');
 
 const router = express.Router();
 
@@ -648,6 +649,19 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     
     if (!tool) {
       return res.status(404).json({ error: 'Tool not found' });
+    }
+    
+    const userId = req.user?.id || req.apiKey?.userId;
+    if (tool.rateLimit && tool.rateLimit > 0 && userId) {
+      const rateCheck = checkRateLimit(tool.id, userId, tool.rateLimit);
+      if (!rateCheck.allowed) {
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          limit: tool.rateLimit,
+          remaining: 0,
+          retryAfter: rateCheck.resetIn
+        });
+      }
     }
     
     const integration = await Integration.findByPk(tool.integrationId);
