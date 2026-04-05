@@ -1,9 +1,13 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { connectDB } = require('./config/database');
 const config = require('./config/env');
+const logger = require('./services/logger');
+const promClient = require('prom-client');
+const { middleware: metricsMiddleware } = require('./services/metrics');
 
 const authRoutes = require('./routes/auth');
 const integrationRoutes = require('./routes/integrations');
@@ -19,9 +23,12 @@ const systemRoutes = require('./routes/system');
 
 const app = express();
 
+promClient.register.setDefaultLabels({ app: 'mcphub' });
+
 app.set('trust proxy', 1);
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(helmet());
+app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || '*' }));
+app.use(express.json({ limit: '512kb' }));
 app.use(express.urlencoded({ extended: true }));
 
 const limiter = rateLimit({
@@ -30,6 +37,7 @@ const limiter = rateLimit({
   message: { error: 'Too many requests, please try again later' }
 });
 app.use('/api', limiter);
+app.use(metricsMiddleware);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
@@ -68,10 +76,15 @@ app.use('/api', v1Router); // Backward compatibility
 
 setExternalMcpClearCache(clearToolsCache);
 
-console.log('Routes loaded: auth, integrations, consume, jira, jenkins, bitbucket, github, gitlab, workflows, mcp, external-mcp');
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', promClient.register.contentType);
+  res.end(await promClient.register.metrics());
+});
+
+logger.info('Routes loaded: auth, integrations, consume, jira, jenkins, bitbucket, github, gitlab, workflows, mcp, external-mcp');
 
 app.use((err, req, res, next) => {
-  console.error('Error:', err.message, err.stack);
+  logger.error({ err: err.message, stack: err.stack, path: req.path }, 'Request error');
   const status = err.status || err.statusCode || 500;
   res.status(status).json({
     error: {
@@ -91,13 +104,11 @@ const startServer = async () => {
     await connectDB();
     
     const server = app.listen(config.port, () => {
-      console.log(`MCPConnect Server running on port ${config.port}`);
-      console.log(`Health check: http://localhost:${config.port}/health`);
-      console.log(`Readiness: http://localhost:${config.port}/ready`);
+      logger.info({ port: config.port }, 'MCPConnect Server started');
     });
     
     const gracefulShutdown = async (signal) => {
-      console.log(`\n${signal} received, shutting down gracefully...`);
+      logger.info({ signal }, 'Shutting down gracefully');
       
       server.close(() => {
         console.log('HTTP server closed');
@@ -106,20 +117,20 @@ const startServer = async () => {
       try {
         const { killAll } = require('./services/process-registry');
         await killAll();
-        console.log('Child processes terminated');
+        logger.info('Child processes terminated');
       } catch (e) {
-        console.error('Error terminating processes:', e.message);
+        logger.error({ err: e.message }, 'Error terminating processes');
       }
       
       try {
         const { sequelize } = require('./config/database');
         await sequelize.close();
-        console.log('Database connections closed');
+        logger.info('Database connections closed');
       } catch (e) {
-        console.error('Error closing database:', e.message);
+        logger.error({ err: e.message }, 'Error closing database');
       }
       
-      console.log('Shutdown complete');
+      logger.info('Shutdown complete');
       process.exit(0);
     };
     
@@ -127,7 +138,7 @@ const startServer = async () => {
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
     
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.fatal({ err: error.message }, 'Failed to start server');
     process.exit(1);
   }
 };
