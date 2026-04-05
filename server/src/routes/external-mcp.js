@@ -43,10 +43,21 @@ const externalMcpCreateSchema = Joi.object({
 
 const stdioMcpCache = new Map();
 
+function safeJsonParse(value, defaultValue) {
+  if (!value) return defaultValue;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed;
+  } catch (e) {
+    console.error('JSON parse error:', e.message);
+    return defaultValue;
+  }
+}
+
 async function callStdioMcp(command, args, envVars, method, params = {}, runtime = 'node') {
   return new Promise((resolve, reject) => {
-    const argsArray = args ? JSON.parse(args) : [];
-    const envVarsObj = envVars ? JSON.parse(envVars) : {};
+    const argsArray = safeJsonParse(args, []);
+    const envVarsObj = safeJsonParse(envVars, {});
     
     const fullEnv = { ...process.env, ...envVarsObj };
     

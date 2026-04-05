@@ -14,6 +14,16 @@ const config = require('../config/env');
 
 const router = express.Router();
 
+function safeJsonParse(value, defaultValue) {
+  if (!value) return defaultValue;
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    console.error('JSON parse error:', e.message);
+    return defaultValue;
+  }
+}
+
 const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED === 'true';
 const TOOLS_CACHE_TTL = parseInt(process.env.TOOLS_CACHE_TTL) || 300000;
 
@@ -75,6 +85,7 @@ router.get('/fetch-url', optionalAuth, async (req, res) => {
     const maxSizeBytes = parseInt(maxSize) || 5 * 1024 * 1024;
     
     const isHttps = url.startsWith('https://');
+    const parsedHeaders = safeJsonParse(headers, {});
     const response = await axios.get(url, {
       timeout: timeoutMs,
       maxContentLength: maxSizeBytes,
@@ -82,7 +93,7 @@ router.get('/fetch-url', optionalAuth, async (req, res) => {
       headers: {
         'User-Agent': 'MCPConnect/1.0',
         'Accept': 'text/html,application/json,application/xml,text/plain,*/*',
-        ...(headers ? JSON.parse(headers) : {})
+        ...parsedHeaders
       },
       validateStatus: () => true,
       ...(isHttps ? {
@@ -220,8 +231,8 @@ const fetchExternalMcpTools = async (userId, role) => {
 
 async function getStdioMcpTools(command, args, envVars, runtime = 'node') {
   return new Promise((resolve, reject) => {
-    const argsArray = args ? JSON.parse(args) : [];
-    const envVarsObj = envVars ? JSON.parse(envVars) : {};
+    const argsArray = safeJsonParse(args, []);
+    const envVarsObj = safeJsonParse(envVars, {});
     
     const fullEnv = { ...process.env, ...envVarsObj };
     
@@ -292,8 +303,8 @@ async function getStdioMcpTools(command, args, envVars, runtime = 'node') {
 
 async function executeStdioMcpTool(command, args, envVars, toolName, arguments_, runtime = 'node') {
   return new Promise((resolve, reject) => {
-    const argsArray = args ? JSON.parse(args) : [];
-    const envVarsObj = envVars ? JSON.parse(envVars) : {};
+    const argsArray = safeJsonParse(args, []);
+    const envVarsObj = safeJsonParse(envVars, {});
     
     const fullEnv = { ...process.env, ...envVarsObj };
     

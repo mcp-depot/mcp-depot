@@ -13,6 +13,8 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
   }
 });
 
+const IS_DEV = process.env.NODE_ENV !== 'production';
+
 const loadModels = () => {
   const User = require('../models/User');
   const Integration = require('../models/Integration');
@@ -232,8 +234,14 @@ const connectDB = async () => {
   try {
     await sequelize.authenticate();
     console.log('PostgreSQL connected successfully');
-    await sequelize.sync({ alter: true });
-    console.log('Database synchronized');
+    
+    if (IS_DEV) {
+      console.log('⚠️  Development mode: running sequelize.sync({ alter: true })');
+      await sequelize.sync({ alter: true });
+      console.log('Database synchronized');
+    } else {
+      console.log('⚠️  Production mode: NOT running sequelize.sync() - use migrations!');
+    }
     
       // Create tool_calls table if it doesn't exist
     try {

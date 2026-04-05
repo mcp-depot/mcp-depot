@@ -32,7 +32,17 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+});
+
+app.get('/ready', async (req, res) => {
+  try {
+    const { sequelize } = require('./config/database');
+    await sequelize.authenticate();
+    res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() });
+  } catch (err) {
+    res.status(503).json({ status: 'degraded', db: 'disconnected', error: err.message });
+  }
 });
 
 app.use('/api/auth', authRoutes);
@@ -56,8 +66,15 @@ setExternalMcpClearCache(clearToolsCache);
 console.log('Routes loaded: auth, integrations, consume, jira, jenkins, bitbucket, github, gitlab, workflows, mcp, external-mcp');
 
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  console.error('Error:', err.message, err.stack);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({
+    error: {
+      code: err.code || 'INTERNAL_ERROR',
+      message: err.message || 'An unexpected error occurred',
+      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+    }
+  });
 });
 
 app.use((req, res) => {
@@ -68,10 +85,42 @@ const startServer = async () => {
   try {
     await connectDB();
     
-    app.listen(config.port, () => {
+    const server = app.listen(config.port, () => {
       console.log(`MCPConnect Server running on port ${config.port}`);
       console.log(`Health check: http://localhost:${config.port}/health`);
+      console.log(`Readiness: http://localhost:${config.port}/ready`);
     });
+    
+    const gracefulShutdown = async (signal) => {
+      console.log(`\n${signal} received, shutting down gracefully...`);
+      
+      server.close(() => {
+        console.log('HTTP server closed');
+      });
+      
+      try {
+        const { killAll } = require('./services/process-registry');
+        await killAll();
+        console.log('Child processes terminated');
+      } catch (e) {
+        console.error('Error terminating processes:', e.message);
+      }
+      
+      try {
+        const { sequelize } = require('./config/database');
+        await sequelize.close();
+        console.log('Database connections closed');
+      } catch (e) {
+        console.error('Error closing database:', e.message);
+      }
+      
+      console.log('Shutdown complete');
+      process.exit(0);
+    };
+    
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
