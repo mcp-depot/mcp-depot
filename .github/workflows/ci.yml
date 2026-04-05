@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: mcphub_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install server dependencies
+        run: |
+          cd server
+          npm ci
+          
+      - name: Run server linter
+        run: |
+          cd server
+          npm run lint || true
+          
+      - name: Build server
+        run: |
+          cd server
+          npm run build
+          
+      - name: Install client dependencies
+        run: |
+          cd client
+          npm ci
+          
+      - name: Build client
+        run: |
+          cd client
+          npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Build Docker images
+        run: docker compose build
+        
+      - name: Verify containers start
+        run: |
+          docker compose up -d
+          sleep 10
+          docker compose ps
