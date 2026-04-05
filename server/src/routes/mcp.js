@@ -673,7 +673,6 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     const requiresCredentials = authType !== 'none';
     const hasIntegrationCredentials = !!integration.config?.auth?.credentials;
     
-    const userId = req.user?.id || (req.apiKey?.userId) || null;
     let userCreds = null;
     if (userId) {
       const userCredsRecord = await UserIntegrationCredentials.findOne({
