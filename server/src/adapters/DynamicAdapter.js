@@ -89,7 +89,7 @@ class DynamicAdapter {
   }
 
   async makeRequest(method, path, data = null, options = {}) {
-    const { params, headers } = options;
+    const { params, headers, retries = 3 } = options;
     
     const config = {
       method,
@@ -107,17 +107,38 @@ class DynamicAdapter {
 
     if (data) config.data = data;
 
-    try {
-      const response = await this.client.request(config);
-      return {
-        data: response.data,
-        status: response.status,
-        headers: response.headers
-      };
-    } catch (error) {
-      const message = error.response?.data?.message || error.response?.data?.error || error.message;
-      throw new Error(`API Error: ${message}`);
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const response = await this.client.request(config);
+        return {
+          data: response.data,
+          status: response.status,
+          headers: response.headers
+        };
+      } catch (error) {
+        const status = error.response?.status;
+        const retryAfter = error.response?.headers?.['retry-after'];
+        
+        if (status === 429 && retryAfter) {
+          const waitMs = parseInt(retryAfter) * 1000;
+          await new Promise(r => setTimeout(r, waitMs));
+          continue;
+        }
+        
+        if (attempt < retries && status >= 500) {
+          const delay = Math.pow(2, attempt) * 500;
+          await new Promise(r => setTimeout(r, delay));
+          lastError = error;
+          continue;
+        }
+        
+        const message = error.response?.data?.message || error.response?.data?.error || error.message;
+        throw new Error(`API Error: ${message}`);
+      }
     }
+    
+    throw lastError;
   }
 
   async get(path, options = {}) {
