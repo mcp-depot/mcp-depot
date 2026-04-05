@@ -130,3 +130,29 @@ e9a14a9 Phase 1: Stabilize foundation
 3. **Full MCP Server** (Phase 2-A) - Rewrite with McpServer class
 4. **Workflow Engine** (Phase 4-B) - Implement execution or remove templates
 5. **GraphQL Support** (Phase 4-C) - Add GraphQL integration type
+
+---
+
+## Changelog
+
+### 2026-04-05
+
+**Added:**
+- **Per-tool rate limiting** (`server/src/services/rate-limiter.js`):
+  - In-memory rate limiter with 1-minute window
+  - Returns 429 with `retryAfter` when limit exceeded
+  - Integrated into `/execute` endpoint
+
+- **Model associations** (`server/src/config/database.js`):
+  - User.hasMany(Integration)
+  - User.hasMany(Tool)
+  - Integration.hasMany(Tool)
+  - Tool.belongsTo(User), Tool.belongsTo(Integration)
+  - ToolCall associations with User, Tool, Integration
+
+- **Composite indexes** (`server/src/config/database.js`):
+  - `idx_tool_calls_userId_createdAt` on tool_calls
+  - `idx_tool_calls_integrationId_success` on tool_calls
+  - `idx_ems_userId_isActive` on external_mcp_servers
+
+**Commit:** `d06957a`
