@@ -45,21 +45,26 @@ app.get('/ready', async (req, res) => {
   }
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/integrations', integrationRoutes);
-app.use('/api/consume', consumeRoutes);
-app.use('/api/jira', platformRoutes('jira'));
-app.use('/api/jenkins', platformRoutes('jenkins'));
-app.use('/api/bitbucket', platformRoutes('bitbucket'));
-app.use('/api/github', platformRoutes('github'));
-app.use('/api/gitlab', platformRoutes('gitlab'));
-app.use('/api/workflows', workflowRoutes);
-app.use('/api/mcp', mcpRoutes);
-app.use('/api/monitoring', monitoringRoutes);
-app.use('/api/user-credentials', userCredentialsRoutes);
-app.use('/api/external-mcp', externalMcpRoutes);
-app.use('/api/prompt-library', promptLibraryRoutes);
-app.use('/api/system', systemRoutes);
+const v1Router = express.Router();
+
+v1Router.use('/auth', authRoutes);
+v1Router.use('/integrations', integrationRoutes);
+v1Router.use('/consume', consumeRoutes);
+v1Router.use('/jira', platformRoutes('jira'));
+v1Router.use('/jenkins', platformRoutes('jenkins'));
+v1Router.use('/bitbucket', platformRoutes('bitbucket'));
+v1Router.use('/github', platformRoutes('github'));
+v1Router.use('/gitlab', platformRoutes('gitlab'));
+v1Router.use('/workflows', workflowRoutes);
+v1Router.use('/mcp', mcpRoutes);
+v1Router.use('/monitoring', monitoringRoutes);
+v1Router.use('/user-credentials', userCredentialsRoutes);
+v1Router.use('/external-mcp', externalMcpRoutes);
+v1Router.use('/prompt-library', promptLibraryRoutes);
+v1Router.use('/system', systemRoutes);
+
+app.use('/api/v1', v1Router);
+app.use('/api', v1Router); // Backward compatibility
 
 setExternalMcpClearCache(clearToolsCache);
 

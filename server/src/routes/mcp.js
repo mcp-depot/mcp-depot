@@ -11,6 +11,7 @@ const AdapterFactory = require('../adapters');
 const { logToolCall } = require('../services/tool-logger');
 const encryption = require('../services/encryption');
 const config = require('../config/env');
+const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
 
 const router = express.Router();
 
