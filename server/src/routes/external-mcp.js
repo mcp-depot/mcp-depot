@@ -1,7 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 const { spawn } = require('child_process');
-const { auth } = require('../middleware/auth');
+const { auth, requireAdmin } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
 
@@ -280,10 +280,16 @@ router.get('/:id/tools', auth, async (req, res) => {
     
     const headers = {};
     if (server.authType === 'bearer' && server.authToken) {
-      headers['Authorization'] = `Bearer ${encryption.decrypt(server.authToken)}`;
+      const token = encryption.decrypt(server.authToken);
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
     } else if (server.authType === 'apiKey' && server.authToken) {
-      const headerName = server.authHeader || 'X-API-Key';
-      headers[headerName] = encryption.decrypt(server.authToken);
+      const token = encryption.decrypt(server.authToken);
+      if (token) {
+        const headerName = server.authHeader || 'X-API-Key';
+        headers[headerName] = token;
+      }
     }
     
     const response = await fetch(`${server.url}/tools`, { headers });
@@ -326,10 +332,16 @@ router.post('/:id/execute', auth, async (req, res) => {
     };
     
     if (server.authType === 'bearer' && server.authToken) {
-      headers['Authorization'] = `Bearer ${encryption.decrypt(server.authToken)}`;
+      const token = encryption.decrypt(server.authToken);
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
     } else if (server.authType === 'apiKey' && server.authToken) {
-      const headerName = server.authHeader || 'X-API-Key';
-      headers[headerName] = encryption.decrypt(server.authToken);
+      const token = encryption.decrypt(server.authToken);
+      if (token) {
+        const headerName = server.authHeader || 'X-API-Key';
+        headers[headerName] = token;
+      }
     }
     
     const response = await fetch(`${server.url}/execute`, {
@@ -351,7 +363,7 @@ router.post('/:id/execute', auth, async (req, res) => {
   }
 });
 
-router.post('/install', auth, async (req, res) => {
+router.post('/install', auth, requireAdmin, async (req, res) => {
   try {
     const { packageName, runtime = 'node' } = req.body;
     

@@ -100,13 +100,15 @@ async function getAuthMode() {
   return 'none';
 }
 
+let tools = [];
+
 async function main() {
   const authMode = await getAuthMode();
   console.error(`[MCP-Connect] Auth mode: ${authMode}`);
-  
+
   const needsAuth = authMode === 'required';
   const hasCredentials = !!FINAL_TOKEN || !!FINAL_API_KEY;
-  
+
   if (needsAuth && !hasCredentials) {
     console.error('');
     console.error('[MCP-Connect] ERROR: API key required but not configured!');
@@ -116,8 +118,6 @@ async function main() {
     console.error('This will prompt for your MCP server URL and API key.');
     process.exit(1);
   }
-  
-  let tools = [];
   
   const headers = {};
   if (FINAL_TOKEN) {
@@ -169,14 +169,13 @@ async function main() {
         const bodyParams = endpoint.params || {};
         const allParams = { ...pathParams, ...bodyParams };
         
+        // Sanitize tool name - replace spaces with underscores
+        const sanitizedName = String(tool.name || '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '_');
+        
         return {
-          name: tool.name,
+          name: sanitizedName,
           description: tool.description || `Execute ${tool.name}`,
-          inputSchema: {
-            type: 'object',
-            properties: allParams,
-            required: Object.entries(allParams).filter(([_, v]) => v.required).map(([k]) => k)
-          }
+          inputSchema: buildJsonSchema(allParams)
         };
       })
     };
@@ -232,7 +231,34 @@ function extractRequiredParams(path) {
   return [];
 }
 
-async function executeTool(toolName, args) {
+function buildJsonSchema(params) {
+  const properties = {};
+  const required = [];
+  Object.entries(params).forEach(([key, val]) => {
+    properties[key] = {
+      type: 'string',
+      description: (val && typeof val === 'object' ? val.description : undefined) || key
+    };
+    if (val && typeof val === 'object' && val.required) {
+      required.push(key);
+    }
+  });
+  return {
+    type: 'object',
+    properties,
+    ...(required.length > 0 ? { required } : {})
+  };
+}
+
+async function executeTool(sanitizedName, args) {
+  // Map sanitized name back to original tool name
+  const originalTool = tools.find(t => {
+    const toolName = String(t.name || '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '_');
+    return toolName === sanitizedName;
+  });
+  
+  const toolName = originalTool ? originalTool.name : sanitizedName;
+  
   const headers = { 'Content-Type': 'application/json' };
   if (FINAL_TOKEN) {
     headers['Authorization'] = `Bearer ${FINAL_TOKEN}`;

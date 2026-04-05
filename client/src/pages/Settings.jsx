@@ -261,7 +261,12 @@ function Settings() {
       await api.post('/external-mcp/install', { packageName: packageName.trim(), runtime });
       setInstallMessage(`✓ Successfully installed ${packageName} (${runtime})`);
     } catch (err) {
-      setInstallMessage('✗ Error: ' + (err.response?.data?.error || err.message));
+      const errorMsg = err.response?.data?.error || err.message;
+      if (err.response?.status === 403) {
+        setInstallMessage('✗ Admin access required to install packages');
+      } else {
+        setInstallMessage('✗ Error: ' + errorMsg);
+      }
     } finally {
       setInstallingPackage(false);
     }

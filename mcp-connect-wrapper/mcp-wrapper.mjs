@@ -7,7 +7,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const sdkPath = join(process.cwd(), 'node_modules', '@modelcontextprotocol', 'sdk');
 
-const Server = require(join(sdkPath, 'dist', 'cjs', 'server', 'index.js')).Server;
+const { McpServer } = require(join(sdkPath, 'dist', 'cjs', 'server', 'mcp.js'));
 const StdioServerTransport = require(join(sdkPath, 'dist', 'cjs', 'server', 'stdio.js')).StdioServerTransport;
 
 const MCP_CONNECT_URL = process.env.MCP_CONNECT_URL || 'http://localhost:3000/api/mcp';
@@ -32,60 +32,70 @@ async function main() {
     process.exit(1);
   }
 
-  const server = new Server(
-    {
-      name: 'mcp-connect',
-      version: '1.0.0'
-    },
-    {
-      capabilities: {
-        tools: {}
-      }
-    }
+  const server = new McpServer(
+    { name: 'mcp-connect', version: '1.0.0' },
+    { capabilities: { tools: {} } }
   );
 
-  server.setRequestHandler('tools/list', async () => {
-    return {
-      tools: tools.map(tool => ({
-        name: tool.name,
-        description: tool.description || `Execute ${tool.name}`,
-        inputSchema: {
-          type: 'object',
-          properties: extractParams(tool.path || tool.endpoint?.path || ''),
-          required: extractRequiredParams(tool.path || tool.endpoint?.path || '')
-        }
-      }))
-    };
-  });
+  const zod = require('zod');
 
-  server.setRequestHandler('tools/call', async (request) => {
-    const { name, arguments: args } = request.params;
+  for (const tool of tools) {
+    const pathParams = extractPathParams(tool.endpoint?.path || tool.path || '');
+    const queryParams = extractQueryParams(tool.endpoint?.params || {});
+    const allParams = { ...pathParams, ...queryParams };
+    
+    let toolName = String(tool.name || '').trim();
+    if (!toolName) continue;
+    
+    // Sanitize tool name - replace spaces with underscores
+    const sanitizedName = toolName.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '_');
+    
+    // Build a Zod schema from the parameters
+    const zodShape = {};
+    Object.entries(allParams).forEach(([key, val]) => {
+      zodShape[key] = zod.string().describe(val.description || key);
+    });
+    
+    const schema = Object.keys(zodShape).length > 0 ? zod.object(zodShape) : zod.any();
     
     try {
-      const result = await executeTool(name, args);
-      return {
-        content: [{
-          type: 'text',
-          text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-        }]
-      };
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error: ${error.message}`
-        }],
-        isError: true
-      };
+      server.registerTool(
+        sanitizedName,
+        {
+          description: tool.description || `Execute ${toolName}`,
+          inputSchema: schema
+        },
+        async (args) => {
+          try {
+            const result = await executeTool(toolName, args || {});
+            return {
+              content: [{
+                type: 'text',
+                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (error) {
+            return {
+              content: [{
+                type: 'text',
+                text: `Error: ${error.message}`
+              }],
+              isError: true
+            };
+          }
+        }
+      );
+    } catch (e) {
+      console.error(`Failed to register tool ${sanitizedName}:`, e.message);
     }
-  });
+  }
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error('[MCP-Connect] Server connected and ready');
 }
 
-function extractParams(path) {
+function extractPathParams(path) {
   const params = {};
   const matches = path.match(/\{([^}]+)\}/g);
   if (matches) {
@@ -93,19 +103,26 @@ function extractParams(path) {
       const paramName = match.replace(/[{}]/g, '');
       params[paramName] = { 
         type: 'string', 
-        description: `Parameter: ${paramName}` 
+        description: `Path parameter: ${paramName}` 
       };
     });
   }
   return params;
 }
 
-function extractRequiredParams(path) {
-  const matches = path.match(/\{([^}]+)\}/g);
-  if (matches) {
-    return matches.map(m => m.replace(/[{}]/g, ''));
+function extractQueryParams(params) {
+  const result = {};
+  if (params && typeof params === 'object') {
+    Object.entries(params).forEach(([key, val]) => {
+      if (val && typeof val === 'object' && val.required) {
+        result[key] = { 
+          type: 'string', 
+          description: val.description || `Query parameter: ${key}` 
+        };
+      }
+    });
   }
-  return [];
+  return result;
 }
 
 async function executeTool(toolName, args) {

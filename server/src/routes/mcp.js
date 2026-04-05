@@ -10,6 +10,7 @@ const User = require('../models/User');
 const AdapterFactory = require('../adapters');
 const { logToolCall } = require('../services/tool-logger');
 const encryption = require('../services/encryption');
+const config = require('../config/env');
 
 const router = express.Router();
 
@@ -86,7 +87,7 @@ router.get('/fetch-url', optionalAuth, async (req, res) => {
       validateStatus: () => true,
       ...(isHttps ? {
         httpsAgent: new (require('https').Agent)({ 
-          rejectUnauthorized: false 
+          rejectUnauthorized: !config.allowSelfSignedCerts
         })
       } : {})
     });
@@ -159,11 +160,17 @@ const fetchExternalMcpTools = async (userId, role) => {
         const headers = {};
         if (server.authType === 'bearer' && server.authToken) {
           const encryption = require('../services/encryption');
-          headers['Authorization'] = `Bearer ${encryption.decrypt(server.authToken)}`;
+          const token = encryption.decrypt(server.authToken);
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
         } else if (server.authType === 'apiKey' && server.authToken) {
           const encryption = require('../services/encryption');
-          const headerName = server.authHeader || 'X-API-Key';
-          headers[headerName] = encryption.decrypt(server.authToken);
+          const token = encryption.decrypt(server.authToken);
+          if (token) {
+            const headerName = server.authHeader || 'X-API-Key';
+            headers[headerName] = token;
+          }
         }
         
         let toolsUrl = server.url;
@@ -589,10 +596,16 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       };
       
       if (server.authType === 'bearer' && server.authToken) {
-        extHeaders['Authorization'] = `Bearer ${encryption.decrypt(server.authToken)}`;
+        const token = encryption.decrypt(server.authToken);
+        if (token) {
+          extHeaders['Authorization'] = `Bearer ${token}`;
+        }
       } else if (server.authType === 'apiKey' && server.authToken) {
-        const headerName = server.authHeader || 'X-API-Key';
-        extHeaders[headerName] = encryption.decrypt(server.authToken);
+        const token = encryption.decrypt(server.authToken);
+        if (token) {
+          const headerName = server.authHeader || 'X-API-Key';
+          extHeaders[headerName] = token;
+        }
       }
       
       const extResponse = await fetch(`${server.url}/execute`, {
@@ -691,7 +704,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
             'Accept': 'text/html,application/json,application/xml,text/plain,*/*'
           },
           validateStatus: () => true,
-          ...(isHttps ? { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false }) } : {})
+          ...(isHttps ? { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: !config.allowSelfSignedCerts }) } : {})
         });
         
         const contentType = response.headers['content-type'] || '';

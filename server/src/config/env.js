@@ -5,5 +5,6 @@ module.exports = {
   jwtRefreshExpire: process.env.JWT_REFRESH_EXPIRE || '7d',
   encryptionKey: process.env.ENCRYPTION_KEY || 'mcp-32-byte-encryption-key!',
   port: process.env.PORT || 3000,
-  databaseUrl: process.env.DATABASE_URL || 'postgres://admin:admin123@localhost:5432/mcpconnect'
+  databaseUrl: process.env.DATABASE_URL || 'postgres://admin:admin123@localhost:5432/mcpconnect',
+  allowSelfSignedCerts: process.env.ALLOW_SELF_SIGNED_CERTS === 'true'
 };

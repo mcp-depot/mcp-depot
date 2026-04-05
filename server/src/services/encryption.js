@@ -12,13 +12,14 @@ class EncryptionService {
   }
 
   decrypt(ciphertext) {
-    if (!ciphertext) return ciphertext;
+    if (!ciphertext) return null;
     try {
       const bytes = CryptoJS.AES.decrypt(ciphertext, this.key);
       const result = bytes.toString(CryptoJS.enc.Utf8);
-      return result || ciphertext;
+      if (!result) return null;
+      return result;
     } catch (error) {
-      return ciphertext;
+      return null;
     }
   }
 
