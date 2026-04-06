@@ -15,6 +15,7 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
 });
 
 const IS_DEV = process.env.NODE_ENV !== 'production';
+let associationsDefined = false;
 
 const loadModels = () => {
   const User = require('../models/User');
@@ -26,22 +27,25 @@ const loadModels = () => {
   const PromptLibrary = require('../models/PromptLibrary')(sequelize);
   const SystemSetting = require('../models/SystemSetting');
   
-  // Define associations
-  User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
-  User.hasMany(Tool, { foreignKey: 'userId', as: 'tools' });
-  User.hasMany(ExternalMcpServer, { foreignKey: 'userId', as: 'externalServers' });
-  
-  Integration.belongsTo(User, { foreignKey: 'userId', as: 'user' });
-  Integration.hasMany(Tool, { foreignKey: 'integrationId', as: 'tools' });
-  
-  Tool.belongsTo(User, { foreignKey: 'userId', as: 'user' });
-  Tool.belongsTo(Integration, { foreignKey: 'integrationId', as: 'integration' });
-  
-  ToolCall.belongsTo(User, { foreignKey: 'userId', as: 'user' });
-  ToolCall.belongsTo(Tool, { foreignKey: 'toolId', as: 'tool' });
-  ToolCall.belongsTo(Integration, { foreignKey: 'integrationId', as: 'integration' });
-  
-  ExternalMcpServer.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+  if (!associationsDefined) {
+    User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
+    User.hasMany(Tool, { foreignKey: 'userId', as: 'tools' });
+    User.hasMany(ExternalMcpServer, { foreignKey: 'userId', as: 'externalServers' });
+    
+    Integration.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    Integration.hasMany(Tool, { foreignKey: 'integrationId', as: 'tools' });
+    
+    Tool.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    Tool.belongsTo(Integration, { foreignKey: 'integrationId', as: 'integration' });
+    
+    ToolCall.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    ToolCall.belongsTo(Tool, { foreignKey: 'toolId', as: 'tool' });
+    ToolCall.belongsTo(Integration, { foreignKey: 'integrationId', as: 'integration' });
+    
+    ExternalMcpServer.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    
+    associationsDefined = true;
+  }
   
   return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting };
 };
