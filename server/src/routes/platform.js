@@ -1,10 +1,20 @@
 const express = require('express');
+const Joi = require('joi');
 const { auth } = require('../middleware/auth');
 const Integration = require('../models/Integration');
 const AdapterFactory = require('../adapters');
 
 const createPlatformRouter = (type) => {
   const router = express.Router();
+
+  const requestSchema = Joi.object({
+    integrationId: Joi.string(),
+    method: Joi.string().valid('GET', 'POST', 'PUT', 'PATCH', 'DELETE').default('GET'),
+    path: Joi.string().required(),
+    data: Joi.any(),
+    params: Joi.object().default({}),
+    headers: Joi.object().default({})
+  });
 
   router.get('/', auth, async (req, res) => {
     try {
@@ -26,7 +36,12 @@ const createPlatformRouter = (type) => {
 
   router.post('/request', auth, async (req, res) => {
     try {
-      const { integrationId, method, path, data, params, headers } = req.body;
+      const { error, value } = requestSchema.validate(req.body);
+      if (error) {
+        return res.status(400).json({ error: error.details[0].message });
+      }
+
+      const { integrationId, method, path, data, params, headers } = value;
 
       const integration = await Integration.findOne({
         _id: integrationId || req.body.integrationId,

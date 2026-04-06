@@ -6,7 +6,7 @@
 >
 > **Developer action needed:** All current issues are resolved. Two suggested next tracks:
 > 1. **Code:** `1-G` Joi input validation, or `3-C` test coverage — share commit hash when ready for review.
-> 2. **Docs:** Add a `docs/connect/` section explaining how to add MCPConnect as an MCP server in Claude Code, Cursor, Windsurf, Ollama/Open WebUI, and Zed. See the Next Steps section for the full spec.
+> 2. **Docs:** ✅ DONE - Added `docs/connect/` with guides for Claude Code, Cursor, Windsurf, Zed, Open WebUI, and generic MCP.
 
 ---
 

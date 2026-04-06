@@ -1,9 +1,14 @@
 const express = require('express');
+const Joi = require('joi');
 const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
 
 const router = express.Router();
+
+const credentialsSchema = Joi.object({
+  credentials: Joi.object().required()
+});
 
 router.get('/credentials/:integrationId', auth, async (req, res) => {
   try {
@@ -38,14 +43,15 @@ router.get('/credentials/:integrationId', auth, async (req, res) => {
 
 router.post('/credentials/:integrationId', auth, async (req, res) => {
   try {
+    const { error, value } = credentialsSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
     const { UserIntegrationCredentials, Integration } = loadModels();
     const { integrationId } = req.params;
     const userId = req.user.id;
-    const { credentials } = req.body;
-
-    if (!credentials) {
-      return res.status(400).json({ error: 'Credentials are required' });
-    }
+    const { credentials } = value;
 
     const integration = await Integration.findByPk(integrationId);
     if (!integration) {

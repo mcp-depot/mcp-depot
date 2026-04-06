@@ -1,4 +1,5 @@
 const express = require('express');
+const Joi = require('joi');
 const { spawn } = require('child_process');
 const axios = require('axios');
 const { sequelize, connectDB, loadModels } = require('../config/database');
@@ -15,6 +16,14 @@ const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcRespons
 const { checkRateLimit } = require('../services/rate-limiter');
 
 const router = express.Router();
+
+const executeToolSchema = Joi.object({
+  toolId: Joi.string(),
+  toolName: Joi.string(),
+  params: Joi.object().default({}),
+  headers: Joi.object().default({}),
+  body: Joi.any()
+});
 
 function safeJsonParse(value, defaultValue) {
   if (!value) return defaultValue;
@@ -571,7 +580,12 @@ router.get('/endpoints', async (req, res) => {
 
 router.post('/execute', checkMcpAuth, async (req, res) => {
   try {
-    const { toolId, toolName, params, headers, body } = req.body;
+    const { error, value } = executeToolSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { toolId, toolName, params, headers, body } = value;
     const { Tool, Integration, UserIntegrationCredentials, ExternalMcpServer } = loadModels();
     
     let tool;

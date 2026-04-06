@@ -1,4 +1,5 @@
 const express = require('express');
+const Joi = require('joi');
 const { auth } = require('../middleware/auth');
 const Workflow = require('../models/Workflow');
 const Integration = require('../models/Integration');
@@ -6,6 +7,30 @@ const AdapterFactory = require('../adapters');
 const audit = require('../services/audit');
 
 const router = express.Router();
+
+const workflowSchema = Joi.object({
+  name: Joi.string().required(),
+  description: Joi.string().allow('', null),
+  trigger: Joi.object({
+    type: Joi.string().valid('manual', 'webhook', 'schedule').required(),
+    config: Joi.object().default({})
+  }).required(),
+  actions: Joi.array().items(Joi.object({
+    type: Joi.string().required(),
+    config: Joi.object().required()
+  })).min(1).required(),
+  isActive: Joi.boolean().default(true)
+});
+
+const workflowExecutionSchema = Joi.object({
+  inputs: Joi.object().default({})
+});
+
+const templateExecutionSchema = Joi.object({
+  templateId: Joi.string().required(),
+  name: Joi.string(),
+  description: Joi.string().allow('', null)
+});
 
 const JENKINS_POLL_INTERVAL = 5000;
 const JENKINS_MAX_WAIT = 300000;
@@ -131,11 +156,12 @@ router.get('/:id', auth, async (req, res) => {
 
 router.post('/', auth, async (req, res) => {
   try {
-    const { name, description, trigger, actions, isActive } = req.body;
-
-    if (!name || !actions || !actions.length) {
-      return res.status(400).json({ error: 'Name and at least one action required' });
+    const { error, value } = workflowSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
     }
+
+    const { name, description, trigger, actions, isActive } = value;
 
     const workflow = await Workflow.create({
       userId: req.user.id,
@@ -155,6 +181,11 @@ router.post('/', auth, async (req, res) => {
 
 router.put('/:id', auth, async (req, res) => {
   try {
+    const { error, value } = workflowSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
     const workflow = await Workflow.findOne({
       where: {
         id: req.params.id,
@@ -166,7 +197,7 @@ router.put('/:id', auth, async (req, res) => {
       return res.status(404).json({ error: 'Workflow not found' });
     }
 
-    const { name, description, trigger, actions, isActive } = req.body;
+    const { name, description, trigger, actions, isActive } = value;
 
     if (name) workflow.name = name;
     if (description !== undefined) workflow.description = description;
@@ -205,6 +236,11 @@ router.delete('/:id', auth, async (req, res) => {
 
 router.post('/:id/execute', auth, async (req, res) => {
   try {
+    const { error, value } = workflowExecutionSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
     const workflow = await Workflow.findOne({
       where: {
         id: req.params.id,
@@ -216,11 +252,7 @@ router.post('/:id/execute', auth, async (req, res) => {
       return res.status(404).json({ error: 'Workflow not found' });
     }
 
-    if (!workflow.isActive) {
-      return res.status(400).json({ error: 'Workflow is disabled' });
-    }
-
-    const { inputs } = req.body;
+    const { inputs } = value;
     const results = [];
     const errors = [];
 
@@ -427,7 +459,12 @@ router.post('/:id/execute', auth, async (req, res) => {
 
 router.post('/from-template', auth, async (req, res) => {
   try {
-    const { templateId, name, description } = req.body;
+    const { error, value } = templateExecutionSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { templateId, name, description } = value;
     
     const templates = [
       {

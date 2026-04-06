@@ -1,8 +1,22 @@
 const express = require('express');
+const Joi = require('joi');
 const { auth } = require('../middleware/auth');
 const SystemSetting = require('../models/SystemSetting');
 
 const router = express.Router();
+
+const updateSettingSchema = Joi.object({
+  value: Joi.any().required(),
+  description: Joi.string()
+});
+
+const importDataSchema = Joi.object({
+  externalMcp: Joi.array().items(Joi.object()).default([]),
+  integrations: Joi.array().items(Joi.object()).default([]),
+  tools: Joi.array().items(Joi.object()).default([]),
+  workflows: Joi.array().items(Joi.object()).default([]),
+  externalMcpServers: Joi.array().items(Joi.object()).default([])
+});
 
 router.get('/', async (req, res) => {
   try {
@@ -40,12 +54,17 @@ router.get('/:key', async (req, res) => {
 
 router.put('/:key', auth, async (req, res) => {
   try {
+    const { error, value } = updateSettingSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
     const { key } = req.params;
-    const { value, description } = req.body;
+    const { value: settingValue, description } = value;
     
     const [setting, created] = await SystemSetting.upsert({
       key,
-      value,
+      value: settingValue,
       description
     });
     
@@ -116,13 +135,18 @@ router.post('/export', auth, async (req, res) => {
 
 router.post('/import', auth, async (req, res) => {
   try {
+    const { error, value } = importDataSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
     const { loadModels } = require('../config/database');
     const result = { externalMcp: 0, integrations: 0, tools: 0, workflows: 0 };
     const integrationIdMap = new Map();
     
-    if (req.body.integrations) {
+    if (value.integrations) {
       const { Integration } = loadModels();
-      for (let i = 0; i < req.body.integrations.length; i++) {
+      for (let i = 0; i < value.integrations.length; i++) {
         const int = req.body.integrations[i];
         const created = await Integration.create({
           name: int.name,

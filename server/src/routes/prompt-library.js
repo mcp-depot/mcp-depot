@@ -1,8 +1,29 @@
 const express = require('express');
+const Joi = require('joi');
 const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
 
 const router = express.Router();
+
+const promptSchema = Joi.object({
+  name: Joi.string().required(),
+  description: Joi.string().allow('', null),
+  inputs: Joi.array().items(Joi.object({
+    name: Joi.string().required(),
+    label: Joi.string().required(),
+    type: Joi.string().valid('string', 'number', 'boolean').default('string'),
+    required: Joi.boolean().default(false),
+    placeholder: Joi.string()
+  })).default([]),
+  prompt: Joi.string().required()
+});
+
+const promptUpdateSchema = Joi.object({
+  name: Joi.string(),
+  description: Joi.string().allow('', null),
+  inputs: Joi.array().items(Joi.object()).default([]),
+  prompt: Joi.string()
+});
 
 router.get('/', auth, async (req, res) => {
   try {
@@ -20,8 +41,13 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', auth, async (req, res) => {
   try {
+    const { error, value } = promptSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
     const { PromptLibrary } = loadModels();
-    const { name, description, inputs, prompt } = req.body;
+    const { name, description, inputs, prompt } = value;
     
     const newPrompt = await PromptLibrary.create({
       userId: req.user.id,
@@ -41,9 +67,14 @@ router.post('/', auth, async (req, res) => {
 
 router.put('/:id', auth, async (req, res) => {
   try {
+    const { error, value } = promptUpdateSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
     const { PromptLibrary } = loadModels();
     const { id } = req.params;
-    const { name, description, inputs, prompt } = req.body;
+    const { name, description, inputs, prompt } = value;
     
     const existingPrompt = await PromptLibrary.findOne({
       where: { id, userId: req.user.id }

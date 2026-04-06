@@ -1,4 +1,5 @@
 const express = require('express');
+const Joi = require('joi');
 const { optionalApiKey } = require('../middleware/auth');
 const Integration = require('../models/Integration');
 const Tool = require('../models/Tool');
@@ -8,6 +9,21 @@ const { logToolCall } = require('../services/tool-logger');
 const encryption = require('../services/encryption');
 
 const router = express.Router();
+
+const executeToolSchema = Joi.object({
+  params: Joi.object().default({}),
+  headers: Joi.object().default({}),
+  body: Joi.any()
+});
+
+const proxyRequestSchema = Joi.object({
+  integrationId: Joi.string().required(),
+  method: Joi.string().valid('GET', 'POST', 'PUT', 'PATCH', 'DELETE').required(),
+  path: Joi.string().required(),
+  data: Joi.any(),
+  params: Joi.object().default({}),
+  headers: Joi.object().default({})
+});
 
 const getUserCredentials = async (userId, integrationId) => {
   if (!userId) return null;
@@ -67,6 +83,11 @@ router.get('/integrations/:id', optionalApiKey, async (req, res) => {
 
 router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
   try {
+    const { error, value } = executeToolSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+    
     const tool = await Tool.findByPk(req.params.toolId);
     
     if (!tool) {
