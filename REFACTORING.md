@@ -21,54 +21,11 @@
 
 | # | Severity | File | Issue |
 |---|---|---|---|
-| 1 | 🔴 Security | `auth.js` | `role` accepted in register body — anyone can self-assign admin |
-| 2 | 🟡 Missing | `auth.js` | No way to disable open registration for public deployments |
-| 3 | 🟢 Minor | `auth.js` | `console.error` on line 66 — should use pino logger |
+| 1 | 🔴 Security | `auth.js` | `role` accepted in register body — anyone can self-assign admin ✅ FIXED |
+| 2 | 🟡 Missing | `auth.js` | No way to disable open registration for public deployments ✅ FIXED |
+| 3 | 🟢 Minor | `auth.js` | `console.error` on line 66 — should use pino logger ✅ FIXED |
 
----
-
-**1. `auth.js` — privilege escalation via register endpoint**
-
-`POST /auth/register` requires no authentication and accepts `role` in the body:
-```js
-// current registerSchema allows this:
-{ "email": "hacker@evil.com", "password": "pass123", "name": "Hacker", "role": "admin" }
-```
-Any anonymous user can register themselves as admin. Fix — remove `role` from the schema entirely and hardcode it in the route:
-```js
-const registerSchema = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string().min(6).required(),
-  name: Joi.string().required()
-  // role removed
-});
-
-// in route handler:
-const user = await User.create({ email, password, name, role: 'user' });
-```
-
----
-
-**2. `auth.js` — no way to lock down registration**
-
-For public-facing deployments, open registration means anyone on the internet can create an account. Add an env flag:
-```js
-router.post('/register', async (req, res) => {
-  if (process.env.ALLOW_REGISTRATION === 'false') {
-    return res.status(403).json({ error: 'Registration is disabled. Contact your administrator.' });
-  }
-  // ...
-});
-```
-Add to `.env.example`:
-```env
-ALLOW_REGISTRATION=true   # set to false to disable self-registration
-```
-And document in README under a "Security" section.
-
----
-
-**Post-launch (not blocking):** Admin Users page — list registered users, deactivate accounts, promote to admin. Good first community PR candidate.
+All issues fixed in commit `5cf823a`.
 
 ---
 
