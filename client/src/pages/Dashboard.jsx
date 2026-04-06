@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Navbar from '../components/Navbar';
-import { Plug, Wrench, Server, FileText, Plus, ChevronRight } from 'lucide-react';
+import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings } from 'lucide-react';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -126,7 +126,7 @@ function Dashboard() {
               </div>
 
               <div className="stat-card">
-                <div className="stat-card-icon">MCP</div>
+                <div className="stat-card-icon"><Server size={20} /></div>
                 <div className="stat-card-value">{stats.mcpServers.total}</div>
                 <div className="stat-card-label">External MCP</div>
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.75rem' }}>
@@ -145,15 +145,15 @@ function Dashboard() {
                 </div>
                 <div className="quick-actions">
                   <Link to="/integrations" className="quick-action">
-                    <div className="quick-action-icon">+</div>
+                    <div className="quick-action-icon"><Plus size={16} /></div>
                     <div className="quick-action-label">Add Integration</div>
                   </Link>
                   <Link to="/prompts" className="quick-action">
-                    <div className="quick-action-icon">P</div>
+                    <div className="quick-action-icon"><FileText size={16} /></div>
                     <div className="quick-action-label">Create Prompt</div>
                   </Link>
                   <Link to="/settings" className="quick-action">
-                    <div className="quick-action-icon">⚙</div>
+                    <div className="quick-action-icon"><Settings size={16} /></div>
                     <div className="quick-action-label">API Settings</div>
                   </Link>
                 </div>

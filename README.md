@@ -22,16 +22,19 @@ MCPConnect is an API gateway that exposes your integrations (JIRA, GitHub, Confl
 
 ```bash
 # 1. Clone and start
-git clone https://github.com/your-org/mcpconnect.git
+git clone https://github.com/mcpconnect/mcpconnect.git
 cd mcpconnect
 docker-compose up -d
 
 # 2. Open browser
 open http://localhost:5173
 
-# 3. Login
+# 3. Get admin password from server logs
+docker-compose logs server | grep "Password:"
+
+# 4. Login with:
 # Email: admin@mcpconnect.io
-# Password: Demo@123
+# Password: (password from logs)
 ```
 
 That's it! Add integrations, create tools, and connect to your AI assistant.
