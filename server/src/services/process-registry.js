@@ -1,11 +1,11 @@
 const registry = new Set();
 
-export const track = (proc) => {
+const track = (proc) => {
   registry.add(proc);
   proc.on('exit', () => registry.delete(proc));
 };
 
-export const killAll = async () => {
+const killAll = async () => {
   for (const proc of registry) {
     try {
       proc.kill('SIGTERM');
@@ -29,4 +29,6 @@ export const killAll = async () => {
   registry.clear();
 };
 
-export const getActiveCount = () => registry.size;
+const getActiveCount = () => registry.size;
+
+module.exports = { track, killAll, getActiveCount };

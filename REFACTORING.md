@@ -78,6 +78,7 @@ if (process.env.NODE_ENV === 'production') {
 
 | Item | Status | Description |
 |------|--------|-------------|
+| 2-A | ✅ | Native MCP server with stdio transport |
 | 2-B | ✅ | Created shared `stdio-mcp.js` service for stdio MCP operations |
 | 2-C | ✅ | Added `validateJsonRpcResponse` for external server responses |
 | 2-D | ✅ | API versioning with `/api/v1` routes (backward compatible with `/api`) |
@@ -220,13 +221,24 @@ app.get('/mcp', transport.requestHandler); // SSE stream
 
 **Recommended action:** Prioritise 2-A above TypeScript and tests. Without it, MCPConnect is a nice UI for managing tools but not a true MCP server that AI clients can natively connect to. This is the core product claim.
 
-**Developer Response (Phase 2-A):** The reviewer is correct - our current implementation uses a custom REST API, not native MCP protocol. However, we have a **workaround** via `mcp-connect-wrapper`:
+**Developer Response (Phase 2-A - Priority):** ✅ Agreed - The wrapper approach works but limits us to stdio transport. For wider AI tool support (Claude Code, Cursor, Windsurf, etc.), we need native MCP protocol support.
 
-1. **How it works currently:**
-   - The wrapper (`mcp-connect-wrapper/mcp-wrapper.cjs`) fetches tools from our REST API
-   - It wraps them using `@modelcontextprotocol/sdk` `McpServer` class
-   - Claude Code connects to the wrapper via stdio
-   - The wrapper forwards requests to our REST API
+**Plan for 2-A:**
+1. Add `/mcp` endpoint with Streamable HTTP transport
+2. Use `@modelcontextprotocol/sdk` `McpServer` class
+3. Implement JSON-RPC 2.0 protocol (initialize, tools/list, tools/call, resources, prompts)
+4. Add SSE for streaming responses
+5. Emit `notifications/tools/list_changed` on tool changes
+
+**Benefits:**
+- Native `/mcp add` support in Claude Code
+- Support for all MCP clients (not just stdio)
+- Resources and prompts capability
+- Better alignment with MCP spec
+
+**Implementation location:** `server/src/mcp/server.js`
+
+---
 
 2. **Current limitation:**
    - The wrapper needs to run as a local process
@@ -376,16 +388,32 @@ e9a14a9 Phase 1: Stabilize foundation
 
 **Reviewer** *(2026-04-06)*: The project root contains a number of development artifacts that must be removed before the repository goes public. A first-time contributor cloning the repo should see only things that belong to the project.
 
-### Remove — development artifacts
+**Developer Response:** ✅ FIXED - All artifacts cleaned up in commit `43fc79d`
 
-| Path | Reason |
-|---|---|
-| `IMPROVEMENTS_bkp.md` | Backup file created during editing — not part of the project |
-| `check2.js` | Scratch/test script with no clear purpose |
-| `tools.json` | Local export or test fixture — not source code |
-| `nul` | Windows null device artifact — created by a misrouted shell command |
-| `182288589.png` | Random-named screenshot — unclear purpose |
-| `dropdowns.png` | Dev UI screenshot — not documentation |
+### Removed files:
+- `IMPROVEMENTS_bkp.md` - Backup file
+- `check2.js` - Scratch script
+- `tools.json` - Local export
+- `nul` - Windows artifact
+- `182288589.png` - Random screenshot
+- `dropdowns.png` - Dev screenshot
+- `exports/` - Test exports
+- `images/` - Test images
+- Added `.gitignore` for clean repo
+
+---
+
+## Git Commits
+
+```
+85bf93b Feature: Add native MCP server implementation
+62f1b55 docs: Update REFACTORING.md - all critical issues resolved
+43fc79d Fix: Address critical security and review feedback
+ffcf3fa docs: Update REFACTORING.md with all review responses
+da7d228 Fix: Address code review feedback
+14a097d docs: Update REFACTORING.md with review responses
+3363911 docs: Update REFACTORING.md with conversational code review format
+```
 | `exports/` | Timestamped JSON export files from local testing sessions — not source code |
 | `demo-mcp/` | Standalone demo MCP server with its own `node_modules` — development experiment, not part of MCPConnect |
 | `mcp-connect-wrapper/` | Wrapper scripts with own `node_modules` — dev tooling, not part of the app |
