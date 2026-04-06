@@ -23,7 +23,7 @@ const systemRoutes = require('./routes/system');
 
 const app = express();
 
-promClient.register.setDefaultLabels({ app: 'mcphub' });
+promClient.register.setDefaultLabels({ app: 'mcpconnect' });
 
 app.set('trust proxy', 1);
 app.use(helmet());
@@ -75,6 +75,17 @@ app.use('/api/v1', v1Router);
 app.use('/api', v1Router); // Backward compatibility
 
 setExternalMcpClearCache(clearToolsCache);
+
+if (process.env.MCP_STDIO_ENABLED === 'true') {
+  const mcpServer = require('./mcp/server');
+  mcpServer.initialize().then(() => {
+    mcpServer.startStdio().catch(err => {
+      logger.error({ err: err.message }, 'Failed to start MCP stdio server');
+    });
+  }).catch(err => {
+    logger.error({ err: err.message }, 'Failed to initialize MCP server');
+  });
+}
 
 app.get('/metrics', async (req, res) => {
   res.set('Content-Type', promClient.register.contentType);
