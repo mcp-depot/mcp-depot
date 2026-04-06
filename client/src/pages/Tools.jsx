@@ -692,7 +692,36 @@ function Tools({ all: isAllTools }) {
                           Use {`{paramName}`} for dynamic values. Example: {`{"transition": {"id": "{transitionId}"}}`}
                         </span>
                       </label>
-                      <textarea value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} placeholder='{"transition": {"id": "{transitionId}"}}' />
+                      <textarea 
+                        value={form.body} 
+                        onChange={e => {
+                          const newBody = e.target.value;
+                          setForm({ ...form, body: newBody });
+                          
+                          const bodyVars = (newBody.match(/\{(\w+)\}/g) || []).map(m => m.slice(1, -1));
+                          if (bodyVars.length > 0) {
+                            let parsedParams = {};
+                            try {
+                              parsedParams = form.params ? JSON.parse(form.params) : {};
+                            } catch {
+                              parsedParams = {};
+                            }
+                            
+                            let changed = false;
+                            bodyVars.forEach(varName => {
+                              if (!parsedParams[varName]) {
+                                parsedParams[varName] = { type: 'string', required: true, description: '' };
+                                changed = true;
+                              }
+                            });
+                            
+                            if (changed) {
+                              setForm(f => ({ ...f, params: JSON.stringify(parsedParams, null, 2) }));
+                            }
+                          }
+                        }} 
+                        placeholder='{"transition": {"id": "{transitionId}"}}' 
+                      />
                     </div>
                   )}
                 </div>
