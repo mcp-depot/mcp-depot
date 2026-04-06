@@ -509,7 +509,8 @@ router.post('/discover', auth, async (req, res) => {
 
 router.post('/:id/import-tools', auth, async (req, res) => {
   logger.debug({ id: req.params.id, endpointsCount: req.body.endpoints?.length }, 'Import tools request');
-    
+  
+  try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.id }
       : { id: req.params.id, userId: req.user.id };
@@ -620,7 +621,7 @@ router.post('/:id/import-tools', auth, async (req, res) => {
 router.post('/export', auth, async (req, res) => {
   try {
     const { includeTools, integrationIds } = req.body;
-    console.log('Export request - user.id:', req.user.id, 'userId type:', typeof req.user.id, 'integrationIds:', integrationIds);
+    logger.debug({ userId: req.user.id, integrationIds }, 'Export request');
     
     const where = req.user.role === 'admin' ? {} : { userId: req.user.id };
     if (integrationIds && Array.isArray(integrationIds) && integrationIds.length > 0) {

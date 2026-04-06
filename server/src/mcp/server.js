@@ -167,8 +167,6 @@ class MCPConnectServer {
       sessionIdGenerator: () => randomUUID()
     });
     
-    this.httpTransports.add(transport);
-    
     app.post('/mcp', (req, res) => transport.handleRequest(req, res));
     app.get('/mcp', (req, res) => transport.handleRequest(req, res));
     app.delete('/mcp', (req, res) => transport.handleRequest(req, res));
