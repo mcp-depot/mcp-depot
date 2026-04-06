@@ -25,6 +25,7 @@ All issues from `bf33c3b` are now fixed.
 | 1-G | Joi validation | ✅ Done | `5fe631a` |
 | 2 — MCP Protocol | 2-A (native server), 2-B, 2-C, 2-D | ✅ Done | `d8f3a12` |
 | 3 — Engineering grade | 3-B (logging), 3-D (security), 3-E (metrics) | ✅ Done | `da7d228` |
+| 3-C | Test coverage | ✅ Done | `3bb1ced` |
 | 4 — Feature completeness | 4-A (OpenAPI import), 4-F (retry backoff) | ✅ Done | `da7d228` |
 | 5 — Open-source launch | 5-A (AGPL-3.0), 5-B (CI, CONTRIBUTING) | ✅ Done | `da7d228` |
 | Pre-launch cleanup | Artifacts, `.gitignore` | ✅ Done | `43fc79d` |
@@ -57,9 +58,9 @@ All issues from `bf33c3b` are now fixed.
 | 1-I | UX | `lastFetchError` display, `responseTime` surface in UI |
 | 2-B-1 | `stdio-mcp.js` | `buildCommand` drops command for Python runtime — `safeJsonParse` on a plain string returns `[]` |
 | 2-B-2 | `stdio-mcp.js` | Timed-out `proc.kill()` not registered with process-registry — SIGKILL fallback never fires |
-| 2-B-3 | `stdio-mcp.js` | `validateJsonRpcResponse` falsy check fails for `id: 0` — change to `=== undefined || === null` |
+| 2-B-3 | `stdio-mcp.js` | `validateJsonRpcResponse` falsy check fails for `id: 0` — change to `=== undefined \|\| === null` |
 | 2-B-4 | `stdio-mcp.js` | `console.error` in `safeJsonParse` — should use pino logger |
-| 3-C | Testing | No meaningful test coverage — placeholder only |
+| 3-C | Testing | ✅ DONE - Added encryption, validation, logger, rate-limiter tests |
 | rate-limiter | Cleanup | `setInterval` never cleared — use `.unref()` |
 | metrics | Precision | `Date.now()` for histograms — use `process.hrtime.bigint()` |
 
