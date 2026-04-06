@@ -4,12 +4,11 @@
 > Past review rounds have been collapsed into the commit table below — the full back-and-forth is in git history.
 > Going forward: push your commit, then tell the reviewer the hash. The reviewer will run `git diff <prev>..<new>` and write a focused comment block — no full-file re-reads, no token waste.
 >
-> **Developer action needed — next three tasks (pre-launch track):**
-> 1. **`stdio-mcp.js` tech debt** — fix the 4 known bugs in `server/src/services/stdio-mcp.js` (see Open Items table). One commit, last piece of known-bad code before going public.
-> 2. **UI: Lucide icons** — replace text placeholders (`"Api"`, `"Tools"`, `"+"`) with `lucide-react` icons. ~1 hour, makes every screenshot look polished. See `NEW_FEATURES.md` → UI-1 for details.
-> 3. **README.md** — write a proper README: one-line description, screenshot, 3-step quickstart (`docker-compose up`), link to `docs/connect/`. This is what converts a GitHub visitor into a user.
+> **Developer action needed — next two tasks (pre-launch track):**
+> 1. **UI: Lucide icons** — replace text placeholders (`"Api"`, `"Tools"`, `"+"`) with `lucide-react` icons. ~1 hour, makes every screenshot look polished.
+> 2. **README.md** — write a proper README: one-line description, screenshot, 3-step quickstart (`docker-compose up`), link to `docs/connect/`.
 >
-> After these three: **soft launch** (GitHub public + HackerNews post). First post-launch feature: Call Inspector (see `NEW_FEATURES.md` Feature 4 — data already captured, mostly frontend work).
+> After these two: **soft launch** (GitHub public + HackerNews post).
 
 ---
 
@@ -68,10 +67,10 @@ All issues fixed in commit `57f090a`.
 |---|---|---|
 | 1-G | Input validation | ✅ DONE - Joi validation applied to all routes |
 | 1-I | UX | `lastFetchError` display, `responseTime` surface in UI |
-| 2-B-1 | `stdio-mcp.js` | `buildCommand` drops command for Python runtime — `safeJsonParse` on a plain string returns `[]` |
-| 2-B-2 | `stdio-mcp.js` | Timed-out `proc.kill()` not registered with process-registry — SIGKILL fallback never fires |
-| 2-B-3 | `stdio-mcp.js` | `validateJsonRpcResponse` falsy check fails for `id: 0` — change to `=== undefined \|\| === null` |
-| 2-B-4 | `stdio-mcp.js` | `console.error` in `safeJsonParse` — should use pino logger |
+| 2-B-1 | `stdio-mcp.js` | ✅ DONE - buildCommand takes args, handles runtime |
+| 2-B-2 | `stdio-mcp.js` | ✅ DONE - proc.kill() now uses SIGKILL |
+| 2-B-3 | `stdio-mcp.js` | ✅ DONE - validateJsonRpcResponse checks undefined/null |
+| 2-B-4 | `stdio-mcp.js` | ✅ DONE - console.error replaced with pino |
 | 3-C | Testing | ✅ DONE - Added encryption, validation, logger, rate-limiter tests |
 | rate-limiter | Cleanup | `setInterval` never cleared — use `.unref()` |
 | metrics | Precision | `Date.now()` for histograms — use `process.hrtime.bigint()` |
@@ -100,14 +99,16 @@ The wrapper is a working stdio MCP bridge — it should be moved to `packages/mc
 
 ---
 
-## Next Steps (suggested order)
+## Next Steps (pre-launch)
 
-1. **`1-G`** — Joi validation: last input-safety gap before accepting community PRs
-2. **`docs/connect/`** — Integration guides for popular AI clients (see below)
-3. **`3-C`** — Real test coverage: a placeholder CI gate misleads contributors
-4. **`2-B`** — Fix `stdio-mcp.js` tech debt (4 small issues, one batch commit)
-5. **`mcp-client` package** — Promote wrapper, fix 5 issues, publish to npm
-6. **`3-A`** — TypeScript + Prisma (large effort, own branch)
+1. ✅ **1-G** — Joi validation done
+2. ✅ **docs/connect/** — Integration guides done
+3. ✅ **3-C** — Test coverage done
+4. ✅ **2-B** — stdio-mcp.js tech debt done
+5. **UI: Lucide icons** — Replace text placeholders with icons
+6. **README.md** — Write proper README with quickstart
+7. **`mcp-client` package** — Promote wrapper, fix 5 issues, publish to npm
+8. **`3-A`** — TypeScript + Prisma (large effort, own branch)
 
 ---
 
