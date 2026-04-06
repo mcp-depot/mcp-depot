@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import Navbar from '../components/Navbar';
-import { Api, Wrench, Server, FileText, Plus, ChevronRight } from 'lucide-react';
+import { Plug, Wrench, Server, FileText, Plus, ChevronRight } from 'lucide-react';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -103,7 +103,7 @@ function Dashboard() {
           <>
             <div className="grid-3" style={{ marginBottom: '2rem' }}>
               <div className="stat-card">
-                <div className="stat-card-icon"><Api size={20} /></div>
+                <div className="stat-card-icon"><Plug size={20} /></div>
                 <div className="stat-card-value">{stats.integrations.total}</div>
                 <div className="stat-card-label">Integrations</div>
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.75rem' }}>
