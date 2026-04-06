@@ -3,14 +3,14 @@ const jwt = require('jsonwebtoken');
 const Joi = require('joi');
 const User = require('../models/User');
 const config = require('../config/env');
+const logger = require('../services/logger');
 
 const router = express.Router();
 
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
-  name: Joi.string().required(),
-  role: Joi.string().valid('admin', 'user').default('user')
+  name: Joi.string().required()
 });
 
 const loginSchema = Joi.object({
@@ -41,19 +41,23 @@ function generateTokens(userId) {
 
 router.post('/register', async (req, res) => {
   try {
+    if (process.env.ALLOW_REGISTRATION === 'false') {
+      return res.status(403).json({ error: 'Registration is disabled. Contact your administrator.' });
+    }
+
     const { error, value } = registerSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { email, password, name, role } = value;
+    const { email, password, name } = value;
 
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    const user = await User.create({ email, password, name, role });
+    const user = await User.create({ email, password, name, role: 'user' });
 
     const { accessToken, refreshToken } = generateTokens(user.id);
 
@@ -63,7 +67,7 @@ router.post('/register', async (req, res) => {
       refreshToken
     });
   } catch (error) {
-    console.error('Register error:', error);
+    logger.error({ err: error.message }, 'Register error');
     res.status(500).json({ error: 'Registration failed' });
   }
 });
@@ -103,7 +107,7 @@ router.post('/login', async (req, res) => {
       refreshToken
     });
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error({ err: error.message }, 'Login error');
     res.status(500).json({ error: 'Login failed' });
   }
 });

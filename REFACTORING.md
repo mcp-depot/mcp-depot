@@ -4,12 +4,71 @@
 > Past review rounds have been collapsed into the commit table below — the full back-and-forth is in git history.
 > Going forward: push your commit, then tell the reviewer the hash. The reviewer will run `git diff <prev>..<new>` and write a focused comment block — no full-file re-reads, no token waste.
 >
-> **Developer action needed — soft launch ready!**
+> **Developer action needed — two items before public release:**
 > - ✅ stdio-mcp.js tech debt done
-> - ✅ Lucide icons added (Api, Wrench)
+> - ✅ Lucide icons added
 > - ✅ README.md written with quickstart
+> 1. **🔴 Fix role escalation in `auth.js`** — anyone can self-assign admin via `POST /auth/register`. Remove `role` from register schema.
+> 2. **Add `ALLOW_REGISTRATION` env flag** — lets admins disable open registration for public-facing deployments.
 >
-> Ready for GitHub public release.
+> After these two: ready for GitHub public release.
+
+---
+
+## Open Review — User Management Security (`auth.js`)
+
+**Reviewer** *(2026-04-06)*: No UI for adding users is fine for v1 self-hosted. Two issues found in the existing registration flow that must be fixed before going public.
+
+| # | Severity | File | Issue |
+|---|---|---|---|
+| 1 | 🔴 Security | `auth.js` | `role` accepted in register body — anyone can self-assign admin |
+| 2 | 🟡 Missing | `auth.js` | No way to disable open registration for public deployments |
+| 3 | 🟢 Minor | `auth.js` | `console.error` on line 66 — should use pino logger |
+
+---
+
+**1. `auth.js` — privilege escalation via register endpoint**
+
+`POST /auth/register` requires no authentication and accepts `role` in the body:
+```js
+// current registerSchema allows this:
+{ "email": "hacker@evil.com", "password": "pass123", "name": "Hacker", "role": "admin" }
+```
+Any anonymous user can register themselves as admin. Fix — remove `role` from the schema entirely and hardcode it in the route:
+```js
+const registerSchema = Joi.object({
+  email: Joi.string().email().required(),
+  password: Joi.string().min(6).required(),
+  name: Joi.string().required()
+  // role removed
+});
+
+// in route handler:
+const user = await User.create({ email, password, name, role: 'user' });
+```
+
+---
+
+**2. `auth.js` — no way to lock down registration**
+
+For public-facing deployments, open registration means anyone on the internet can create an account. Add an env flag:
+```js
+router.post('/register', async (req, res) => {
+  if (process.env.ALLOW_REGISTRATION === 'false') {
+    return res.status(403).json({ error: 'Registration is disabled. Contact your administrator.' });
+  }
+  // ...
+});
+```
+Add to `.env.example`:
+```env
+ALLOW_REGISTRATION=true   # set to false to disable self-registration
+```
+And document in README under a "Security" section.
+
+---
+
+**Post-launch (not blocking):** Admin Users page — list registered users, deactivate accounts, promote to admin. Good first community PR candidate.
 
 ---
 
