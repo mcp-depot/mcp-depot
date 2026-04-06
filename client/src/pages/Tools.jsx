@@ -144,12 +144,35 @@ function Tools({ all: isAllTools }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      let parsedParams, parsedHeaders, parsedBody;
+      
+      try {
+        parsedParams = form.params ? JSON.parse(form.params) : {};
+      } catch (err) {
+        alert('Invalid JSON in Default Params: ' + err.message);
+        return;
+      }
+      
+      try {
+        parsedHeaders = form.headers ? JSON.parse(form.headers) : {};
+      } catch (err) {
+        alert('Invalid JSON in Default Headers: ' + err.message);
+        return;
+      }
+      
+      try {
+        parsedBody = form.body ? JSON.parse(form.body) : {};
+      } catch (err) {
+        alert('Invalid JSON in Request Body: ' + err.message);
+        return;
+      }
+      
       const endpoint = {
         path: form.path,
         method: form.method,
-        params: form.params ? JSON.parse(form.params) : {},
-        headers: form.headers ? JSON.parse(form.headers) : {},
-        body: form.body ? JSON.parse(form.body) : {}
+        params: parsedParams,
+        headers: parsedHeaders,
+        body: parsedBody
       };
 
       const payload = { name: form.name, description: form.description, endpoint };
