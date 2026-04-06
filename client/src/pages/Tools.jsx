@@ -653,10 +653,10 @@ function Tools({ all: isAllTools }) {
                   <div className="form-group">
                     <label>Default Params (JSON)
                       <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
-                        Example: {`{"jiraId": "P20009868-45", "transitionId": "21"}`}
+                        Schema format: {`{"jiraId": {"type": "string", "required": true, "description": "JIRA issue key"}}`}
                       </span>
                     </label>
-                    <textarea value={form.params} onChange={e => setForm({ ...form, params: e.target.value })} placeholder='{"maxResults": 10}' />
+                    <textarea value={form.params} onChange={e => setForm({ ...form, params: e.target.value })} placeholder='{"maxResults": {"type": "number", "required": false}}' />
                   </div>
                   <div className="form-group">
                     <label>Default Headers (JSON)</label>
@@ -666,10 +666,10 @@ function Tools({ all: isAllTools }) {
                     <div className="form-group">
                       <label>Request Body (JSON)
                         <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
-                          Use {`{paramName}`} for dynamic values. Example: {`{"transition": {"id": "{transitionId}"}`}
+                          Use {`{paramName}`} for dynamic values. Example: {`{"transition": {"id": "{transitionId}"}}`}
                         </span>
                       </label>
-                      <textarea value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} placeholder='{"name": "value"}' />
+                      <textarea value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} placeholder='{"transition": {"id": "{transitionId}"}}' />
                     </div>
                   )}
                 </div>
