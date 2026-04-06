@@ -32,7 +32,7 @@ const integrationSchema = Joi.object({
 
 const toolSchema = Joi.object({
   name: Joi.string().required(),
-  description: Joi.string(),
+  description: Joi.string().allow('').optional(),
   endpoint: Joi.object({
     path: Joi.string().required(),
     method: Joi.string().valid('GET', 'POST', 'PUT', 'PATCH', 'DELETE').default('GET'),
@@ -370,17 +370,17 @@ router.post('/:id/tools', auth, async (req, res) => {
     }
 
     const endpoint = value.endpoint || {};
-    const bodyParams = endpoint.body?.properties || {};
-    const bodyParamNames = Object.keys(bodyParams);
-    const isBodyMethod = ['POST', 'PUT', 'PATCH'].includes(endpoint.method);
+    const bodyTemplateVars = (JSON.stringify(endpoint.body || {})
+      .match(/\{(\w+)\}/g) || [])
+      .map(m => m.slice(1, -1));
 
     let enrichedEndpoint = { ...endpoint };
-    
-    if (isBodyMethod && bodyParams && Object.keys(bodyParams).length > 0) {
+
+    if (bodyTemplateVars.length > 0) {
       const allParams = { ...(endpoint.params || {}) };
-      Object.entries(bodyParams).forEach(([key, val]) => {
-        if (!allParams[key]) {
-          allParams[key] = { required: bodyParamNames.includes(key), type: val.type || 'string', description: val.description || '' };
+      bodyTemplateVars.forEach(varName => {
+        if (!allParams[varName]) {
+          allParams[varName] = { required: true, type: 'string', description: `Body parameter: ${varName}` };
         }
       });
       enrichedEndpoint.params = allParams;
