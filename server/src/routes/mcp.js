@@ -816,11 +816,16 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       path = path.replace(`{${key}}`, encodeURIComponent(value));
     }
 
+    console.log('[DEBUG] bodyParams before substitution:', JSON.stringify(bodyParams));
+    console.log('[DEBUG] mergedParams:', JSON.stringify(mergedParams));
+
     if (typeof bodyParams === 'object' && bodyParams !== null) {
       bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/\{(\w+)\}/g, (match, key) => {
         return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : match;
       }));
     }
+
+    console.log('[DEBUG] bodyParams after substitution:', JSON.stringify(bodyParams));
 
     let result;
     

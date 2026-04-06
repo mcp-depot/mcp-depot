@@ -440,6 +440,7 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
 
     res.json(tool);
   } catch (error) {
+    console.error('Update tool error:', error);
     logger.error({ err: error.message }, 'Update tool error');
     res.status(500).json({ error: 'Failed to update tool' });
   }
