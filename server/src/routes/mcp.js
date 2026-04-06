@@ -916,11 +916,36 @@ router.get('/tools', optionalAuth, async (req, res) => {
         });
       }
 
+      const bodyTemplateVars = (JSON.stringify(t.endpoint.body || {})
+        .match(/\{(\w+)\}/g) || [])
+        .map(m => m.slice(1, -1));
+      const existingParamNames = new Set(params.map(p => p.name));
+      bodyTemplateVars.forEach(varName => {
+        if (!existingParamNames.has(varName)) {
+          params.push({
+            name: varName,
+            in: 'body',
+            required: true,
+            type: 'string',
+            description: `Body parameter: ${varName}`
+          });
+          existingParamNames.add(varName);
+        }
+      });
+
       let mcpInputSchema = { type: 'object', properties: {} };
       if (inputSchema.properties) {
-        mcpInputSchema.properties = inputSchema.properties;
-        mcpInputSchema.required = inputSchema.required || [];
+        mcpInputSchema.properties = { ...inputSchema.properties };
+        mcpInputSchema.required = [...(inputSchema.required || [])];
+      } else {
+        mcpInputSchema.required = [];
       }
+      bodyTemplateVars.forEach(varName => {
+        if (!mcpInputSchema.properties[varName]) {
+          mcpInputSchema.properties[varName] = { type: 'string', description: `Body parameter: ${varName}` };
+          if (!mcpInputSchema.required.includes(varName)) mcpInputSchema.required.push(varName);
+        }
+      });
 
       return {
         id: t.id,
