@@ -369,10 +369,31 @@ router.post('/:id/tools', auth, async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
+    const endpoint = value.endpoint || {};
+    const bodyParams = endpoint.body?.properties || {};
+    const bodyParamNames = Object.keys(bodyParams);
+    const isBodyMethod = ['POST', 'PUT', 'PATCH'].includes(endpoint.method);
+
+    let enrichedEndpoint = { ...endpoint };
+    
+    if (isBodyMethod && bodyParams && Object.keys(bodyParams).length > 0) {
+      const allParams = { ...(endpoint.params || {}) };
+      Object.entries(bodyParams).forEach(([key, val]) => {
+        if (!allParams[key]) {
+          allParams[key] = { required: bodyParamNames.includes(key), type: val.type || 'string', description: val.description || '' };
+        }
+      });
+      enrichedEndpoint.params = allParams;
+    }
+
     const tool = await Tool.create({
       userId: req.user.id,
       integrationId: integration.id,
-      ...value
+      name: value.name,
+      description: value.description,
+      endpoint: enrichedEndpoint,
+      inputSchema: value.inputSchema,
+      outputSchema: value.outputSchema
     });
 
     if (process.env.MCP_ENABLED === 'true') {
