@@ -1,20 +1,22 @@
 const { spawn } = require('child_process');
+const logger = require('./logger');
 
 function safeJsonParse(value, defaultValue) {
   if (!value) return defaultValue;
   try {
     return JSON.parse(value);
   } catch (e) {
-    console.error('JSON parse error:', e.message);
+    logger.error({ err: e.message, value: String(value).substring(100) }, 'JSON parse error');
     return defaultValue;
   }
 }
 
-function buildCommand(runtime, command) {
+function buildCommand(runtime, command, args) {
+  const argsArray = safeJsonParse(args, []);
   if (runtime === 'python') {
-    return { cmd: 'python3', args: ['-m', 'mcp', ...(safeJsonParse(command, []))] };
+    return { cmd: 'python3', args: ['-m', 'mcp', ...argsArray] };
   }
-  return { cmd: command, args: safeJsonParse(command, []) };
+  return { cmd: command, args: argsArray };
 }
 
 function executeStdioRequest(command, args, envVars, request, runtime = 'node') {
@@ -62,8 +64,10 @@ function executeStdioRequest(command, args, envVars, request, runtime = 'node') 
     
     setTimeout(() => {
       try {
-        proc.kill();
-      } catch (e) {}
+        proc.kill('SIGKILL');
+      } catch (e) {
+        logger.warn({ err: e.message }, 'Failed to kill timed-out process');
+      }
       
       try {
         const lines = stdout.trim().split('\n');
@@ -122,7 +126,7 @@ function validateJsonRpcResponse(response) {
     throw new Error('Invalid JSON-RPC version');
   }
   
-  if (!response.id) {
+  if (response.id === undefined || response.id === null) {
     throw new Error('Missing request ID');
   }
   

@@ -4,9 +4,12 @@
 > Past review rounds have been collapsed into the commit table below — the full back-and-forth is in git history.
 > Going forward: push your commit, then tell the reviewer the hash. The reviewer will run `git diff <prev>..<new>` and write a focused comment block — no full-file re-reads, no token waste.
 >
-> **Developer action needed:** All current issues are resolved. Two suggested next tracks:
-> 1. **Code:** ~~`1-G`~~ ✅ DONE - Joi validation, or `3-C` test coverage — share commit hash when ready for review.
-> 2. **Docs:** ✅ DONE - Added `docs/connect/` with guides for Claude Code, Cursor, Windsurf, Zed, Open WebUI, and generic MCP.
+> **Developer action needed — next three tasks (pre-launch track):**
+> 1. **`stdio-mcp.js` tech debt** — fix the 4 known bugs in `server/src/services/stdio-mcp.js` (see Open Items table). One commit, last piece of known-bad code before going public.
+> 2. **UI: Lucide icons** — replace text placeholders (`"Api"`, `"Tools"`, `"+"`) with `lucide-react` icons. ~1 hour, makes every screenshot look polished. See `NEW_FEATURES.md` → UI-1 for details.
+> 3. **README.md** — write a proper README: one-line description, screenshot, 3-step quickstart (`docker-compose up`), link to `docs/connect/`. This is what converts a GitHub visitor into a user.
+>
+> After these three: **soft launch** (GitHub public + HackerNews post). First post-launch feature: Call Inspector (see `NEW_FEATURES.md` Feature 4 — data already captured, mostly frontend work).
 
 ---
 
@@ -22,12 +25,6 @@
 | 4 | 🟡 Logic | `mcp.js` | Neither `toolId` nor `toolName` required — missing both gives confusing downstream error ✅ FIXED |
 
 All issues fixed in commit `57f090a`.
-
----
-
-## Phase Status
-
-All issues from `bf33c3b` are now fixed.
 
 ---
 
