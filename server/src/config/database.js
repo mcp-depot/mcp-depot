@@ -1,6 +1,7 @@
 const { Sequelize } = require('sequelize');
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
+const logger = require('../services/logger');
 
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
   logging: false,
@@ -46,12 +47,8 @@ const loadModels = () => {
 };
 
 const generatePassword = () => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-  let password = '';
-  for (let i = 0; i < 16; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return password;
+  const crypto = require('crypto');
+  return crypto.randomBytes(12).toString('base64url');
 };
 
 const createDefaultUser = async () => {
@@ -70,14 +67,14 @@ const createDefaultUser = async () => {
       mustResetPassword: true
     });
     
-    console.log('\n===========================================');
-    console.log('DEFAULT ADMIN USER CREATED');
-    console.log('===========================================');
-    console.log('Email: admin@mcpconnect.io');
-    console.log('Password:', defaultPassword);
-    console.log('===========================================');
-    console.log('IMPORTANT: Change this password after first login!');
-    console.log('===========================================\n');
+    logger.info('\n===========================================');
+    logger.info('DEFAULT ADMIN USER CREATED');
+    logger.info('===========================================');
+    logger.info('Email: admin@mcpconnect.io');
+    logger.info('Password:', defaultPassword);
+    logger.info('===========================================');
+    logger.info('IMPORTANT: Change this password after first login!');
+    logger.info('===========================================\n');
     
     return defaultPassword;
   }
@@ -93,7 +90,7 @@ const createDefaultTool = async () => {
   const demoUser = await User.findOne({ where: { email: 'demo@mcpconnect.io' } });
   
   if (!demoUser) {
-    console.log('Demo user not created yet');
+    logger.info('Demo user not created yet');
     return;
   }
   
@@ -189,7 +186,7 @@ const createDefaultTool = async () => {
       isActive: true
     });
     
-    console.log('Default MCPConnect tools created for demo user!\n');
+    logger.info('Default MCPConnect tools created for demo user!\n');
   } else {
     const existingTool = await Tool.findOne({
       where: {
@@ -243,7 +240,7 @@ const createDefaultTool = async () => {
         isActive: true
       });
       
-      console.log('Additional MCPConnect tools added!\n');
+      logger.info('Additional MCPConnect tools added!\n');
     }
   }
 };
@@ -251,14 +248,13 @@ const createDefaultTool = async () => {
 const connectDB = async () => {
   try {
     await sequelize.authenticate();
-    console.log('PostgreSQL connected successfully');
-    
+    logger.info('PostgreSQL connected successfully');
     if (IS_DEV) {
-      console.log('⚠️  Development mode: running sequelize.sync({ alter: true })');
+      logger.warn('Development mode: running sequelize.sync({ alter: true })');
       await sequelize.sync({ alter: true });
-      console.log('Database synchronized');
+      logger.info('Database synchronized');
     } else {
-      console.log('⚠️  Production mode: NOT running sequelize.sync() - use migrations!');
+      logger.warn('Production mode: NOT running sequelize.sync() - use migrations!');
     }
     
       // Create tool_calls table if it doesn't exist
@@ -295,9 +291,9 @@ const connectDB = async () => {
         CREATE INDEX IF NOT EXISTS "idx_tool_calls_userId_createdAt" ON tool_calls("userId", "createdAt");
         CREATE INDEX IF NOT EXISTS "idx_tool_calls_integrationId_success" ON tool_calls("integrationId", success);
       `);
-      console.log('Tool calls table ready');
+      logger.info('Tool calls table ready');
     } catch (e) {
-      console.log('Tool calls table may already exist or error:', e.message);
+      logger.warn('Tool calls table may already exist or error:', e.message);
     }
 
     // Create user_integration_credentials table
@@ -316,9 +312,9 @@ const connectDB = async () => {
         CREATE INDEX IF NOT EXISTS "idx_uic_userId" ON user_integration_credentials("userId");
         CREATE INDEX IF NOT EXISTS "idx_uic_integrationId" ON user_integration_credentials("integrationId");
       `);
-      console.log('User credentials table ready');
+      logger.info('User credentials table ready');
     } catch (e) {
-      console.log('User credentials table may already exist or error:', e.message);
+      logger.warn('User credentials table may already exist or error:', e.message);
     }
 
     try {
@@ -327,11 +323,18 @@ const connectDB = async () => {
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           name VARCHAR(255) NOT NULL,
-          url VARCHAR(500) NOT NULL,
+          runtime VARCHAR(20) DEFAULT 'node',
+          "transportType" VARCHAR(20) DEFAULT 'http',
+          url VARCHAR(500),
+          command VARCHAR(500),
+          args VARCHAR(1000),
+          env VARCHAR(2000),
           "authType" VARCHAR(20) DEFAULT 'none',
           "authToken" VARCHAR(1000),
           "authHeader" VARCHAR(100),
           "isActive" BOOLEAN DEFAULT true,
+          "lastFetchedAt" TIMESTAMP,
+          "lastFetchError" VARCHAR(500),
           metadata JSONB DEFAULT '{}',
           "createdAt" TIMESTAMP DEFAULT NOW(),
           "updatedAt" TIMESTAMP DEFAULT NOW()
@@ -340,9 +343,9 @@ const connectDB = async () => {
         CREATE INDEX IF NOT EXISTS "idx_ems_isActive" ON external_mcp_servers("isActive");
         CREATE INDEX IF NOT EXISTS "idx_ems_userId_isActive" ON external_mcp_servers("userId", "isActive");
       `);
-      console.log('External MCP servers table ready');
+      logger.info('External MCP servers table ready');
     } catch (e) {
-      console.log('External MCP servers table may already exist or error:', e.message);
+      logger.warn('External MCP servers table may already exist or error:', e.message);
     }
 
     // Create prompt_library table if it doesn't exist
@@ -361,9 +364,9 @@ const connectDB = async () => {
         );
         CREATE INDEX IF NOT EXISTS "idx_pl_userId" ON prompt_library("userId");
       `);
-      console.log('Prompt library table ready');
+      logger.info('Prompt library table ready');
     } catch (e) {
-      console.log('Prompt library table may already exist or error:', e.message);
+      logger.warn('Prompt library table may already exist or error:', e.message);
     }
     
     // Create system_settings table if it doesn't exist
@@ -375,22 +378,15 @@ const connectDB = async () => {
           description VARCHAR(500)
         );
       `);
-      console.log('System settings table ready');
-      
-      // Set default MCP auth mode
-      await sequelize.query(`
-        INSERT INTO system_settings (key, value, description) 
-        VALUES ('mcp', '{"authMode": "optional"}', 'MCP server authentication settings')
-        ON CONFLICT (key) DO NOTHING
-      `);
+      logger.info('System settings table ready');
     } catch (e) {
-      console.log('System settings table may already exist or error:', e.message);
+      logger.warn('System settings table may already exist or error:', e.message);
     }
     
     await createDefaultUser();
     await createDefaultTool();
   } catch (error) {
-    console.error('Database connection error:', error.message);
+    logger.fatal({ err: error.message }, 'Database connection error');
     process.exit(1);
   }
 };

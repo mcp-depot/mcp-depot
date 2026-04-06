@@ -127,7 +127,7 @@ class DynamicAdapter {
         }
         
         if (attempt < retries && status >= 500) {
-          const delay = Math.pow(2, attempt) * 500;
+          const delay = Math.min(Math.pow(2, attempt) * 500, 30000);
           await new Promise(r => setTimeout(r, delay));
           lastError = error;
           continue;
