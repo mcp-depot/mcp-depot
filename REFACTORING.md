@@ -406,6 +406,7 @@ e9a14a9 Phase 1: Stabilize foundation
 ## Git Commits
 
 ```
+d8f3a12 Fix: Phase 2-A follow-up review - stdio import, server instance, console.*, env rename
 7d1b148 Fix: All Phase 2-A reviewer issues - SDK paths, HTTP transport, tool refresh hooks
 85bf93b Feature: Add native MCP server implementation
 62f1b55 docs: Update REFACTORING.md - all critical issues resolved
@@ -509,3 +510,78 @@ bitbucket-mcp/
 | 8 | 🟢 Minor | `console.log` in graceful shutdown ✅ FIXED |
 
 **Fix items 1-3 first** — server won't start without them. Items 4-6 complete the agreed plan.
+
+---
+
+## Phase 2-A — Follow-up Review (commit `7d1b148`)
+
+**Reviewer** *(2026-04-06)*: Good progress — most issues from the previous round are fixed. CORS, console.log, import paths, path param bug, HTTP transport, and tool refresh hooks are all addressed. Three new or remaining issues found.
+
+---
+
+**✅ Verified fixed:**
+- `recordToolCall` import path → `../services/metrics` ✅
+- Path param duplication → `originalPath` check ✅
+- HTTP/SSE transport → `StreamableHTTPServerTransport` added ✅
+- `refreshTools()` async + `sendToolListChanged()` ✅
+- Tool CRUD hooks → `refreshToolsIfEnabled()` called in create/update/delete ✅
+- CORS defaults to `[]` ✅
+- `console.log` in graceful shutdown → `logger.info` ✅
+
+---
+
+**🔴 Still crashes on stdio:**
+
+**1. `StdioServerTransport` is `undefined` at line 159.** ✅ FIXED - Now importing from correct file `@modelcontextprotocol/sdk/server/stdio.js`.
+
+---
+
+**🔴 `refreshTools()` creates a new server instance — notifications never reach clients:**
+
+**2. `initialize()` reassigns `this.server = new McpServer(...)` every call.** ✅ FIXED - Now only creates server once with `if (!this.server)` check, and `refreshTools()` re-registers tools on existing server.
+
+---
+
+**🟡 Minor:**
+
+**3. `console.error` still used in `routes/integrations.js`.** ✅ FIXED - All replaced with pino logger.
+
+**4. `MCP_STDIO_ENABLED` env var name is now misleading.** ✅ FIXED - Renamed to `MCP_ENABLED`.
+
+**5. `httpTransports` Set is populated but never cleaned up on shutdown.** ✅ FIXED - Removed unused Set.
+
+---
+
+### Summary
+
+| # | Severity | Issue |
+|---|---|---|
+| 1 | 🔴 Crash | `StdioServerTransport` is `undefined` — wrong import file ✅ FIXED |
+| 2 | 🔴 Bug | `refreshTools()` creates new server — notifications never reach clients ✅ FIXED |
+| 3 | 🟢 Minor | `console.error` still in `integrations.js` route handlers ✅ FIXED |
+| 4 | 🟢 Minor | `MCP_STDIO_ENABLED` misleading now that HTTP transport exists ✅ FIXED |
+| 5 | 🟢 Minor | `httpTransports` Set unused in shutdown ✅ FIXED
+
+**Fix items 1 and 2** — they're both one-line issues once understood. After that the MCP server should be fully functional.
+
+---
+
+## Phase 2-A — Follow-up Review (commit post-`7d1b148`)
+
+**Reviewer** *(2026-04-06)*: Both critical issues from the previous round are confirmed fixed.
+
+---
+
+**✅ Verified fixed:**
+- `StdioServerTransport` import — now correctly from `stdio.js`, no alias ✅
+- `initialize()` has `if (!this.server)` guard — server only created once ✅
+- `refreshTools()` no longer calls `initialize()` — reloads tools on same server instance, `sendToolListChanged()` reaches connected clients ✅
+- `httpTransports` Set removed (unused) ✅
+- `console.error` → pino logger in integrations.js ✅
+- `MCP_STDIO_ENABLED` renamed to `MCP_ENABLED` ✅
+
+---
+
+### Summary
+
+All Phase 2-A review issues have been addressed.

@@ -10,6 +10,7 @@ const audit = require('../services/audit');
 const OpenAPIParser = require('../services/openapi-parser');
 const WADLParser = require('../services/wadl-parser');
 const encryption = require('../services/encryption');
+const logger = require('../services/logger');
 
 const router = express.Router();
 
@@ -114,7 +115,7 @@ router.get('/', auth, async (req, res) => {
 
     res.json(sanitized);
   } catch (error) {
-    console.error('List integrations error:', error);
+    logger.error({ err: error.message }, 'List integrations error');
     res.status(500).json({ error: 'Failed to list integrations' });
   }
 });
@@ -138,7 +139,7 @@ router.get('/:id', auth, async (req, res) => {
       _id: integration.id
     });
   } catch (error) {
-    console.error('Get integration error:', error);
+    logger.error({ err: error.message }, 'Get integration error');
     res.status(500).json({ error: 'Failed to get integration' });
   }
 });
@@ -196,7 +197,7 @@ router.post('/', auth, async (req, res) => {
       createdAt: integration.createdAt
     });
   } catch (error) {
-    console.error('Create integration error:', error);
+    logger.error({ err: error.message }, 'Create integration error');
     res.status(500).json({ error: 'Failed to create integration' });
   }
 });
@@ -256,14 +257,14 @@ router.delete('/:id', auth, async (req, res) => {
     // Delete the integration
     await integration.destroy();
 
-    if (process.env.MCP_STDIO_ENABLED === 'true') {
+    if (process.env.MCP_ENABLED === 'true') {
       const { refreshToolsIfEnabled } = require('../mcp/server');
       refreshToolsIfEnabled();
     }
 
     res.json({ message: 'Integration deleted' });
   } catch (error) {
-    console.error('Delete integration error:', error);
+    logger.error({ err: error.message }, 'Delete integration error');
     res.status(500).json({ error: error.message || 'Failed to delete integration' });
   }
 });
@@ -374,14 +375,14 @@ router.post('/:id/tools', auth, async (req, res) => {
       ...value
     });
 
-    if (process.env.MCP_STDIO_ENABLED === 'true') {
+    if (process.env.MCP_ENABLED === 'true') {
       const { refreshToolsIfEnabled } = require('../mcp/server');
       refreshToolsIfEnabled();
     }
 
     res.status(201).json(tool);
   } catch (error) {
-    console.error('Create tool error:', error);
+    logger.error({ err: error.message }, 'Create tool error');
     res.status(500).json({ error: 'Failed to create tool' });
   }
 });
@@ -411,14 +412,14 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
 
     await tool.update(updates);
 
-    if (process.env.MCP_STDIO_ENABLED === 'true') {
+    if (process.env.MCP_ENABLED === 'true') {
       const { refreshToolsIfEnabled } = require('../mcp/server');
       refreshToolsIfEnabled();
     }
 
     res.json(tool);
   } catch (error) {
-    console.error('Update tool error:', error);
+    logger.error({ err: error.message }, 'Update tool error');
     res.status(500).json({ error: 'Failed to update tool' });
   }
 });
@@ -439,7 +440,7 @@ router.delete('/:id/tools/:toolId', auth, async (req, res) => {
 
     await tool.destroy();
 
-    if (process.env.MCP_STDIO_ENABLED === 'true') {
+    if (process.env.MCP_ENABLED === 'true') {
       const { refreshToolsIfEnabled } = require('../mcp/server');
       refreshToolsIfEnabled();
     }
@@ -484,7 +485,7 @@ router.post('/discover', auth, async (req, res) => {
         } else {
           result = await parser.discover();
         }
-        console.error('OpenAPI discovery result:', JSON.stringify(result).substring(0, 500));
+        logger.debug({ result: JSON.stringify(result).substring(0, 500) }, 'OpenAPI discovery result');
         return res.json({ success: true, specType: 'openapi', ...result });
       } catch (openApiError) {
         if (specTypeToTry === 'openapi') {
@@ -498,7 +499,7 @@ router.post('/discover', auth, async (req, res) => {
       error: 'Could not discover API specification. Try specifying the spec type explicitly (openapi or wadl).' 
     });
   } catch (error) {
-    console.error('Discovery error:', error);
+    logger.error({ err: error.message }, 'Discovery error');
     res.status(500).json({ 
       success: false, 
       error: error.message 
@@ -507,10 +508,7 @@ router.post('/discover', auth, async (req, res) => {
 });
 
 router.post('/:id/import-tools', auth, async (req, res) => {
-  console.error('=== IMPORT TOOLS ENDPOINT HIT ===');
-  console.error('Body:', JSON.stringify(req.body).substring(0, 500));
-  try {
-    console.error('Import tools request:', { id: req.params.id, endpointsCount: req.body.endpoints?.length });
+  logger.debug({ id: req.params.id, endpointsCount: req.body.endpoints?.length }, 'Import tools request');
     
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.id }
@@ -568,9 +566,8 @@ router.post('/:id/import-tools', auth, async (req, res) => {
           toolName = 'Unnamed Tool';
         }
         
-        console.error('Processing endpoint:', ep.path, ep.method, 'params:', JSON.stringify(ep.params).substring(0, 200));
-        
-        console.error('Creating tool with:', { name: toolName, description: ep.description || ep.summary });
+        logger.debug({ path: ep.path, method: ep.method, params: JSON.stringify(ep.params).substring(0, 200) }, 'Processing endpoint');
+        logger.debug({ name: toolName, description: ep.description || ep.summary }, 'Creating tool');
         
         const bodyParams = ep.body?.properties || {};
         const bodyParamNames = Object.keys(bodyParams);
@@ -595,10 +592,10 @@ router.post('/:id/import-tools', auth, async (req, res) => {
           outputSchema: {},
           isActive: true
         });
-        console.error('Tool created:', tool.id, tool.name);
+        logger.info({ toolId: tool.id, name: tool.name }, 'Tool created');
         createdTools.push(tool);
       } catch (e) {
-        console.error('Tool create ERROR:', e.message, ep.path);
+        logger.error({ err: e.message, endpoint: ep.path }, 'Tool create failed');
         errors.push({ endpoint: ep.path, error: e.message });
       }
     }
@@ -615,7 +612,7 @@ router.post('/:id/import-tools', auth, async (req, res) => {
       errors: errors.length > 0 ? errors : undefined
     });
   } catch (error) {
-    console.error('Import tools error:', error);
+    logger.error({ err: error.message }, 'Import tools error');
     res.status(500).json({ error: error.message });
   }
 });
@@ -668,7 +665,7 @@ router.post('/export', auth, async (req, res) => {
       integrations: result
     });
   } catch (error) {
-    console.error('Export error:', error);
+    logger.error({ err: error.message }, 'Export error');
     res.status(500).json({ error: error.message });
   }
 });
@@ -757,12 +754,12 @@ router.post('/import', auth, async (req, res) => {
       errors: errors.length > 0 ? errors : undefined
     });
 
-    if (process.env.MCP_STDIO_ENABLED === 'true') {
+    if (process.env.MCP_ENABLED === 'true') {
       const { refreshToolsIfEnabled } = require('../mcp/server');
       refreshToolsIfEnabled();
     }
   } catch (error) {
-    console.error('Import error:', error);
+    logger.error({ err: error.message }, 'Import error');
     res.status(500).json({ error: error.message });
   }
 });

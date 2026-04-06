@@ -44,7 +44,7 @@ services:
       - ALLOW_SELF_SIGNED_CERTS=${ALLOW_SELF_SIGNED_CERTS:-true}
       - TOOLS_CACHE_ENABLED=${TOOLS_CACHE_ENABLED:-false}
       - TOOLS_CACHE_TTL=${TOOLS_CACHE_TTL:-300000}
-      - MCP_STDIO_ENABLED=${MCP_STDIO_ENABLED:-false}
+      - MCP_ENABLED=${MCP_ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy

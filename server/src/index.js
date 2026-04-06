@@ -76,7 +76,7 @@ app.use('/api', v1Router); // Backward compatibility
 
 setExternalMcpClearCache(clearToolsCache);
 
-if (process.env.MCP_STDIO_ENABLED === 'true') {
+if (process.env.MCP_ENABLED === 'true') {
   const mcpServer = require('./mcp/server');
   mcpServer.initialize().then(async () => {
     if (process.env.MCP_TRANSPORT === 'http' || !process.env.MCP_TRANSPORT) {

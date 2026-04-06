@@ -1,5 +1,5 @@
-const { McpServer, StdioServerTransport } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { StdioServerTransport: StdioTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
+const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { loadModels } = require('../config/database');
 const { recordToolCall } = require('../services/metrics');
@@ -13,7 +13,6 @@ class MCPConnectServer {
   constructor() {
     this.server = null;
     this.toolsMap = new Map();
-    this.httpTransports = new Set();
   }
 
   async initialize() {
@@ -24,10 +23,12 @@ class MCPConnectServer {
       include: [{ model: Integration, where: { isActive: true } }]
     });
 
-    this.server = new McpServer({
-      name: 'mcpconnect',
-      version: '1.0.0'
-    });
+    if (!this.server) {
+      this.server = new McpServer({
+        name: 'mcpconnect',
+        version: '1.0.0'
+      });
+    }
 
     for (const tool of tools) {
       this.registerTool(tool);
@@ -178,18 +179,27 @@ class MCPConnectServer {
 
   async refreshTools() {
     this.toolsMap.clear();
-    await this.initialize();
+    
+    const { Tool, Integration } = loadModels();
+    const tools = await Tool.findAll({
+      where: { isActive: true },
+      include: [{ model: Integration, where: { isActive: true } }]
+    });
+
+    for (const tool of tools) {
+      this.registerTool(tool);
+    }
     
     await this.server.sendToolListChanged();
     
-    logger.info('Tools refreshed');
+    logger.info({ toolCount: tools.length }, 'Tools refreshed');
   }
 }
 
 const mcpServerInstance = new MCPConnectServer();
 
 async function refreshToolsIfEnabled() {
-  if (process.env.MCP_STDIO_ENABLED === 'true') {
+  if (process.env.MCP_ENABLED === 'true') {
     try {
       await mcpServerInstance.refreshTools();
     } catch (err) {
