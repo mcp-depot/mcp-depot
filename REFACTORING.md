@@ -17,6 +17,12 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 | 0-C | ✅ | `/install` endpoint restricted to admin role only via `requireAdmin` middleware |
 | 0-D | ✅ | `.env.example` created with all documented variables |
 
+**Developer:** Added `ALLOW_SELF_SIGNED_CERTS` to env.js. Default is `false` for security. In production, set to `true` only if needed for internal APIs with self-signed certs.
+
+**Reviewer:** 
+
+---
+
 ### Phase 1 - Stabilize the Foundation
 
 | Item | Status | Description |
@@ -24,9 +30,17 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 | 1-A | ✅ | `sequelize.sync()` disabled in production; dev mode only with `alter: true` |
 | 1-B | ✅ | Process registry service (`process-registry.js`) for stdio cleanup with SIGTERM→SIGKILL |
 | 1-C | ✅ | All `JSON.parse` wrapped with `safeJsonParse()` helper |
+| 1-D | ✅ | Per-tool rate limiting via `rate-limiter.js` middleware |
 | 1-E | ✅ | Graceful shutdown handler for SIGTERM/SIGINT |
 | 1-F | ✅ | Centralized error handler with consistent error shape |
 | 1-H | ✅ | `/health` and `/ready` endpoints; uptime included in health |
+| 1-J | ✅ | Model associations and composite indexes |
+
+**Developer:** Added `process-registry.js` to track spawned processes. Uses in-memory Set to track pids, cleans up on shutdown with SIGTERM→SIGKILL pattern. Rate limiter uses in-memory Map with 1-minute sliding window.
+
+**Reviewer:** 
+
+---
 
 ### Phase 2 - MCP Protocol Completeness
 
@@ -36,6 +50,12 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 | 2-C | ✅ | Added `validateJsonRpcResponse` for external server responses |
 | 2-D | ✅ | API versioning with `/api/v1` routes (backward compatible with `/api`) |
 
+**Developer:** Created stdio-mcp.js to eliminate duplicate code between mcp.js and external-mcp.js routes. Added JSON-RPC validation to check for `jsonrpc: "2.0"`, matching `id`, and proper `result`/`error` presence.
+
+**Reviewer:** 
+
+---
+
 ### Phase 3 - Engineering Grade
 
 | Item | Status | Description |
@@ -44,20 +64,35 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 | 3-D | ✅ | Helmet for security headers, CORS with allowlist, 512kb request limit |
 | 3-E | ✅ | Prometheus metrics at `/metrics` with HTTP/request and tool call metrics |
 
+**Developer:** Replaced all `console.*` with pino logger. Added Prometheus metrics for HTTP requests (histogram + counter), tool calls (duration + counter), external MCP server status, and active stdio processes.
+
+**Reviewer:** 
+
+---
+
 ### Phase 4 - Feature Completeness
 
 | Item | Status | Description |
 |------|--------|-------------|
 | 4-A | ✅ | OpenAPI import service (`openapi-import.js`) |
-| 4-F | ✅ | Retry with exponential backoff in DynamicAdapter - handles 429 (Retry-After) and 5xx errors |
+| 4-F | ✅ | Retry with exponential backoff in DynamicAdapter |
+
+**Developer:** Added retry logic: honors `Retry-After` header on 429, retries 5xx errors with exponential backoff (default 3 retries).
+
+**Reviewer:** 
+
+---
 
 ### Phase 5 - Open-Source Launch
 
 | Item | Status | Description |
 |------|--------|-------------|
-| 5-A | ✅ | AGPL-3.0 LICENSE file |
+| 5-A | ✅ | AGPL-3.0 LICENSE |
 | 5-B | ✅ | `.env.example`, `CONTRIBUTING.md`, GitHub Actions CI workflow |
-| 5-B | ✅ | Issue and PR templates |
+
+**Developer:** Chose AGPL-3.0 to ensure any modified versions used as a service must be open-sourced. Added CI workflow for testing and Docker build.
+
+**Reviewer:** 
 
 ---
 
@@ -65,71 +100,60 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 
 | Item | Status | Notes |
 |------|--------|-------|
-| 1-D | ❌ | Per-tool rate limiting not implemented |
 | 1-G | ❌ | Joi validation not applied consistently to all routes |
 | 1-I | ❌ | UX fixes (lastFetchError display, responseTime, etc.) |
-| 1-J | ❌ | Model associations and composite indexes |
 | 2-A | ❌ | Full MCP server rewrite (McpServer class, resources, prompts) |
-| 3-A | ❌ | **TypeScript migration** - Deferred for later |
+| 3-A | ❌ | **TypeScript migration** - Deferred |
 | 3-C | ❌ | Test coverage setup |
-| 4-B | ❌ | Workflow execution engine (templates are decorative) |
-| 4-C | ❌ | GraphQL support in DynamicAdapter |
+| 4-B | ❌ | Workflow execution engine |
+| 4-C | ❌ | GraphQL support |
 | 4-D | ❌ | File upload / multipart support |
 | 4-E | ❌ | Pagination helper |
+
+**Developer:** Prioritized security and stability fixes first. TypeScript migration is a large undertaking better done as a dedicated effort.
+
+**Reviewer:** 
 
 ---
 
 ## Key Files Changed
 
 ### Server
-- `server/src/config/env.js` - Added `allowSelfSignedCerts` config
-- `server/src/config/database.js` - Disabled sync in production
-- `server/src/index.js` - Added logging, metrics, security headers, graceful shutdown
-- `server/src/routes/mcp.js` - Safe JSON parsing, process registry usage
-- `server/src/routes/external-mcp.js` - Admin-only install, safe JSON parsing
-- `server/src/middleware/auth.js` - Added `requireAdmin` middleware
+- `server/src/config/env.js` - Added `allowSelfSignedCerts`
+- `server/src/config/database.js` - Disabled sync in prod, added associations/indexes
+- `server/src/index.js` - Logging, metrics, security, graceful shutdown
+- `server/src/routes/mcp.js` - Safe JSON parsing, rate limiting
+- `server/src/routes/external-mcp.js` - Admin-only install
+- `server/src/middleware/auth.js` - Added `requireAdmin`
 - `server/src/services/encryption.js` - Returns null on decrypt failure
-- `server/src/services/logger.js` - **NEW** - Pino logger
-- `server/src/services/metrics.js` - **NEW** - Prometheus metrics
-- `server/src/services/process-registry.js` - **NEW** - Stdio process tracking
-- `server/src/services/stdio-mcp.js` - **NEW** - Shared stdio MCP operations
+- `server/src/services/logger.js` - **NEW** - Pino
+- `server/src/services/metrics.js` - **NEW** - Prometheus
+- `server/src/services/process-registry.js` - **NEW** - Stdio tracking
+- `server/src/services/rate-limiter.js` - **NEW** - Per-tool rate limiting
+- `server/src/services/stdio-mcp.js` - **NEW** - Shared stdio
 - `server/src/services/openapi-import.js` - **NEW** - OpenAPI import
-- `server/src/adapters/DynamicAdapter.js` - Retry with backoff
-
-### Client
-- `client/src/pages/Settings.jsx` - Admin-only install error handling
 
 ### Infrastructure
-- `docker-compose.yml` - Updated
 - `.env.example` - **NEW**
 - `CONTRIBUTING.md` - **NEW**
 - `LICENSE` - **NEW** (AGPL-3.0)
 - `.github/workflows/ci.yml` - **NEW**
-- `.github/ISSUE_TEMPLATE/` - **NEW**
-- `.github/PULL_REQUEST_TEMPLATE.md` - **NEW**
 
 ---
 
 ## Git Commits
 
 ```
+0422ba4 docs: Update REFACTORING.md with changelog
+dd51cc6 Fix: Duplicate userId declaration in mcp.js
+d06957a Enhance: Rate limiting and model associations/indexes
 15855c4 Phase 5: Open-source launch
 b90d6d0 Phase 4: Feature completeness
-c417417 Phase 3: Engineering grade - logging, security, metrics
+c417417 Phase 3: Engineering grade
 91be988 Phase 2: MCP Protocol completeness
 e9a14a9 Phase 1: Stabilize foundation
-32f0ade Phase 0: Security fixes for production readiness
+32f0ade Phase 0: Security fixes
 ```
-
----
-
-## Next Steps (When Ready)
-
-1. **TypeScript Migration** (Phase 3-A) - Convert .js → .ts incrementally
-2. **Test Coverage** (Phase 3-C) - Add Jest + supertest
-3. **Full MCP Server** (Phase 2-A) - Rewrite with McpServer class
-4. **Workflow Engine** (Phase 4-B) - Implement execution or remove templates
-5. **GraphQL Support** (Phase 4-C) - Add GraphQL integration type
 
 ---
 
@@ -138,21 +162,35 @@ e9a14a9 Phase 1: Stabilize foundation
 ### 2026-04-05
 
 **Added:**
-- **Per-tool rate limiting** (`server/src/services/rate-limiter.js`):
-  - In-memory rate limiter with 1-minute window
-  - Returns 429 with `retryAfter` when limit exceeded
-  - Integrated into `/execute` endpoint
+- **Per-tool rate limiting** (`server/src/services/rate-limiter.js`)
 
-- **Model associations** (`server/src/config/database.js`):
-  - User.hasMany(Integration)
-  - User.hasMany(Tool)
-  - Integration.hasMany(Tool)
-  - Tool.belongsTo(User), Tool.belongsTo(Integration)
-  - ToolCall associations with User, Tool, Integration
+**Developer:** In-memory rate limiter with 1-minute window. Returns 429 with `retryAfter` when limit exceeded.
 
-- **Composite indexes** (`server/src/config/database.js`):
-  - `idx_tool_calls_userId_createdAt` on tool_calls
-  - `idx_tool_calls_integrationId_success` on tool_calls
-  - `idx_ems_userId_isActive` on external_mcp_servers
+**Reviewer:** 
+
+---
+
+- **Model associations** (`server/src/config/database.js`)
+
+**Developer:** Defined User.hasMany(Integration), Tool.belongsTo(Integration), etc.
+
+**Reviewer:** 
+
+---
+
+- **Composite indexes**
+
+**Developer:** Added `idx_tool_calls_userId_createdAt`, `idx_tool_calls_integrationId_success`, `idx_ems_userId_isActive`
+
+**Reviewer:** 
 
 **Commit:** `d06957a`
+
+---
+
+## Next Steps
+
+1. **TypeScript Migration** (Phase 3-A)
+2. **Test Coverage** (Phase 3-C)
+3. **Full MCP Server** (Phase 2-A)
+4. **Workflow Engine** (Phase 4-B)
