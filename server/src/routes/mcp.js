@@ -816,6 +816,12 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       path = path.replace(`{${key}}`, encodeURIComponent(value));
     }
 
+    if (typeof bodyParams === 'object' && bodyParams !== null) {
+      bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/\{(\w+)\}/g, (match, key) => {
+        return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : match;
+      }));
+    }
+
     let result;
     
     try {

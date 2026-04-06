@@ -55,6 +55,16 @@ class MCPConnectServer {
       }
     }
 
+    const bodyTemplateVars = (JSON.stringify(endpoint.body || {})
+      .match(/\{(\w+)\}/g) || [])
+      .map(m => m.slice(1, -1));
+    for (const varName of bodyTemplateVars) {
+      if (!schema[varName]) {
+        schema[varName] = { type: 'string', description: `Body parameter: ${varName}` };
+        required.push(varName);
+      }
+    }
+
     const adapter = tool.Integration ? AdapterFactory.create(
       tool.Integration.type,
       tool.Integration.config
