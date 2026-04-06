@@ -451,3 +451,60 @@ bitbucket-mcp/
 ```
 
 **Action:** Do this in a single dedicated commit (`chore: clean up repo root before open-source release`) so the git history stays readable.
+
+---
+
+## Phase 2-A — MCP Server Code Review (commit `85bf93b`)
+
+**Reviewer** *(2026-04-06)*: Reviewed `server/src/mcp/server.js` and `server/src/index.js`. Good structure — right class (`McpServer`), pino logger, metrics wired in, types mapped correctly from params. Several issues need fixing before this can be used.
+
+---
+
+### `server/src/mcp/server.js`
+
+**🔴 Will crash at runtime:**
+
+**1. SDK import path is wrong (line 1).** ✅ FIXED in commit `0c86afe` - Now using correct paths.
+
+**2. `recordToolCall` imported from wrong path (line 3).** ✅ FIXED - Changed to `../services/metrics`.
+
+---
+
+**🔴 Logic bug — path params sent twice:**
+
+**3. `queryParams` check runs on the already-substituted path (lines 114-119).** ✅ FIXED - Now uses `originalPath` to track which params were substituted.
+
+---
+
+**🟡 Missing from the agreed plan:**
+
+**4. No HTTP/SSE transport.** ✅ FIXED - Added `startHttp()` method with StreamableHTTPServerTransport at `/mcp` endpoint.
+
+**5. `refreshTools()` not async, no client notification.** ✅ FIXED - Now async, calls `sendToolListChanged()`.
+
+**6. No hook from tool saves to `refreshTools()`.** ✅ FIXED - Added `refreshToolsIfEnabled()` call in all Tool.create/update/destroy paths.
+
+---
+
+**🟡 `index.js`:**
+
+**7. CORS falls back to `'*'` when `ALLOWED_ORIGINS` not set (line 30).** ✅ FIXED - Changed default to `[]`.
+
+**8. `console.log` on line 125** in graceful shutdown — use `logger.info`. ✅ FIXED - Now uses `logger.info`.
+
+---
+
+### Summary
+
+| # | Severity | Issue |
+|---|---|---|
+| 1 | 🔴 Crash | SDK import path wrong — `Cannot find module` ✅ FIXED |
+| 2 | 🔴 Crash | `recordToolCall` import path wrong ✅ FIXED |
+| 3 | 🔴 Bug | Path params duplicated into query/body params ✅ FIXED |
+| 4 | 🟡 Missing | HTTP/SSE transport not implemented ✅ FIXED |
+| 5 | 🟡 Bug | `refreshTools()` not async, no `sendToolListChanged` ✅ FIXED |
+| 6 | 🟡 Missing | Tool saves don't trigger `refreshTools()` ✅ FIXED |
+| 7 | 🟡 Security | CORS defaults to `*` when env var missing ✅ FIXED |
+| 8 | 🟢 Minor | `console.log` in graceful shutdown ✅ FIXED |
+
+**Fix items 1-3 first** — server won't start without them. Items 4-6 complete the agreed plan.

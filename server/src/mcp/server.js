@@ -1,14 +1,19 @@
-const { McpServer, StdioServerTransport } = require('@modelcontextprotocol/sdk/server');
+const { McpServer, StdioServerTransport } = require('@modelcontextprotocol/sdk/server/mcp.js');
+const { StdioServerTransport: StdioTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { loadModels } = require('../config/database');
-const { recordToolCall } = require('./metrics');
+const { recordToolCall } = require('../services/metrics');
 const AdapterFactory = require('../adapters');
 const encryption = require('../services/encryption');
 const logger = require('../services/logger');
+
+const { randomUUID } = require('crypto');
 
 class MCPConnectServer {
   constructor() {
     this.server = null;
     this.toolsMap = new Map();
+    this.httpTransports = new Set();
   }
 
   async initialize() {
@@ -103,18 +108,19 @@ class MCPConnectServer {
 
     const adapter = AdapterFactory.create(integration.type, integration.config);
     
-    let path = endpoint.path || '';
+    const originalPath = endpoint.path || '';
+    let path = originalPath;
     
     for (const [key, value] of Object.entries(params || {})) {
-      if (path.includes(`{${key}}`)) {
+      if (originalPath.includes(`{${key}}`)) {
         path = path.replace(`{${key}}`, encodeURIComponent(value));
       }
     }
 
-    const queryParams = {};
+    const remainingParams = {};
     for (const [key, value] of Object.entries(params || {})) {
-      if (!path.includes(`{${key}}`)) {
-        queryParams[key] = value;
+      if (!originalPath.includes(`{${key}}`)) {
+        remainingParams[key] = value;
       }
     }
 
@@ -122,19 +128,19 @@ class MCPConnectServer {
     
     try {
       if (method === 'GET') {
-        const result = await adapter.get(path, { params: queryParams });
+        const result = await adapter.get(path, { params: remainingParams });
         return result.data;
       } else if (method === 'POST') {
-        const result = await adapter.post(path, params);
+        const result = await adapter.post(path, remainingParams);
         return result.data;
       } else if (method === 'PUT') {
-        const result = await adapter.put(path, params);
+        const result = await adapter.put(path, remainingParams);
         return result.data;
       } else if (method === 'DELETE') {
-        const result = await adapter.delete(path, { params: queryParams });
+        const result = await adapter.delete(path, { params: remainingParams });
         return result.data;
       } else if (method === 'PATCH') {
-        const result = await adapter.patch(path, params);
+        const result = await adapter.patch(path, remainingParams);
         return result.data;
       }
       
@@ -155,11 +161,42 @@ class MCPConnectServer {
     logger.info('MCP Server started with stdio transport');
   }
 
-  refreshTools() {
+  async startHttp(app) {
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID()
+    });
+    
+    this.httpTransports.add(transport);
+    
+    app.post('/mcp', (req, res) => transport.handleRequest(req, res));
+    app.get('/mcp', (req, res) => transport.handleRequest(req, res));
+    app.delete('/mcp', (req, res) => transport.handleRequest(req, res));
+    
+    await this.server.connect(transport);
+    logger.info('MCP Server started with HTTP+SSE transport');
+  }
+
+  async refreshTools() {
     this.toolsMap.clear();
-    this.initialize();
+    await this.initialize();
+    
+    await this.server.sendToolListChanged();
+    
     logger.info('Tools refreshed');
   }
 }
 
-module.exports = new MCPConnectServer();
+const mcpServerInstance = new MCPConnectServer();
+
+async function refreshToolsIfEnabled() {
+  if (process.env.MCP_STDIO_ENABLED === 'true') {
+    try {
+      await mcpServerInstance.refreshTools();
+    } catch (err) {
+      logger.warn({ err: err.message }, 'Tool refresh failed');
+    }
+  }
+}
+
+module.exports = mcpServerInstance;
+module.exports.refreshToolsIfEnabled = refreshToolsIfEnabled;

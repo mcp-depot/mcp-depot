@@ -27,7 +27,7 @@ promClient.register.setDefaultLabels({ app: 'mcpconnect' });
 
 app.set('trust proxy', 1);
 app.use(helmet());
-app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || '*' }));
+app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || [] }));
 app.use(express.json({ limit: '512kb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -78,10 +78,16 @@ setExternalMcpClearCache(clearToolsCache);
 
 if (process.env.MCP_STDIO_ENABLED === 'true') {
   const mcpServer = require('./mcp/server');
-  mcpServer.initialize().then(() => {
-    mcpServer.startStdio().catch(err => {
-      logger.error({ err: err.message }, 'Failed to start MCP stdio server');
-    });
+  mcpServer.initialize().then(async () => {
+    if (process.env.MCP_TRANSPORT === 'http' || !process.env.MCP_TRANSPORT) {
+      await mcpServer.startHttp(app).catch(err => {
+        logger.error({ err: err.message }, 'Failed to start MCP HTTP server');
+      });
+    } else if (process.env.MCP_TRANSPORT === 'stdio') {
+      mcpServer.startStdio().catch(err => {
+        logger.error({ err: err.message }, 'Failed to start MCP stdio server');
+      });
+    }
   }).catch(err => {
     logger.error({ err: err.message }, 'Failed to initialize MCP server');
   });
@@ -122,7 +128,7 @@ const startServer = async () => {
       logger.info({ signal }, 'Shutting down gracefully');
       
       server.close(() => {
-        console.log('HTTP server closed');
+        logger.info('HTTP server closed');
       });
       
       try {

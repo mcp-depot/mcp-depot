@@ -167,6 +167,11 @@ router.post('/import', auth, async (req, res) => {
     }
     
     res.json(result);
+
+    if (process.env.MCP_STDIO_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -256,6 +256,11 @@ router.delete('/:id', auth, async (req, res) => {
     // Delete the integration
     await integration.destroy();
 
+    if (process.env.MCP_STDIO_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
     res.json({ message: 'Integration deleted' });
   } catch (error) {
     console.error('Delete integration error:', error);
@@ -369,6 +374,11 @@ router.post('/:id/tools', auth, async (req, res) => {
       ...value
     });
 
+    if (process.env.MCP_STDIO_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
     res.status(201).json(tool);
   } catch (error) {
     console.error('Create tool error:', error);
@@ -400,6 +410,12 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
     if (enabled !== undefined) updates.isActive = enabled;
 
     await tool.update(updates);
+
+    if (process.env.MCP_STDIO_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
     res.json(tool);
   } catch (error) {
     console.error('Update tool error:', error);
@@ -422,6 +438,11 @@ router.delete('/:id/tools/:toolId', auth, async (req, res) => {
     }
 
     await tool.destroy();
+
+    if (process.env.MCP_STDIO_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
 
     res.json({ message: 'Tool deleted' });
   } catch (error) {
@@ -582,6 +603,11 @@ router.post('/:id/import-tools', auth, async (req, res) => {
       }
     }
 
+    if (process.env.MCP_STDIO_ENABLED === 'true' && createdTools.length > 0) {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
     res.json({
       success: true,
       created: createdTools.length,
@@ -730,6 +756,11 @@ router.post('/import', auth, async (req, res) => {
       results,
       errors: errors.length > 0 ? errors : undefined
     });
+
+    if (process.env.MCP_STDIO_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
   } catch (error) {
     console.error('Import error:', error);
     res.status(500).json({ error: error.message });
