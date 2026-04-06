@@ -4,11 +4,12 @@
 > Past review rounds have been collapsed into the commit table below — the full back-and-forth is in git history.
 > Going forward: push your commit, then tell the reviewer the hash. The reviewer will run `git diff <prev>..<new>` and write a focused comment block — no full-file re-reads, no token waste.
 >
-> **Developer action needed — next two tasks (pre-launch track):**
-> 1. **UI: Lucide icons** — replace text placeholders (`"Api"`, `"Tools"`, `"+"`) with `lucide-react` icons. ~1 hour, makes every screenshot look polished.
-> 2. **README.md** — write a proper README: one-line description, screenshot, 3-step quickstart (`docker-compose up`), link to `docs/connect/`.
+> **Developer action needed — soft launch ready!**
+> - ✅ stdio-mcp.js tech debt done
+> - ✅ Lucide icons added (Api, Wrench)
+> - ✅ README.md written with quickstart
 >
-> After these two: **soft launch** (GitHub public + HackerNews post).
+> Ready for GitHub public release.
 
 ---
 
