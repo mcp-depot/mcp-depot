@@ -8,25 +8,9 @@
 
 ---
 
-## Open Review — commit `bf33c3b`
+## Open Review — commit `5892aed`
 
-**Reviewer** *(2026-04-06)*: Most of the previous round is correctly fixed. Two new crashes introduced.
-
-| # | Severity | Issue |
-|---|---|---|
-| 1 | 🔴 Crash | `import-tools` route: `try {` removed but `catch` left — `SyntaxError` on module load |
-| 2 | 🔴 Crash | `startHttp()` calls `this.httpTransports.add()` but Set removed from constructor |
-
-**1. `routes/integrations.js` — `SyntaxError` in `/import-tools` handler** ✅ FIXED - Added `try {` back after `logger.debug`.
-
-**2. `mcp/server.js` — `this.httpTransports` removed from constructor, still used in `startHttp()`** ✅ FIXED - Removed `this.httpTransports.add(transport)` line.
-
-**✅ Everything else in this commit is correct:**
-- Import lines fixed (StdioServerTransport from `stdio.js`) ✅
-- `if (!this.server)` singleton guard ✅
-- `refreshTools()` operates on existing server instance ✅
-- `MCP_ENABLED` rename throughout ✅
-- All `console.error/log` → pino logger in integrations.js ✅
+All issues from `bf33c3b` are now fixed.
 
 ---
 
@@ -53,6 +37,8 @@
 | `85bf93b` | Native `McpServer` implementation | 8 issues found (2 crash, 1 bug, 3 missing, 2 minor) |
 | `7d1b148` | SDK imports, HTTP transport, refresh hooks, CORS | 5 of 8 fixed; 2 new critical found, 3 minor found |
 | `d8f3a12` | stdio import, server singleton, console.*, env rename, httpTransports | All 5 remaining issues closed |
+| `bf33c3b` | Phase 2-A follow-up review fixes | 2 new crashes introduced (try block, httpTransports) |
+| `5892aed` | Fix two crashes from review | All issues resolved |
 
 ---
 
