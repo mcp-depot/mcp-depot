@@ -30,20 +30,20 @@ class DynamicAdapter {
 
     switch (type) {
       case 'basic':
-        const username = encryption.decrypt(credentials.username);
-        const password = encryption.decrypt(credentials.token);
+        const username = encryption.decrypt(credentials.username) || credentials.username;
+        const password = encryption.decrypt(credentials.token) || credentials.token;
         if (!username || !password) return {};
         const auth = Buffer.from(`${username}:${password}`).toString('base64');
         return { 'Authorization': `Basic ${auth}` };
 
       case 'bearer':
-        const token = encryption.decrypt(credentials.token);
+        const token = encryption.decrypt(credentials.token) || credentials.token;
         if (!token) return {};
         return { 'Authorization': `Bearer ${token}` };
 
       case 'apiKey':
-        const key = encryption.decrypt(credentials.key);
-        const value = encryption.decrypt(credentials.value);
+        const key = encryption.decrypt(credentials.key) || credentials.key;
+        const value = encryption.decrypt(credentials.value) || credentials.value;
         if (!key || !value) return {};
         const addTo = credentials.addTo || 'header';
         if (addTo === 'header') {
@@ -52,7 +52,7 @@ class DynamicAdapter {
         return {};
 
       case 'oauth2':
-        const accessToken = encryption.decrypt(credentials.accessToken);
+        const accessToken = encryption.decrypt(credentials.accessToken) || credentials.accessToken;
         if (!accessToken) return {};
         return { 'Authorization': `Bearer ${accessToken}` };
 
@@ -65,8 +65,8 @@ class DynamicAdapter {
     const { type, credentials } = this.auth;
     
     if (type === 'apiKey' && credentials.addTo === 'query') {
-      const key = encryption.decrypt(credentials.key);
-      const value = encryption.decrypt(credentials.value);
+      const key = encryption.decrypt(credentials.key) || credentials.key;
+      const value = encryption.decrypt(credentials.value) || credentials.value;
       if (!key || !value) return {};
       return { [key]: value };
     }

@@ -4,6 +4,26 @@
 > Past review rounds have been collapsed into the commit table below — the full back-and-forth is in git history.
 > Going forward: push your commit, then tell the reviewer the hash. The reviewer will run `git diff <prev>..<new>` and write a focused comment block — no full-file re-reads, no token waste.
 >
+> **Before every commit — local checklist:**
+> ```
+> # 1. Install deps if changed
+> cd server && npm install
+> cd ../client && npm install
+>
+> # 2. Run tests
+> cd ../server && npm test
+>
+> # 3. Start the app and do a quick smoke test
+> docker-compose up -d        # or: npm run dev in server/ and client/
+> # - Can you log in?
+> # - Can you add an integration and a tool?
+> # - Does the MCP endpoint respond? curl http://localhost:3000/health
+>
+> # 4. Check for lint errors (if eslint is configured)
+> npm run lint
+> ```
+> A commit that breaks the app locally will break it for every user who clones the repo. CI catches tests but not runtime startup errors — only a local run catches those.
+>
 > **Developer action needed — two items before public release:**
 > - ✅ stdio-mcp.js tech debt done
 > - ✅ Lucide icons added
