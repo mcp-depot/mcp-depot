@@ -1,8 +1,6 @@
 const promClient = require('prom-client');
 
-const register = new promClient.Registry();
-
-promClient.register.setDefaultLabels({ app: 'mcphub' });
+promClient.register.setDefaultLabels({ app: 'mcpconnect' });
 
 const httpRequestDuration = new promClient.Histogram({
   name: 'http_request_duration_seconds',
@@ -41,12 +39,12 @@ const activeStdioProcesses = new promClient.Gauge({
   help: 'Number of active stdio processes'
 });
 
-register.registerMetric(httpRequestDuration);
-register.registerMetric(httpRequestTotal);
-register.registerMetric(toolCallDuration);
-register.registerMetric(toolCallTotal);
-register.registerMetric(externalMcpServersUp);
-register.registerMetric(activeStdioProcesses);
+promClient.register.registerMetric(httpRequestDuration);
+promClient.register.registerMetric(httpRequestTotal);
+promClient.register.registerMetric(toolCallDuration);
+promClient.register.registerMetric(toolCallTotal);
+promClient.register.registerMetric(externalMcpServersUp);
+promClient.register.registerMetric(activeStdioProcesses);
 
 function recordToolCall(toolName, durationMs, success) {
   const status = success ? 'success' : 'error';
@@ -79,7 +77,7 @@ function middleware(req, res, next) {
 }
 
 module.exports = {
-  register,
+  register: promClient.register,
   httpRequestDuration,
   httpRequestTotal,
   toolCallDuration,

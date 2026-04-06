@@ -1,3 +1,10 @@
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET env var is required in production');
+  if (!process.env.JWT_REFRESH_SECRET) throw new Error('JWT_REFRESH_SECRET env var is required in production');
+  if (!process.env.ENCRYPTION_KEY) throw new Error('ENCRYPTION_KEY env var is required in production');
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL env var is required in production');
+}
+
 module.exports = {
   jwtSecret: process.env.JWT_SECRET || 'mcp-secret-key-change-in-production',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'mcp-refresh-secret-change-in-production',

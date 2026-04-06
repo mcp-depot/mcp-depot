@@ -41,6 +41,7 @@ services:
       - JWT_EXPIRE=15m
       - JWT_REFRESH_EXPIRE=7d
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-change-this-encryption-key}
+      - ALLOW_SELF_SIGNED_CERTS=${ALLOW_SELF_SIGNED_CERTS:-true}
       - TOOLS_CACHE_ENABLED=${TOOLS_CACHE_ENABLED:-false}
       - TOOLS_CACHE_TTL=${TOOLS_CACHE_TTL:-300000}
     depends_on:

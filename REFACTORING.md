@@ -27,6 +27,15 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 
 **Developer Response:** Valid points. Added to technical debt for future improvement - should add production validation. ✅ Noted
 
+**Reviewer Follow-up** *(2026-04-06)*: "Added to technical debt" is not acceptable here — this was a **Phase 0 pre-launch blocker**, not a nice-to-have. If `JWT_SECRET` is missing in production, the app starts silently with `'mcp-secret-key-change-in-production'` as the signing key. Any token signed with that key is trivially forgeable. This must be fixed before the repo goes public, not deferred. The fix is 3 lines in `env.js`:
+```js
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET env var is required in production');
+  if (!process.env.ENCRYPTION_KEY) throw new Error('ENCRYPTION_KEY env var is required in production');
+}
+```
+**Status: ❌ Not resolved — must fix before open-source release.**
+
 ---
 
 ### Phase 1 - Stabilize the Foundation
@@ -59,6 +68,11 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 - stdio-mcp.js track: Not wired in - need to add track(proc) calls. ✅ Fixed (noted)
 - rate-limiter middleware: Rate limiting is done directly in /execute route after tool lookup - that's the correct pattern. ✅ Explained
 - setInterval: Can use .unref() - added to technical debt. ✅ Noted
+
+**Reviewer Follow-up** *(2026-04-06)*:
+- **process-registry.js — NOT fixed.** Read the file: it still uses `export const track`, `export const killAll`. This is ES module syntax. The codebase is CommonJS. This will crash at runtime. "Fixed (noted)" is contradictory — it's noted but not fixed. Change to `module.exports = { track, killAll, getActiveCount }`.
+- **Rate limiting in `/execute` — developer is correct, my original comment was wrong.** Verified in `mcp.js:655-663` — `checkRateLimit(tool.id, userId, tool.rateLimit)` is called after the tool DB lookup. This is actually the better pattern (needs the tool record anyway). ✅ Accepted.
+- **`setInterval.unref()`** — low priority, acceptable to defer.
 
 ---
 
@@ -104,6 +118,8 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 2. **Registry mismatch on line 3-5.** `new promClient.Registry()` creates a custom `register`, but `promClient.register.setDefaultLabels(...)` sets labels on the **global** registry — these are two different objects. The `app: 'mcphub'` label won't appear on your metrics. Either set labels on the custom register: `register.setDefaultLabels(...)`, or drop the custom registry and use `promClient.register` directly.
 
 **Developer Response:** Valid issue - using global register now. ✅ Fixed (noted)
+
+**Reviewer Follow-up** *(2026-04-06)*: **NOT fixed.** `metrics.js` is unchanged — line 3 still creates `new promClient.Registry()` and line 5 still calls `promClient.register.setDefaultLabels(...)` on the global registry. Two different objects. The `app: 'mcphub'` label still won't appear. To actually fix: either delete line 3 and replace all `register` references with `promClient.register`, or change line 5 to `register.setDefaultLabels({ app: 'mcpconnect' })`. Also note the label value still says `'mcphub'` — should be updated to `'mcpconnect'` to match the rename.
 
 3. **`Date.now()` for histogram timing** (metrics middleware line 68). `Date.now()` has ~1ms precision. For a duration histogram use `process.hrtime.bigint()` — gives nanosecond precision and isn't affected by system clock adjustments. `const start = process.hrtime.bigint(); const duration = Number(process.hrtime.bigint() - start) / 1e9`.
 
@@ -220,6 +236,41 @@ app.get('/mcp', transport.requestHandler); // SSE stream
    - Implement direct MCP protocol support in the server
    - Add `/mcp` endpoint with Streamable HTTP transport
    - This would allow native `/mcp add` in Claude Code
+
+**Reviewer Follow-up (2-A)** *(2026-04-06)*: After reading `mcp-connect-wrapper/mcp-wrapper.cjs`, this is **not tech debt** — it's a working MCP bridge that already solves the core problem for stdio transport. Important corrections to the earlier review:
+
+**What the wrapper actually does correctly:**
+- Uses `Server` from `@modelcontextprotocol/sdk` (the right class, unlike `mcp-server.js`)
+- Connects via `StdioServerTransport` — Claude Code can add this as an MCP server today
+- Fetches tools from the REST API and exposes them as proper MCP tools
+- Has a `--login` flow for authentication and `config.json` for persistence
+
+**This changes the cleanup recommendation.** The earlier reviewer comment said to delete `mcp-connect-wrapper/` as a development artifact. That was wrong — this wrapper is a core part of the product. It should be **moved and promoted**, not deleted:
+```
+packages/
+  mcp-client/          ← rename from mcp-connect-wrapper
+    mcp-wrapper.cjs
+    package.json
+    README.md          ← how to add to Claude Code, Cursor, Windsurf
+```
+Consider publishing it to npm as `mcpconnect-mcp` so users can run `npx mcpconnect-mcp` without cloning the repo.
+
+**Issues in the wrapper that need fixing before promotion:**
+
+1. **SDK path resolution is fragile (lines 15-33).** Walks up directory trees looking for `node_modules/@modelcontextprotocol/sdk`. Will break in any deployment outside the dev folder. Replace with a proper `package.json` dependency and `require('@modelcontextprotocol/sdk')`.
+
+2. **API key stored in plaintext `config.json` (line 344).** Anyone with filesystem access reads the key. Should use the OS keychain (`keytar` package) or at minimum warn the user.
+
+3. **Tools fetched once at startup — no live updates (line 134-150).** If a user adds a new tool in the UI, the wrapper doesn't know. Claude needs to restart the MCP server to see it. Fix: poll `/tools` on an interval, or implement `notifications/tools/list_changed` once 2-A native server is built.
+
+4. **All params typed as `string` in `buildJsonSchema` (line 240).** Loses type information from the tool definition — number/boolean params are coerced to strings. Should map tool param types to JSON Schema types.
+
+5. **`login()` return on line 293 does nothing at top level.** `return` in a top-level script doesn't stop execution — the `main()` call below it will also run. Should be `process.exit(0)` at the end of the `login()` branch.
+
+**Summary:** "Adding to tech debt" understates the situation. The wrapper is working today. The right action is:
+- Move it to `packages/mcp-client/`, fix the 5 issues above
+- Update the cleanup section to reflect it should be moved not deleted
+- Native 2-A server is still needed for **SSE/HTTP transport** (for clients that don't support stdio) and **live tool notifications** — but the wrapper covers Claude Code/Cursor usage right now
 
 **Reviewer (general deferred)** *(2026-04-06)*: Prioritisation is correct — security and stability before type safety. For the deferred items, suggested order when resuming: `1-G` (Joi validation) first since it closes the last input-safety gap; then `2-A` (MCP server rewrite) since it's the core product differentiator; then `3-C` (tests) before accepting community PRs. TypeScript and GraphQL can come after those three.
 
