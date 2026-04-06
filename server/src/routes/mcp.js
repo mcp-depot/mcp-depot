@@ -887,30 +887,26 @@ router.get('/tools', optionalAuth, async (req, res) => {
 
       const queryParams = t.endpoint.params || {};
       Object.entries(queryParams).forEach(([key, val]) => {
-        if (val.required) {
-          params.push({
-            name: key,
-            in: 'query',
-            required: true,
-            type: 'string',
-            description: val.description || `Query parameter: ${key}`
-          });
-        }
+        params.push({
+          name: key,
+          in: 'query',
+          required: val.required || false,
+          type: val.type || 'string',
+          description: val.description || `Parameter: ${key}`
+        });
       });
 
       const inputSchema = t.inputSchema || {};
       if (inputSchema.properties) {
         Object.entries(inputSchema.properties).forEach(([key, val]) => {
           const required = (inputSchema.required || []).includes(key);
-          if (required) {
-            params.push({
-              name: key,
-              in: 'body',
-              required: true,
-              type: val.type || 'string',
-              description: val.description || `Body parameter: ${key}`
-            });
-          }
+          params.push({
+            name: key,
+            in: 'body',
+            required: required,
+            type: val.type || 'string',
+            description: val.description || `Body parameter: ${key}`
+          });
         });
       }
 
