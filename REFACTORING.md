@@ -4,7 +4,9 @@
 > Past review rounds have been collapsed into the commit table below — the full back-and-forth is in git history.
 > Going forward: push your commit, then tell the reviewer the hash. The reviewer will run `git diff <prev>..<new>` and write a focused comment block — no full-file re-reads, no token waste.
 >
-> **Developer action needed:** All current issues are resolved. What are you working on next? (Suggested: `1-G` Joi validation, or `3-C` test coverage.) Share the commit hash when ready.
+> **Developer action needed:** All current issues are resolved. Two suggested next tracks:
+> 1. **Code:** `1-G` Joi input validation, or `3-C` test coverage — share commit hash when ready for review.
+> 2. **Docs:** Add a `docs/connect/` section explaining how to add MCPConnect as an MCP server in Claude Code, Cursor, Windsurf, Ollama/Open WebUI, and Zed. See the Next Steps section for the full spec.
 
 ---
 
@@ -85,7 +87,72 @@ The wrapper is a working stdio MCP bridge — it should be moved to `packages/mc
 ## Next Steps (suggested order)
 
 1. **`1-G`** — Joi validation: last input-safety gap before accepting community PRs
-2. **`3-C`** — Real test coverage: a placeholder CI gate misleads contributors
-3. **`2-B`** — Fix `stdio-mcp.js` tech debt (4 small issues, one batch commit)
-4. **`mcp-client` package** — Promote wrapper, fix 5 issues, publish to npm
-5. **`3-A`** — TypeScript + Prisma (large effort, own branch)
+2. **`docs/connect/`** — Integration guides for popular AI clients (see below)
+3. **`3-C`** — Real test coverage: a placeholder CI gate misleads contributors
+4. **`2-B`** — Fix `stdio-mcp.js` tech debt (4 small issues, one batch commit)
+5. **`mcp-client` package** — Promote wrapper, fix 5 issues, publish to npm
+6. **`3-A`** — TypeScript + Prisma (large effort, own branch)
+
+---
+
+## Docs Request — Client Integration Guides
+
+**Reviewer** *(2026-04-06)*: Before open-source launch, MCPConnect needs a clear `docs/connect/` section showing users how to wire it up with the AI tools they already use. This is what drives adoption — if someone can't add it to Claude Code in 2 minutes, they won't try.
+
+Suggested structure:
+```
+docs/
+  connect/
+    README.md          ← overview + compatibility table
+    claude-code.md
+    cursor.md
+    windsurf.md
+    open-webui.md      ← covers Ollama + Open WebUI
+    zed.md
+    generic-mcp.md     ← for any MCP-compatible client
+```
+
+**Each guide should cover two transport modes:**
+
+**HTTP (recommended — no local process needed):**
+```json
+// ~/.claude.json  (Claude Code example)
+{
+  "mcpServers": {
+    "mcpconnect": {
+      "type": "http",
+      "url": "http://your-server:3000/mcp",
+      "headers": { "x-api-key": "your-api-key" }
+    }
+  }
+}
+```
+
+**stdio (via `mcp-client` wrapper — for clients that only support stdio):**
+```bash
+npx mcpconnect-mcp --url http://your-server:3000 --login
+```
+Then add to the client's MCP config:
+```json
+{
+  "mcpServers": {
+    "mcpconnect": {
+      "command": "npx",
+      "args": ["mcpconnect-mcp", "--url", "http://your-server:3000"]
+    }
+  }
+}
+```
+
+**Compatibility table for the README.md:**
+
+| Client | HTTP transport | stdio transport | Notes |
+|---|---|---|---|
+| Claude Code | ✅ | ✅ | HTTP preferred; use `/mcp add` |
+| Cursor | ✅ | ✅ | Add via Settings → MCP |
+| Windsurf | ✅ | ✅ | Add via `~/.codeium/windsurf/mcp_config.json` |
+| Open WebUI + Ollama | ✅ | ❌ | HTTP only; add via Admin → Tools |
+| Zed | ❌ | ✅ | stdio only currently |
+| VS Code (Copilot) | ✅ | ✅ | Via `.vscode/mcp.json` |
+
+**Developer note:** The HTTP transport (`/mcp`) is already live as of commit `5892aed`. The stdio wrapper needs the 5 fixes in the `mcp-client` section above before the stdio guide can be published accurately.
