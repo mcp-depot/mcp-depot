@@ -155,7 +155,13 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     for (const [key, value] of Object.entries(pathParams)) {
       path = path.replace(`{${key}}`, encodeURIComponent(value));
     }
-
+    
+    if (typeof bodyParams === 'object' && bodyParams !== null) {
+      bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/\{(\w+)\}/g, (match, key) => {
+        return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : match;
+      }));
+    }
+    
     let result;
     const startTime = Date.now();
     let callSuccess = true;

@@ -125,6 +125,13 @@ class MCPConnectServer {
       }
     }
 
+    let bodyParams = endpoint.body || {};
+    if (typeof bodyParams === 'object' && bodyParams !== null) {
+      bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/\{(\w+)\}/g, (match, key) => {
+        return params?.[key] !== undefined ? JSON.stringify(params[key]) : match;
+      }));
+    }
+
     const method = (endpoint.method || 'GET').toUpperCase();
     
     try {
@@ -132,16 +139,16 @@ class MCPConnectServer {
         const result = await adapter.get(path, { params: remainingParams });
         return result.data;
       } else if (method === 'POST') {
-        const result = await adapter.post(path, remainingParams);
+        const result = await adapter.post(path, bodyParams);
         return result.data;
       } else if (method === 'PUT') {
-        const result = await adapter.put(path, remainingParams);
+        const result = await adapter.put(path, bodyParams);
         return result.data;
       } else if (method === 'DELETE') {
         const result = await adapter.delete(path, { params: remainingParams });
         return result.data;
       } else if (method === 'PATCH') {
-        const result = await adapter.patch(path, remainingParams);
+        const result = await adapter.patch(path, bodyParams);
         return result.data;
       }
       

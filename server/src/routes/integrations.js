@@ -574,6 +574,19 @@ router.post('/:id/import-tools', auth, async (req, res) => {
         const bodyParamNames = Object.keys(bodyParams);
         const isBodyMethod = ['POST', 'PUT', 'PATCH'].includes(ep.method);
         
+        const allParams = { ...(ep.params?.reduce((acc, p) => {
+          acc[p.name] = { required: p.required, type: p.type, description: p.description };
+          return acc;
+        }, {}) || {}) };
+        
+        if (isBodyMethod && bodyParams) {
+          Object.entries(bodyParams).forEach(([key, val]) => {
+            if (!allParams[key]) {
+              allParams[key] = { required: bodyParamNames.includes(key), type: val.type || 'string', description: val.description || '' };
+            }
+          });
+        }
+        
         const tool = await Tool.create({
           userId: req.user.id,
           integrationId: integration.id,
@@ -582,10 +595,7 @@ router.post('/:id/import-tools', auth, async (req, res) => {
           endpoint: {
             path: ep.path,
             method: ep.method,
-            params: ep.params?.reduce((acc, p) => {
-              acc[p.name] = { required: p.required, type: p.type, description: p.description };
-              return acc;
-            }, {}) || {},
+            params: allParams,
             headers: {},
             body: ep.body ? {} : null
           },
