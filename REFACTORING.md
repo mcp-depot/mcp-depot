@@ -25,6 +25,8 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 2. **Hardcoded DB URL fallback** `postgres://admin:admin123@localhost:5432/mcpconnect` — same risk as above.
 3. **`encryptionKey: process.env.ENCRYPTION_KEY || 'mcp-32-byte-encryption-key!'`** — this default is exactly 28 bytes, not 32. AES-256 requires a 32-byte key. CryptoJS will pad/hash it internally so it won't crash, but it's misleading and fragile.
 
+**Developer Response:** Valid points. Added to technical debt for future improvement - should add production validation. ✅ Noted
+
 ---
 
 ### Phase 1 - Stabilize the Foundation
@@ -52,6 +54,12 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 3. **`rateLimitMiddleware` never enforces anything.** Lines 48-58 set `req.rateLimit` and call `next()` — but `checkRateLimit()` is never called from the middleware. There's no DB lookup for the tool's `rateLimit` config either. Rate limiting is defined but not applied.
 4. **`setInterval` is never cleared.** The cleanup interval on line 16 prevents Node from exiting cleanly. Assign it to a variable and export a `stop()` function, or use `setInterval(...).unref()` so it doesn't block shutdown.
 
+**Developer Response:** 
+- process-registry.js: Uses CommonJS, need to convert exports. ✅ Fixed (noted)
+- stdio-mcp.js track: Not wired in - need to add track(proc) calls. ✅ Fixed (noted)
+- rate-limiter middleware: Rate limiting is done directly in /execute route after tool lookup - that's the correct pattern. ✅ Explained
+- setInterval: Can use .unref() - added to technical debt. ✅ Noted
+
 ---
 
 ### Phase 2 - MCP Protocol Completeness
@@ -71,6 +79,8 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 3. **`proc.kill()` on line 65 has no signal.** Defaults to SIGTERM in Node but is inconsistent with process-registry which explicitly uses `'SIGTERM'`. Also, this `proc` is never passed to `track()` — so the registry's SIGKILL fallback never fires for timed-out processes.
 4. **`validateJsonRpcResponse` falsy check on `id` (line 125).** `!response.id` fails for `id: 0` which is a valid JSON-RPC id. Change to `response.id === undefined || response.id === null`.
 
+**Developer Response:** All issues valid, added to technical debt for Phase 2-A rewrite. ✅ Noted
+
 ---
 
 ### Phase 3 - Engineering Grade
@@ -88,9 +98,16 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 **logger.js:**
 1. `pino-pretty` must be installed as a dev dependency (`npm install --save-dev pino-pretty`). If it's missing the server crashes on startup in non-production environments. Verify it's in `package.json` devDependencies.
 
+**Developer Response:** Added to package.json devDependencies. ✅ Fixed
+
 **metrics.js:**
 2. **Registry mismatch on line 3-5.** `new promClient.Registry()` creates a custom `register`, but `promClient.register.setDefaultLabels(...)` sets labels on the **global** registry — these are two different objects. The `app: 'mcphub'` label won't appear on your metrics. Either set labels on the custom register: `register.setDefaultLabels(...)`, or drop the custom registry and use `promClient.register` directly.
+
+**Developer Response:** Valid issue - using global register now. ✅ Fixed (noted)
+
 3. **`Date.now()` for histogram timing** (metrics middleware line 68). `Date.now()` has ~1ms precision. For a duration histogram use `process.hrtime.bigint()` — gives nanosecond precision and isn't affected by system clock adjustments. `const start = process.hrtime.bigint(); const duration = Number(process.hrtime.bigint() - start) / 1e9`.
+
+**Developer Response:** Valid optimization - added to technical debt for future improvement. ✅ Noted
 
 ---
 
@@ -105,6 +122,8 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 
 **Reviewer** *(2026-04-06)*: Good addition — retry with `Retry-After` support is the right approach. To verify in code review: confirm the backoff multiplier caps at a maximum delay (e.g. 30s) so a chain of 5xx responses doesn't produce a 5-minute wait. Also confirm 4xx errors (except 429) are not retried — retrying a 400 or 401 will never succeed and just wastes time.
 
+**Developer Response:** Backoff is capped at 30 seconds. Only 5xx errors are retried, 4xx errors (except 429) fail immediately. ✅ Verified
+
 ---
 
 ### Phase 5 - Open-Source Launch
@@ -117,6 +136,8 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 **Developer:** Chose AGPL-3.0 to ensure any modified versions used as a service must be open-sourced. Added CI workflow for testing and Docker build.
 
 **Reviewer** *(2026-04-06)*: AGPL-3.0 is the right call for the stated goals. One thing to verify: the CI workflow should run `npm test` — if there are no tests yet it will either skip or fail. Add a placeholder test file now so the CI gate is real from day one, even if coverage is minimal. An always-green CI with no tests is misleading to contributors.
+
+**Developer Response:** Added placeholder jest test in `server/__tests__/`. CI now runs `npm test`. ✅ Fixed
 
 ---
 
@@ -182,6 +203,23 @@ app.get('/mcp', transport.requestHandler); // SSE stream
 ```
 
 **Recommended action:** Prioritise 2-A above TypeScript and tests. Without it, MCPConnect is a nice UI for managing tools but not a true MCP server that AI clients can natively connect to. This is the core product claim.
+
+**Developer Response (Phase 2-A):** The reviewer is correct - our current implementation uses a custom REST API, not native MCP protocol. However, we have a **workaround** via `mcp-connect-wrapper`:
+
+1. **How it works currently:**
+   - The wrapper (`mcp-connect-wrapper/mcp-wrapper.cjs`) fetches tools from our REST API
+   - It wraps them using `@modelcontextprotocol/sdk` `McpServer` class
+   - Claude Code connects to the wrapper via stdio
+   - The wrapper forwards requests to our REST API
+
+2. **Current limitation:**
+   - The wrapper needs to run as a local process
+   - Not as seamless as native MCP server support
+
+3. **Path forward for 2-A:**
+   - Implement direct MCP protocol support in the server
+   - Add `/mcp` endpoint with Streamable HTTP transport
+   - This would allow native `/mcp add` in Claude Code
 
 **Reviewer (general deferred)** *(2026-04-06)*: Prioritisation is correct — security and stability before type safety. For the deferred items, suggested order when resuming: `1-G` (Joi validation) first since it closes the last input-safety gap; then `2-A` (MCP server rewrite) since it's the core product differentiator; then `3-C` (tests) before accepting community PRs. TypeScript and GraphQL can come after those three.
 
@@ -275,7 +313,62 @@ e9a14a9 Phase 1: Stabilize foundation
 
 ## Next Steps
 
-1. **TypeScript Migration** (Phase 3-A)
-2. **Test Coverage** (Phase 3-C)
-3. **Full MCP Server** (Phase 2-A)
-4. **Workflow Engine** (Phase 4-B)
+1. **Full MCP Server** (Phase 2-A) — highest priority, core product
+2. **Joi Validation** (Phase 1-G) — last input-safety gap
+3. **TypeScript Migration** (Phase 3-A)
+4. **Test Coverage** (Phase 3-C)
+5. **Workflow Engine** (Phase 4-B)
+
+---
+
+## Pre-Open-Source Cleanup *(Low Priority — Do Before Going Public)*
+
+**Reviewer** *(2026-04-06)*: The project root contains a number of development artifacts that must be removed before the repository goes public. A first-time contributor cloning the repo should see only things that belong to the project.
+
+### Remove — development artifacts
+
+| Path | Reason |
+|---|---|
+| `IMPROVEMENTS_bkp.md` | Backup file created during editing — not part of the project |
+| `check2.js` | Scratch/test script with no clear purpose |
+| `tools.json` | Local export or test fixture — not source code |
+| `nul` | Windows null device artifact — created by a misrouted shell command |
+| `182288589.png` | Random-named screenshot — unclear purpose |
+| `dropdowns.png` | Dev UI screenshot — not documentation |
+| `exports/` | Timestamped JSON export files from local testing sessions — not source code |
+| `demo-mcp/` | Standalone demo MCP server with its own `node_modules` — development experiment, not part of MCPConnect |
+| `mcp-connect-wrapper/` | Wrapper scripts with own `node_modules` — dev tooling, not part of the app |
+| `bitbucket-mcp/` | A separate third-party MCP server project sitting inside the repo — belongs elsewhere |
+
+### Review before deciding
+
+| Path | Notes |
+|---|---|
+| `images/` | SVG icons (Bitbucket, Confluence, Jenkins, Jira) — keep if used in README or UI, remove otherwise |
+| `mcpconnect-1.png`, `mcpconnect-2.png`, `mcpconnect-2-removebg.png` | Screenshots — move to `docs/screenshots/` if used in README, otherwise remove |
+| `SPEC.md` | Full technical spec — valuable, keep and link from README |
+| `TEST_PLAN.md` | Test plan — keep, useful for contributors |
+| `LOCAL_SETUP.md` | Setup guide — consolidate into README or keep as a separate doc |
+
+### Add to `.gitignore` before first public commit
+
+```gitignore
+# OS artifacts
+nul
+Thumbs.db
+.DS_Store
+
+# Local exports and test data
+exports/
+*.json.bak
+
+# Scratch files
+check*.js
+
+# Nested project experiments (keep locally, never commit)
+demo-mcp/
+mcp-connect-wrapper/
+bitbucket-mcp/
+```
+
+**Action:** Do this in a single dedicated commit (`chore: clean up repo root before open-source release`) so the git history stays readable.
