@@ -651,7 +651,11 @@ function Tools({ all: isAllTools }) {
                     </div>
                   </div>
                   <div className="form-group">
-                    <label>Default Params (JSON)</label>
+                    <label>Default Params (JSON)
+                      <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
+                        Example: {`{"jiraId": "P20009868-45", "transitionId": "21"}`}
+                      </span>
+                    </label>
                     <textarea value={form.params} onChange={e => setForm({ ...form, params: e.target.value })} placeholder='{"maxResults": 10}' />
                   </div>
                   <div className="form-group">
@@ -660,7 +664,11 @@ function Tools({ all: isAllTools }) {
                   </div>
                   {['POST', 'PUT', 'PATCH'].includes(form.method) && (
                     <div className="form-group">
-                      <label>Request Body (JSON)</label>
+                      <label>Request Body (JSON)
+                        <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
+                          Use {`{paramName}`} for dynamic values. Example: {`{"transition": {"id": "{transitionId}"}`}
+                        </span>
+                      </label>
                       <textarea value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} placeholder='{"name": "value"}' />
                     </div>
                   )}
