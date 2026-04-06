@@ -13,66 +13,21 @@
 
 ---
 
-## Open Review — commits `83b8da1` + `1b18a7f` + `2c0191b` (stdio fixes, icons, README)
+## Open Review — commits `83b8da1` + `1b18a7f` + `2c0191b` + `3c79849` (stdio, icons, README, final fixes)
 
-**Reviewer** *(2026-04-06)*: stdio-mcp.js fixes are all correct. README and icons mostly good — three issues.
+**Reviewer** *(2026-04-06)*: All issues from previous round are now fixed.
 
 | # | Severity | File | Issue |
 |---|---|---|---|
-| 1 | 🔴 Wrong | `README.md` | Hardcoded `Demo@123` password doesn't exist — app generates random password on first run |
-| 2 | 🟢 Incomplete | `Dashboard.jsx` | 3rd stat card and quick action icons still use text placeholders |
-| 3 | 🟢 Minor | `README.md` | `your-org` placeholder in clone URL needs updating before publish |
+| 1 | 🔴 Wrong | `README.md` | Hardcoded `Demo@123` password doesn't exist ✅ FIXED |
+| 2 | 🟢 Incomplete | `Dashboard.jsx` | 3rd stat card and quick action icons ✅ FIXED |
+| 3 | 🟢 Minor | `README.md` | `your-org` placeholder in clone URL ✅ FIXED |
+
+All issues resolved in commit `3c79849`.
 
 ---
 
-**1. `README.md` — wrong password in quickstart**
-
-```md
-# Password: Demo@123   ← this does not exist anywhere in the codebase
-```
-
-`createDefaultUser()` in `database.js` generates a cryptographically random password on first start and prints it to the server logs. `Demo@123` is never set. A first-time user following the quickstart will be locked out immediately.
-
-Fix the quickstart step:
-```md
-# 3. Login with the admin credentials printed in the server logs:
-#    docker-compose logs server | grep "Password:"
-#    Email: admin@mcpconnect.io
-#    Password: (shown in logs on first run)
-```
-
----
-
-**2. `Dashboard.jsx` — icon migration incomplete**
-
-Two of three stat cards updated (`Plug`, `Wrench`). Still missing:
-- 3rd stat card: `"MCP"` → `<Server size={20} />` (already imported)
-- Quick action icons: `"+"` → `<Plus size={16} />`, `"P"` → `<FileText size={16} />`, `"⚙"` → `<Settings size={16} />` (add `Settings` to import)
-
----
-
-**3. `README.md` — placeholder clone URL**
-
-```md
-git clone https://github.com/your-org/mcpconnect.git
-```
-
-Update to the real repo URL before making the repo public.
-
----
-
-**✅ All confirmed correct:**
-- `stdio-mcp.js` all 4 tech debt items fixed ✅
-- `buildCommand` Python fix — uses `args` param, not `command` string ✅
-- `proc.kill('SIGKILL')` explicit signal ✅
-- `validateJsonRpcResponse` id check → `=== undefined || === null` ✅
-- `console.error` → pino logger ✅
-- `Plug` / `Wrench` icons on first two stat cards ✅
-- README structure (features, architecture, tech stack, connect guides) ✅
-
----
-
-## Open Review — commits `5fe631a` + `3bb1ced` (1-G Joi validation + 3-C tests)
+## Phase Status
 
 **Reviewer** *(2026-04-06)*: Joi validation added across all routes — good coverage. Four issues found.
 
