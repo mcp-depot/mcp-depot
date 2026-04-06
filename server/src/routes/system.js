@@ -147,7 +147,7 @@ router.post('/import', auth, async (req, res) => {
     if (value.integrations) {
       const { Integration } = loadModels();
       for (let i = 0; i < value.integrations.length; i++) {
-        const int = req.body.integrations[i];
+        const int = value.integrations[i];
         const created = await Integration.create({
           name: int.name,
           type: int.type,
@@ -160,9 +160,9 @@ router.post('/import', auth, async (req, res) => {
       }
     }
     
-    if (req.body.externalMcpServers) {
+    if (value.externalMcpServers) {
       const { ExternalMcpServer } = loadModels();
-      for (const server of req.body.externalMcpServers) {
+      for (const server of value.externalMcpServers) {
         await ExternalMcpServer.create({
           ...server,
           userId: req.user.id,
@@ -172,9 +172,9 @@ router.post('/import', auth, async (req, res) => {
       }
     }
     
-    if (req.body.tools) {
+    if (value.tools) {
       const Tool = require('../models/Tool');
-      for (const tool of req.body.tools) {
+      for (const tool of value.tools) {
         const toolData = {
           name: tool.name,
           description: tool.description,

@@ -23,7 +23,7 @@ const executeToolSchema = Joi.object({
   params: Joi.object().default({}),
   headers: Joi.object().default({}),
   body: Joi.any()
-});
+}).or('toolId', 'toolName');
 
 function safeJsonParse(value, defaultValue) {
   if (!value) return defaultValue;

@@ -26,6 +26,20 @@ const workflowExecutionSchema = Joi.object({
   inputs: Joi.object().default({})
 });
 
+const workflowUpdateSchema = Joi.object({
+  name: Joi.string(),
+  description: Joi.string().allow('', null),
+  trigger: Joi.object({
+    type: Joi.string().valid('manual', 'webhook', 'schedule'),
+    config: Joi.object()
+  }),
+  actions: Joi.array().items(Joi.object({
+    type: Joi.string().required(),
+    config: Joi.object().required()
+  })).min(1),
+  isActive: Joi.boolean()
+});
+
 const templateExecutionSchema = Joi.object({
   templateId: Joi.string().required(),
   name: Joi.string(),
@@ -181,7 +195,7 @@ router.post('/', auth, async (req, res) => {
 
 router.put('/:id', auth, async (req, res) => {
   try {
-    const { error, value } = workflowSchema.validate(req.body);
+    const { error, value } = workflowUpdateSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
@@ -250,6 +264,10 @@ router.post('/:id/execute', auth, async (req, res) => {
 
     if (!workflow) {
       return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    if (!workflow.isActive) {
+      return res.status(400).json({ error: 'Workflow is disabled' });
     }
 
     const { inputs } = value;
