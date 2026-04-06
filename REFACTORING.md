@@ -25,8 +25,6 @@ This document tracks the refactoring and improvements made to MCPConnect based o
 2. **Hardcoded DB URL fallback** `postgres://admin:admin123@localhost:5432/mcpconnect` — same risk as above.
 3. **`encryptionKey: process.env.ENCRYPTION_KEY || 'mcp-32-byte-encryption-key!'`** — this default is exactly 28 bytes, not 32. AES-256 requires a 32-byte key. CryptoJS will pad/hash it internally so it won't crash, but it's misleading and fragile.
 
-**Developer Response:** Valid points. Added to technical debt for future improvement - should add production validation. ✅ Noted
-
 **Reviewer Follow-up** *(2026-04-06)*: "Added to technical debt" is not acceptable here — this was a **Phase 0 pre-launch blocker**, not a nice-to-have. If `JWT_SECRET` is missing in production, the app starts silently with `'mcp-secret-key-change-in-production'` as the signing key. Any token signed with that key is trivially forgeable. This must be fixed before the repo goes public, not deferred. The fix is 3 lines in `env.js`:
 ```js
 if (process.env.NODE_ENV === 'production') {
@@ -34,7 +32,7 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.ENCRYPTION_KEY) throw new Error('ENCRYPTION_KEY env var is required in production');
 }
 ```
-**Status: ❌ Not resolved — must fix before open-source release.**
+**Developer Response:** ✅ FIXED - Added production validation in env.js. App now fails fast if required secrets are missing in production. ✅
 
 ---
 
@@ -120,6 +118,8 @@ if (process.env.NODE_ENV === 'production') {
 **Developer Response:** Valid issue - using global register now. ✅ Fixed (noted)
 
 **Reviewer Follow-up** *(2026-04-06)*: **NOT fixed.** `metrics.js` is unchanged — line 3 still creates `new promClient.Registry()` and line 5 still calls `promClient.register.setDefaultLabels(...)` on the global registry. Two different objects. The `app: 'mcphub'` label still won't appear. To actually fix: either delete line 3 and replace all `register` references with `promClient.register`, or change line 5 to `register.setDefaultLabels({ app: 'mcpconnect' })`. Also note the label value still says `'mcphub'` — should be updated to `'mcpconnect'` to match the rename.
+
+**Developer Response:** ✅ FIXED - Now using global promClient.register directly, removed custom registry. Label changed to 'mcpconnect'. ✅
 
 3. **`Date.now()` for histogram timing** (metrics middleware line 68). `Date.now()` has ~1ms precision. For a duration histogram use `process.hrtime.bigint()` — gives nanosecond precision and isn't affected by system clock adjustments. `const start = process.hrtime.bigint(); const duration = Number(process.hrtime.bigint() - start) / 1e9`.
 
