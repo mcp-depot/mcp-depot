@@ -155,7 +155,8 @@ function Tools({ all: isAllTools }) {
       const payload = { name: form.name, description: form.description, endpoint };
 
       if (editingTool) {
-        await api.put(`/integrations/${id}/tools/${editingTool._id}`, payload);
+        const integrationId = id || editingTool.integrationId;
+        await api.put(`/integrations/${integrationId}/tools/${editingTool._id}`, payload);
       } else {
         await api.post(`/integrations/${id}/tools`, payload);
       }
