@@ -16,79 +16,16 @@
 
 | # | Severity | File | Issue |
 |---|---|---|---|
-| 1 | 🟡 Bug | `system.js` | Import loop reads `req.body` after validating into `value` |
-| 2 | 🟡 Bug | `workflows.js` | `isActive` check removed from execute route — disabled workflows now run |
-| 3 | 🟡 Logic | `workflows.js` | PUT uses full `workflowSchema` (all required) — partial updates rejected |
-| 4 | 🟡 Logic | `mcp.js` | Neither `toolId` nor `toolName` required — missing both gives confusing downstream error |
+| 1 | 🟡 Bug | `system.js` | Import loop reads `req.body` after validating into `value` ✅ FIXED |
+| 2 | 🟡 Bug | `workflows.js` | `isActive` check removed from execute route — disabled workflows now run ✅ FIXED |
+| 3 | 🟡 Logic | `workflows.js` | PUT uses full `workflowSchema` (all required) — partial updates rejected ✅ FIXED |
+| 4 | 🟡 Logic | `mcp.js` | Neither `toolId` nor `toolName` required — missing both gives confusing downstream error ✅ FIXED |
+
+All issues fixed in commit `57f090a`.
 
 ---
 
-**1. `system.js` — import loop reads `req.body` instead of validated `value`**
-
-Validation runs at the top correctly, but inside the loop the original `req.body` is still used:
-```js
-const { error, value } = importDataSchema.validate(req.body); // ✅ validated
-
-// but inside the loop:
-for (let i = 0; i < value.integrations.length; i++) {
-  const int = req.body.integrations[i];  // ← should be value.integrations[i]
-```
-Fix: replace all remaining `req.body.*` references inside the import handler body with `value.*`.
-
----
-
-**2. `workflows.js` — disabled workflow check removed**
-
-The execute route used to block inactive workflows — this check was removed in this commit:
-```js
-// this was removed — needs to be restored:
-if (!workflow.isActive) {
-  return res.status(400).json({ error: 'Workflow is disabled' });
-}
-```
-This is business logic, not input validation — Joi can't replace it. Restore it after the Joi block.
-
----
-
-**3. `workflows.js` PUT — full schema rejects partial updates**
-
-`workflowSchema` requires `name`, `trigger`, and `actions`. Using it on PUT means a client can't update just `isActive` without supplying all fields. Add a separate update schema:
-```js
-const workflowUpdateSchema = Joi.object({
-  name: Joi.string(),
-  description: Joi.string().allow('', null),
-  trigger: Joi.object({ type: Joi.string().valid('manual', 'webhook', 'schedule'), config: Joi.object() }),
-  actions: Joi.array().items(Joi.object({ type: Joi.string(), config: Joi.object() })).min(1),
-  isActive: Joi.boolean()
-});
-```
-
----
-
-**4. `mcp.js` — both `toolId` and `toolName` optional with no `.or()` guard**
-
-If a client sends neither, the route proceeds into the DB lookup and fails with an opaque error instead of a clean 400. Fix:
-```js
-const executeToolSchema = Joi.object({
-  toolId: Joi.string(),
-  toolName: Joi.string(),
-  params: Joi.object().default({}),
-  headers: Joi.object().default({}),
-  body: Joi.any()
-}).or('toolId', 'toolName');
-```
-
----
-
-**✅ Everything else is correct:**
-- `consume.js`, `prompt-library.js`, `user-credentials.js` schemas — well-structured ✅
-- `platform.js` — correct; `req.body.integrationId` fallback now redundant but harmless ✅
-- Destructuring from `value` (not `req.body`) throughout — correct pattern ✅
-- `system.js` naming collision (`value: settingValue`) — handled correctly ✅
-
----
-
-## Open Review — commit `5892aed`
+## Phase Status
 
 All issues from `bf33c3b` are now fixed.
 
