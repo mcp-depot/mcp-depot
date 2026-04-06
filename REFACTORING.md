@@ -406,6 +406,7 @@ e9a14a9 Phase 1: Stabilize foundation
 ## Git Commits
 
 ```
+7d1b148 Fix: All Phase 2-A reviewer issues - SDK paths, HTTP transport, tool refresh hooks
 85bf93b Feature: Add native MCP server implementation
 62f1b55 docs: Update REFACTORING.md - all critical issues resolved
 43fc79d Fix: Address critical security and review feedback
