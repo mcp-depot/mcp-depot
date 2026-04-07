@@ -7,6 +7,7 @@ const AdapterFactory = require('../adapters');
 const audit = require('../services/audit');
 const { logToolCall } = require('../services/tool-logger');
 const encryption = require('../services/encryption');
+const secretStore = require('../services/secret-store');
 
 const router = express.Router();
 
@@ -132,7 +133,6 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     }
 
     // Resolve secrets from external secret store (Infisical)
-    const secretStore = require('../services/secret-store');
     if (secretStore.isInitialized()) {
       const credentials = config.auth?.credentials;
       if (credentials) {

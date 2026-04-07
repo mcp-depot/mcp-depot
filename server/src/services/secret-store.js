@@ -22,10 +22,12 @@ async function authenticate() {
   const data = await response.json();
   accessToken = data.accessToken;
   
-  // Default to 5 minutes (300 seconds) - Infisical tokens typically expire in 5-15 min
-  tokenExpiry = Date.now() + (5 * 60 * 1000);
+  // Use actual TTL from Infisical response (expiresIn is in seconds)
+  // Default to 5 minutes if not provided
+  const ttlSeconds = data.expiresIn || 300;
+  tokenExpiry = Date.now() + (ttlSeconds * 1000);
   
-  logger.info({ expiresIn: '5 minutes' }, 'Infisical access token obtained');
+  logger.info({ expiresIn: `${ttlSeconds} seconds` }, 'Infisical access token obtained');
 }
 
 async function getAccessToken() {

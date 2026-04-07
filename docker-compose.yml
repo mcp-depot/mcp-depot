@@ -21,14 +21,16 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    container_name: mcpconnect-redis
+  valkey:
+    image: valkey/valkey:8
+    container_name: mcpconnect-valkey
     restart: unless-stopped
     expose:
       - "6379"
     networks:
       - mcpconnect-network
+    profiles:
+      - secret-store
 
   server:
     build:
@@ -63,8 +65,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_started
     networks:
       - mcpconnect-network
 
@@ -106,12 +106,12 @@ services:
       - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY:-change-infisical-encryption-key}
       - AUTH_SECRET=${INFISICAL_AUTH_SECRET:-change-infisical-auth-secret}
       - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=valkey://valkey:6379
       - SITE_URL=http://localhost:8080
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      valkey:
         condition: service_started
     networks:
       - mcpconnect-network
