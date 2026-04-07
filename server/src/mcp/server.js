@@ -45,7 +45,11 @@ class MCPConnectServer {
     const schema = {};
     const required = [];
     
+    const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_.\-]{1,64}$/;
+    const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
+
     for (const [key, param] of Object.entries(params)) {
+      if (OPENAPI_KEYWORDS.has(key) || !VALID_SCHEMA_KEY.test(key)) continue;
       schema[key] = {
         type: param.type || 'string',
         description: param.description || key
@@ -59,6 +63,7 @@ class MCPConnectServer {
       .match(/\{(\w+)\}/g) || [])
       .map(m => m.slice(1, -1));
     for (const varName of bodyTemplateVars) {
+      if (OPENAPI_KEYWORDS.has(varName) || !VALID_SCHEMA_KEY.test(varName)) continue;
       if (!schema[varName]) {
         schema[varName] = { type: 'string', description: `Body parameter: ${varName}` };
         required.push(varName);
