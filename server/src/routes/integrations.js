@@ -472,6 +472,46 @@ router.delete('/:id/tools/:toolId', auth, async (req, res) => {
   }
 });
 
+router.patch('/:id/tools/bulk', auth, async (req, res) => {
+  try {
+    const { ids, action } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Tool IDs required' });
+    }
+
+    if (!['enable', 'disable', 'delete'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    const whereClause = req.user.role === 'admin'
+      ? { id: { [Op.in]: ids }, integrationId: req.params.id }
+      : { id: { [Op.in]: ids }, integrationId: req.params.id, userId: req.user.id };
+
+    const tools = await Tool.findAll({ where: whereClause });
+
+    if (tools.length === 0) {
+      return res.status(404).json({ error: 'No tools found' });
+    }
+
+    if (action === 'delete') {
+      await Tool.destroy({ where: { id: { [Op.in]: tools.map(t => t.id) } } });
+    } else {
+      const updates = action === 'enable' ? { isActive: true } : { isActive: false };
+      await Tool.update(updates, { where: { id: { [Op.in]: tools.map(t => t.id) } } });
+    }
+
+    if (process.env.MCP_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
+    res.json({ message: `${tools.length} tools ${action}d` });
+  } catch (error) {
+    res.status(500).json({ error: `Failed to ${action} tools` });
+  }
+});
+
 router.post('/discover', auth, async (req, res) => {
   try {
     const { baseUrl, openApiPath, auth: authConfig, specType, specUrl } = req.body;

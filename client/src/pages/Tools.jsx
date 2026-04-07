@@ -42,6 +42,8 @@ function Tools({ all: isAllTools }) {
   const [selectedEndpoints, setSelectedEndpoints] = useState([]);
   const [exploreError, setExploreError] = useState(null);
   const [endpointSearch, setEndpointSearch] = useState('');
+  const [selectedTools, setSelectedTools] = useState(new Set());
+  const [showBulkActions, setShowBulkActions] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -395,6 +397,39 @@ function Tools({ all: isAllTools }) {
     }
   };
 
+  const toggleToolSelect = (toolId) => {
+    setSelectedTools(prev => {
+      const next = new Set(prev);
+      if (next.has(toolId)) {
+        next.delete(toolId);
+      } else {
+        next.add(toolId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllToolsSelect = (tools) => {
+    if (selectedTools.size === tools.length) {
+      setSelectedTools(new Set());
+    } else {
+      setSelectedTools(new Set(tools.map(t => t._id || t.id)));
+    }
+  };
+
+  const handleBulkAction = async (action) => {
+    if (selectedTools.size === 0) return;
+    if (!confirm(`Are you sure you want to ${action} ${selectedTools.size} tool(s)?`)) return;
+    
+    try {
+      await api.patch(`/integrations/${id}/tools/bulk`, { ids: [...selectedTools], action });
+      setSelectedTools(new Set());
+      fetchData();
+    } catch (err) {
+      alert(err.response?.data?.error || `Failed to ${action} tools`);
+    }
+  };
+
   const handleImportEndpoints = async () => {
     if (selectedEndpoints.length === 0) return;
     
@@ -459,11 +494,26 @@ function Tools({ all: isAllTools }) {
                       <h3>{integration.name}</h3>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <button 
+                        className="btn btn-sm" 
+                        onClick={() => setShowBulkActions(!showBulkActions)}
+                        title="Bulk actions"
+                      >
+                        ☑ {selectedTools.size > 0 ? `(${selectedTools.size})` : ''}
+                      </button>
                       <span className="badge badge-primary">{tools.length} tools</span>
                     </div>
                   </div>
                   {!collapsedIntegrations[integration._id] && (
                     <div className="tool-list">
+                      {showBulkActions && selectedTools.size > 0 && (
+                        <div className="bulk-action-bar" style={{ padding: '0.75rem', marginBottom: '0.5rem', background: 'var(--primary)', borderRadius: '8px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <span style={{ color: 'white' }}>{selectedTools.size} selected</span>
+                          <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')}>Enable</button>
+                          <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')}>Disable</button>
+                          <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')}>Delete</button>
+                        </div>
+                      )}
                       {tools.map(tool => (
                         <div 
                           key={tool._id} 
@@ -477,6 +527,14 @@ function Tools({ all: isAllTools }) {
                             animation: 'pulse 1s ease-in-out 3'
                           } : {}}
                         >
+                          {showBulkActions && (
+                            <input 
+                              type="checkbox" 
+                              checked={selectedTools.has(tool._id)} 
+                              onChange={() => toggleToolSelect(tool._id)}
+                              style={{ marginRight: '0.5rem' }}
+                            />
+                          )}
                           <div style={{ flex: 1 }}>
                             <strong>{tool.name}</strong>
                             <span className={`tool-method ${tool.endpoint?.method?.toLowerCase()}`}>{tool.endpoint?.method}</span>
