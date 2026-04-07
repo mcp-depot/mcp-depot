@@ -125,6 +125,20 @@ const startServer = async () => {
   try {
     await connectDB();
     
+    // Initialize Secret Store if configured via env vars
+    const secretStore = require('./services/secret-store');
+    const secretStoreEnabled = process.env.SECRET_STORE_ENABLED === 'true';
+    if (secretStoreEnabled) {
+      await secretStore.init({
+        enabled: true,
+        siteUrl: process.env.SECRET_STORE_SITE_URL,
+        clientId: process.env.SECRET_STORE_CLIENT_ID,
+        clientSecret: process.env.SECRET_STORE_CLIENT_SECRET,
+        workspaceId: process.env.SECRET_STORE_WORKSPACE_ID,
+        environment: process.env.SECRET_STORE_ENVIRONMENT || 'dev'
+      });
+    }
+    
     const server = app.listen(config.port, () => {
       logger.info({ port: config.port }, 'MCPConnect Server started');
     });

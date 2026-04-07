@@ -122,7 +122,26 @@ class MCPConnectServer {
       throw new Error('Tool has no associated integration');
     }
 
-    const adapter = AdapterFactory.create(integration.type, integration.config);
+    const secretStore = require('../services/secret-store');
+    let resolvedConfig = integration.config;
+    if (secretStore.isInitialized()) {
+      const credentials = resolvedConfig.auth?.credentials;
+      if (credentials) {
+        for (const [key, value] of Object.entries(credentials)) {
+          if (typeof value === 'string' && secretStore.isSecretRef(value)) {
+            const resolved = await secretStore.resolveSecret(value);
+            if (resolved) {
+              resolvedConfig = { ...resolvedConfig };
+              resolvedConfig.auth = { ...resolvedConfig.auth };
+              resolvedConfig.auth.credentials = { ...credentials };
+              resolvedConfig.auth.credentials[key] = resolved;
+            }
+          }
+        }
+      }
+    }
+
+    const adapter = AdapterFactory.create(integration.type, resolvedConfig);
     
     const originalPath = endpoint.path || '';
     let path = originalPath;
