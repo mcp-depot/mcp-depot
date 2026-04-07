@@ -146,7 +146,13 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       if (path.includes(`{${key}}`)) {
         pathParams[key] = value;
       } else if (['POST', 'PUT', 'PATCH'].includes(tool.endpoint.method)) {
-        bodyParams[key] = value;
+        const bodyTemplateVars = new Set(
+          (JSON.stringify(tool.endpoint.body || {}).match(/\{(\w+)\}/g) || [])
+            .map(m => m.slice(1, -1))
+        );
+        if (!bodyTemplateVars.has(key)) {
+          bodyParams[key] = value;
+        }
       } else {
         queryParams[key] = value;
       }

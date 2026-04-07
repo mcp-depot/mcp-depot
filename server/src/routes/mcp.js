@@ -796,6 +796,10 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       if (path.includes(`{${key}}`)) {
         pathParams[key] = value;
       } else if (['POST', 'PUT', 'PATCH'].includes(tool.endpoint.method)) {
+        const bodyTemplateVars = new Set(
+          (JSON.stringify(tool.endpoint.body || {}).match(/\{(\w+)\}/g) || [])
+            .map(m => m.slice(1, -1))
+        );
         if (transformConfig[key]) {
           const target = transformConfig[key].split('.');
           let current = bodyParams;
@@ -804,7 +808,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
             current = current[target[i]];
           }
           current[target[target.length - 1]] = value;
-        } else if (key !== 'workspace' && key !== 'repo_slug') {
+        } else if (key !== 'workspace' && key !== 'repo_slug' && !bodyTemplateVars.has(key)) {
           bodyParams[key] = value;
         }
       } else {
