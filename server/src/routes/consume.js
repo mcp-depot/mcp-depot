@@ -130,6 +130,23 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       // If user has personal credentials, use those instead of integration's
       config.auth = userCreds;
     }
+
+    // Resolve secrets from external secret store (Infisical)
+    const secretStore = require('../services/secret-store');
+    if (secretStore.isInitialized()) {
+      const credentials = config.auth?.credentials;
+      if (credentials) {
+        const resolveIfNeeded = async (cred) => {
+          for (const [key, value] of Object.entries(cred)) {
+            if (typeof value === 'string' && secretStore.isSecretRef(value)) {
+              const resolved = await secretStore.resolveSecret(value);
+              if (resolved) cred[key] = resolved;
+            }
+          }
+        };
+        await resolveIfNeeded(credentials);
+      }
+    }
     
     const adapter = AdapterFactory.create(integration.type, config);
     
