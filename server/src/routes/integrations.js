@@ -620,7 +620,10 @@ router.post('/:id/import-tools', auth, async (req, res) => {
               if (typeof v === 'string' && v.startsWith('{')) {
                 const varName = v.slice(1, -1);
                 if (!allParams[varName]) {
-                  allParams[varName] = { required: true, type: 'string', description: `Body parameter: ${varName}` };
+                  const isRequired = (ep.body?.required || []).includes(varName);
+                  const propType = ep.body?.properties?.[varName]?.type || 'string';
+                  const propDesc = ep.body?.properties?.[varName]?.description || `Body parameter: ${varName}`;
+                  allParams[varName] = { required: isRequired, type: propType, description: propDesc };
                 }
               } else if (typeof v === 'object') {
                 extractVars(v);
@@ -654,7 +657,7 @@ router.post('/:id/import-tools', auth, async (req, res) => {
               Object.entries({ ...(ep.body?.properties || {}) })
                 .filter(([key]) => !new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']).has(key))
             ),
-            required: bodyParamNames
+            required: ep.body?.required || []
           } : {},
           outputSchema: {},
           isActive: true
