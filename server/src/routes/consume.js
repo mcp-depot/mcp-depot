@@ -174,12 +174,12 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     let callError = null;
     let responseStatus = 200;
 
-    if (tool.mockEnabled && tool.mockResponse) {
-      result = typeof tool.mockResponse === 'string' 
-        ? JSON.parse(tool.mockResponse.replace(/\{(\w+)\}/g, (match, key) => JSON.stringify(mergedParams[key] || match)))
-        : tool.mockResponse;
-    } else {
-      try {
+    try {
+      if (tool.mockEnabled && tool.mockResponse) {
+        result = typeof tool.mockResponse === 'string' 
+          ? JSON.parse(tool.mockResponse.replace(/\{(\w+)\}/g, (match, key) => JSON.stringify(mergedParams[key] || match)))
+          : tool.mockResponse;
+      } else {
         switch (tool.endpoint.method) {
           case 'GET':
             result = await adapter.get(path, { params: queryParams, headers: mergedHeaders });
@@ -197,11 +197,11 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
             result = await adapter.delete(path, { params: queryParams, headers: mergedHeaders });
             break;
         }
-      } catch (callError) {
-        callSuccess = false;
-        responseStatus = callError.response?.status || 500;
-        throw callError;
       }
+    } catch (callError) {
+      callSuccess = false;
+      responseStatus = callError.response?.status || 500;
+      throw callError;
     } finally {
       const responseTime = Date.now() - startTime;
       
