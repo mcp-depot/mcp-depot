@@ -620,7 +620,14 @@ router.post('/:id/import-tools', auth, async (req, res) => {
             headers: {},
             body: ep.body ? {} : null
           },
-          inputSchema: ep.body ? { type: 'object', properties: { ...bodyParams, ...(ep.body.properties || {}) }, required: bodyParamNames } : {},
+          inputSchema: ep.body ? {
+            type: 'object',
+            properties: Object.fromEntries(
+              Object.entries({ ...bodyParams, ...(ep.body.properties || {}) })
+                .filter(([key]) => !new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']).has(key))
+            ),
+            required: bodyParamNames
+          } : {},
           outputSchema: {},
           isActive: true
         });

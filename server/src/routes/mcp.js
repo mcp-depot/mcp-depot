@@ -915,17 +915,20 @@ router.get('/tools', optionalAuth, async (req, res) => {
       });
 
       const inputSchema = t.inputSchema || {};
+      const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
       if (inputSchema.properties) {
-        Object.entries(inputSchema.properties).forEach(([key, val]) => {
-          const required = (inputSchema.required || []).includes(key);
-          params.push({
-            name: key,
-            in: 'body',
-            required: required,
-            type: val.type || 'string',
-            description: val.description || `Body parameter: ${key}`
+        Object.entries(inputSchema.properties)
+          .filter(([key]) => !OPENAPI_KEYWORDS.has(key))
+          .forEach(([key, val]) => {
+            const required = (inputSchema.required || []).includes(key);
+            params.push({
+              name: key,
+              in: 'body',
+              required: required,
+              type: val.type || 'string',
+              description: val.description || `Body parameter: ${key}`
+            });
           });
-        });
       }
 
       const bodyTemplateVars = (JSON.stringify(t.endpoint.body || {})
