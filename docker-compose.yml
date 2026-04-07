@@ -21,6 +21,15 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: mcpconnect-redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    networks:
+      - mcpconnect-network
+
   server:
     build:
       context: ./server
@@ -45,9 +54,17 @@ services:
       - TOOLS_CACHE_ENABLED=${TOOLS_CACHE_ENABLED:-false}
       - TOOLS_CACHE_TTL=${TOOLS_CACHE_TTL:-300000}
       - MCP_ENABLED=${MCP_ENABLED:-false}
+      - SECRET_STORE_ENABLED=${SECRET_STORE_ENABLED:-false}
+      - SECRET_STORE_SITE_URL=${SECRET_STORE_SITE_URL:-https://app.infisical.com}
+      - SECRET_STORE_CLIENT_ID=${SECRET_STORE_CLIENT_ID}
+      - SECRET_STORE_CLIENT_SECRET=${SECRET_STORE_CLIENT_SECRET}
+      - SECRET_STORE_WORKSPACE_ID=${SECRET_STORE_WORKSPACE_ID}
+      - SECRET_STORE_ENVIRONMENT=${SECRET_STORE_ENVIRONMENT:-dev}
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - mcpconnect-network
 
@@ -78,6 +95,28 @@ services:
       - ./demo-mcp:/app
     networks:
       - mcpconnect-network
+
+  infisical:
+    image: infisical/infisical:v0.90.0-postgres
+    container_name: mcpconnect-infisical
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY:-change-infisical-encryption-key}
+      - AUTH_SECRET=${INFISICAL_AUTH_SECRET:-change-infisical-auth-secret}
+      - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical
+      - REDIS_URL=redis://redis:6379
+      - SITE_URL=http://localhost:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - mcpconnect-network
+    profiles:
+      - secret-store
 
 volumes:
   postgres_data:
