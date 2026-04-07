@@ -220,13 +220,37 @@ router.put('/:id', auth, async (req, res) => {
 
     if (name !== undefined) integration.name = name;
     if (description !== undefined) integration.description = description;
-    if (config !== undefined) integration.config = config;
     if (metadata !== undefined) integration.metadata = metadata;
     if (isActive !== undefined) integration.isActive = isActive;
+    
+    if (config !== undefined) {
+      if (config.auth?.credentials && config.auth.type !== 'none') {
+        const credentials = config.auth.credentials;
+        if (credentials.token && !credentials.token.startsWith('U2FsdGVk')) {
+          credentials.token = encryption.encrypt(credentials.token);
+        }
+        if (credentials.username && !credentials.username.startsWith('U2FsdGVk')) {
+          credentials.username = encryption.encrypt(credentials.username);
+        }
+        if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk')) {
+          credentials.apiKey = encryption.encrypt(credentials.apiKey);
+        }
+      }
+      integration.config = config;
+    }
 
     await integration.save();
 
-    res.json(integration);
+    res.json({
+      _id: integration.id,
+      type: integration.type,
+      name: integration.name,
+      description: integration.description,
+      baseUrl: integration.config?.baseUrl,
+      authType: integration.config?.auth?.type || 'none',
+      isActive: integration.isActive,
+      updatedAt: integration.updatedAt
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update integration' });
   }
@@ -303,7 +327,9 @@ router.post('/:id/test', auth, async (req, res) => {
         authType: integration.config?.auth?.type || 'none',
         hasCredentials: !!(integration.config?.auth?.credentials),
         credentialsKeys: integration.config?.auth?.credentials ? Object.keys(integration.config.auth.credentials) : [],
-        credentialsAreEncrypted: integration.config?.auth?.credentials?.token ? integration.config.auth.token.startsWith('U2FsdGVk') : false
+        credentialsAreEncrypted: integration.config?.auth?.credentials?.token 
+          ? integration.config.auth.credentials.token.startsWith('U2FsdGVk') 
+          : false
       },
       computedAuth: {
         hasAuthHeader: !!authHeaders['Authorization'],
