@@ -40,7 +40,12 @@ app.use('/api', limiter);
 app.use(metricsMiddleware);
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+  let mcpClients = 0;
+  try {
+    const { getMcpClients } = require('./mcp/server');
+    mcpClients = getMcpClients ? getMcpClients() : 0;
+  } catch {}
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime(), mcpClients });
 });
 
 app.get('/ready', async (req, res) => {

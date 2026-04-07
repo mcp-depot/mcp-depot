@@ -228,5 +228,10 @@ async function refreshToolsIfEnabled() {
   }
 }
 
+function getMcpClients() {
+  return 0;
+}
+
 module.exports = mcpServerInstance;
 module.exports.refreshToolsIfEnabled = refreshToolsIfEnabled;
+module.exports.getMcpClients = getMcpClients;
