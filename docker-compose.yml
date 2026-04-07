@@ -63,6 +63,8 @@ services:
       - SECRET_STORE_CLIENT_SECRET=${SECRET_STORE_CLIENT_SECRET}
       - SECRET_STORE_WORKSPACE_ID=${SECRET_STORE_WORKSPACE_ID}
       - SECRET_STORE_ENVIRONMENT=${SECRET_STORE_ENVIRONMENT:-dev}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@mcpconnect.io}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,8 +106,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY:-spk1YCToTuXlVe3XIp/FQDokRqi9Nr+NJRS3ueO+HdM=}
-      - AUTH_SECRET=${INFISICAL_AUTH_SECRET:-spk1YCToTuXlVe3XIp/FQDokRqi9Nr+NJRS3ueO+HdM=}
+      - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
+      - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
       - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical
       - REDIS_URL=redis://valkey:6379
       - SITE_URL=http://localhost:8080

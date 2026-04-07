@@ -58,27 +58,30 @@ const generatePassword = () => {
 const createDefaultUser = async () => {
   const User = require('../models/User');
   
-  const adminExists = await User.findOne({ where: { email: 'admin@mcpconnect.io' } });
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcpconnect.io';
+  const adminExists = await User.findOne({ where: { email: adminEmail } });
   
   if (!adminExists) {
-    const defaultPassword = generatePassword();
+    const defaultPassword = process.env.ADMIN_PASSWORD || generatePassword();
     
     await User.create({
-      email: 'admin@mcpconnect.io',
+      email: adminEmail,
       password: defaultPassword,
       name: 'Administrator',
       role: 'admin',
-      mustResetPassword: true
+      mustResetPassword: !process.env.ADMIN_PASSWORD
     });
     
     logger.info('\n===========================================');
     logger.info('DEFAULT ADMIN USER CREATED');
     logger.info('===========================================');
-    logger.info('Email: admin@mcpconnect.io');
-    logger.info('Password:', defaultPassword);
+    logger.info(`Email: ${adminEmail}`);
+    logger.info(`Password: ${defaultPassword}`);
     logger.info('===========================================');
-    logger.info('IMPORTANT: Change this password after first login!');
-    logger.info('===========================================\n');
+    if (!process.env.ADMIN_PASSWORD) {
+      logger.info('IMPORTANT: Change this password after first login!');
+      logger.info('===========================================\n');
+    }
     
     return defaultPassword;
   }
@@ -249,19 +252,34 @@ const createDefaultTool = async () => {
   }
 };
 
-const connectDB = async () => {
-  try {
-    await sequelize.authenticate();
-    logger.info('PostgreSQL connected successfully');
-    if (IS_DEV) {
-      logger.warn('Development mode: running sequelize.sync({ alter: true })');
-      await sequelize.sync({ alter: true });
-      logger.info('Database synchronized');
-    } else {
-      logger.warn('Production mode: NOT running sequelize.sync() - use migrations!');
+const connectDB = async (retries = 5, delay = 3000) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await sequelize.authenticate();
+      logger.info('PostgreSQL connected successfully');
+      if (IS_DEV) {
+        logger.warn('Development mode: running sequelize.sync({ alter: true })');
+        await sequelize.sync({ alter: true });
+        logger.info('Database synchronized');
+      } else {
+        logger.warn('Production mode: running sequelize.sync({ force: false }) to create missing tables');
+        await sequelize.sync({ force: false });
+        logger.info('Database synchronized');
+      }
+      
+      break;
+    } catch (error) {
+      if (attempt === retries) {
+        logger.fatal({ err: error.message }, 'Database connection failed after retries');
+        process.exit(1);
+      }
+      logger.warn(`Database connection attempt ${attempt}/${retries} failed, retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
-    
-      // Create tool_calls table if it doesn't exist
+  }
+  
+  try {
+    // Create tool_calls table if it doesn't exist
     try {
       await sequelize.query(`
         CREATE TABLE IF NOT EXISTS tool_calls (
@@ -388,9 +406,12 @@ const connectDB = async () => {
     }
     
     await createDefaultUser();
-    await createDefaultTool();
+    
+    if (process.env.SEED_DEMO_DATA === 'true') {
+      await createDefaultTool();
+    }
   } catch (error) {
-    logger.fatal({ err: error.message }, 'Database connection error');
+    logger.fatal({ err: error.message }, 'Database setup error');
     process.exit(1);
   }
 };

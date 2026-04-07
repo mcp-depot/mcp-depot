@@ -20,6 +20,14 @@ const auth = async (req, res, next) => {
 
     req.user = user;
     req.token = token;
+    
+    if (user.mustResetPassword && req.path !== '/api/v1/auth/password' && req.path !== '/api/auth/password') {
+      return res.status(403).json({
+        error: 'PASSWORD_RESET_REQUIRED',
+        message: 'You must change your password before continuing'
+      });
+    }
+    
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -59,6 +67,13 @@ const authWithApiKey = async (req, res, next) => {
     
     if (!authenticated) {
       return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    if (user.mustResetPassword && req.path !== '/api/v1/auth/password' && req.path !== '/api/auth/password') {
+      return res.status(403).json({
+        error: 'PASSWORD_RESET_REQUIRED',
+        message: 'You must change your password before continuing'
+      });
     }
 
     req.user = user;
