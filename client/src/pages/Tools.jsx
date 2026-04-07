@@ -161,7 +161,8 @@ function Tools({ all: isAllTools }) {
       }
       
       try {
-        parsedBody = form.body ? JSON.parse(form.body) : {};
+        const normalizedBody = (form.body || '').replace(/:\s*\{(\w+)\}/g, ': "{$1}"');
+        parsedBody = normalizedBody ? JSON.parse(normalizedBody) : {};
       } catch (err) {
         alert('Invalid JSON in Request Body: ' + err.message);
         return;
@@ -696,7 +697,8 @@ function Tools({ all: isAllTools }) {
                         value={form.body} 
                         onChange={e => {
                           const newBody = e.target.value;
-                          const bodyVars = (newBody.match(/\{(\w+)\}/g) || []).map(m => m.slice(1, -1));
+                          const normalizedBody = newBody.replace(/:\s*\{(\w+)\}/g, ': "{$1}"');
+                          const bodyVars = (normalizedBody.match(/\{(\w+)\}/g) || []).map(m => m.slice(1, -1));
 
                           setForm(f => {
                             const next = { ...f, body: newBody };

@@ -817,9 +817,17 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     }
 
     if (typeof bodyParams === 'object' && bodyParams !== null) {
-      bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/\{(\w+)\}/g, (match, key) => {
+      let bodyStr = JSON.stringify(bodyParams);
+
+      bodyStr = bodyStr.replace(/"(\{(\w+)\})"/g, (match, placeholder, key) => {
         return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : match;
-      }));
+      });
+
+      bodyStr = bodyStr.replace(/\{(\w+)\}/g, (match, key) => {
+        return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : `"${match}"`;
+      });
+
+      bodyParams = JSON.parse(bodyStr);
     }
 
     let result;
