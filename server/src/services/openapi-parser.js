@@ -37,14 +37,25 @@ class OpenAPIParser {
     const resolveRef = (ref) => {
       if (!ref || !ref.startsWith('#/')) return ref;
       const path = ref.replace('#/definitions/', '').replace('#/components/schemas/', '');
-      return definitions[path] || ref;
+      const resolved = definitions[path];
+      return resolved ? resolveSchema(resolved) : ref;
     };
 
     const resolveSchema = (schema) => {
       if (!schema) return null;
-      if (schema.$ref) {
-        return resolveRef(schema.$ref);
+      if (schema.$ref) return resolveRef(schema.$ref);
+
+      // Merge allOf sub-schemas into one flat object schema
+      if (schema.allOf) {
+        const merged = { type: 'object', properties: {}, required: [] };
+        for (const sub of schema.allOf) {
+          const resolved = resolveSchema(sub);
+          if (resolved?.properties) Object.assign(merged.properties, resolved.properties);
+          if (resolved?.required) merged.required.push(...resolved.required);
+        }
+        return merged;
       }
+
       if (schema.type === 'object' && schema.properties) {
         const resolved = { ...schema };
         resolved.properties = {};
@@ -54,6 +65,25 @@ class OpenAPIParser {
         return resolved;
       }
       return schema;
+    };
+
+    const generateBodyTemplate = (schema, keyPrefix = '') => {
+      if (!schema || schema.type !== 'object' || !schema.properties) return null;
+      const SKIP = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
+      const template = {};
+      for (const [key, val] of Object.entries(schema.properties)) {
+        if (SKIP.has(key)) continue;
+        const varName = keyPrefix ? `${keyPrefix}_${key}` : key;
+        if (val?.type === 'object' && val?.properties) {
+          const nested = generateBodyTemplate(val, varName);
+          if (nested) template[key] = nested;
+        } else if (val?.type === 'array') {
+          // skip — arrays need manual setup
+        } else {
+          template[key] = `{${varName}}`;
+        }
+      }
+      return Object.keys(template).length > 0 ? template : null;
     };
 
     const endpoints = [];
@@ -114,6 +144,7 @@ class OpenAPIParser {
             description: details.description || '',
             params,
             body: bodySchema,
+            bodyTemplate: bodySchema ? generateBodyTemplate(bodySchema) : null,
             tags: details.tags || []
           });
         }

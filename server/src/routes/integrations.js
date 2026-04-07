@@ -592,7 +592,20 @@ router.post('/:id/import-tools', auth, async (req, res) => {
         logger.debug({ name: toolName, description: ep.description || ep.summary }, 'Creating tool');
         
         const bodyParams = ep.body?.properties || {};
-        const bodyParamNames = Object.keys(bodyParams);
+        const bodyTemplateVars = ep.bodyTemplate ? Object.keys(ep.bodyTemplate).reduce((acc, k) => {
+          const extractVarNames = (obj, prefix = '') => {
+            for (const [key, val] of Object.entries(obj)) {
+              if (typeof val === 'string' && val.startsWith('{')) {
+                acc.push(val.slice(1, -1));
+              } else if (typeof val === 'object') {
+                extractVarNames(val, key);
+              }
+            }
+          };
+          extractVarNames(k);
+          return acc;
+        }, []) : [];
+        const bodyParamNames = [...Object.keys(bodyParams), ...bodyTemplateVars];
         const isBodyMethod = ['POST', 'PUT', 'PATCH'].includes(ep.method);
         
         const allParams = { ...(ep.params?.reduce((acc, p) => {
@@ -600,7 +613,22 @@ router.post('/:id/import-tools', auth, async (req, res) => {
           return acc;
         }, {}) || {}) };
         
-        if (isBodyMethod && bodyParams) {
+        // Extract vars from body template
+        if (isBodyMethod && ep.bodyTemplate) {
+          const extractVars = (obj) => {
+            for (const [k, v] of Object.entries(obj)) {
+              if (typeof v === 'string' && v.startsWith('{')) {
+                const varName = v.slice(1, -1);
+                if (!allParams[varName]) {
+                  allParams[varName] = { required: true, type: 'string', description: `Body parameter: ${varName}` };
+                }
+              } else if (typeof v === 'object') {
+                extractVars(v);
+              }
+            }
+          };
+          extractVars(ep.bodyTemplate);
+        } else if (isBodyMethod && bodyParams) {
           Object.entries(bodyParams).forEach(([key, val]) => {
             if (!allParams[key]) {
               allParams[key] = { required: bodyParamNames.includes(key), type: val.type || 'string', description: val.description || '' };
@@ -618,12 +646,12 @@ router.post('/:id/import-tools', auth, async (req, res) => {
             method: ep.method,
             params: allParams,
             headers: {},
-            body: ep.body ? {} : null
+            body: ep.bodyTemplate || (ep.body ? {} : null)
           },
-          inputSchema: ep.body ? {
+          inputSchema: ep.bodyTemplate || ep.body ? {
             type: 'object',
             properties: Object.fromEntries(
-              Object.entries({ ...bodyParams, ...(ep.body.properties || {}) })
+              Object.entries({ ...(ep.body?.properties || {}) })
                 .filter(([key]) => !new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']).has(key))
             ),
             required: bodyParamNames
