@@ -26,6 +26,10 @@ function Monitoring() {
       const res = await api.get('/monitoring/stats');
       setStats(res.data);
     } catch (err) {
+      if (err.response?.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
       console.error('Failed to fetch stats:', err);
     } finally {
       setLoading(false);
@@ -45,6 +49,10 @@ function Monitoring() {
       setHistory(res.data.calls);
       setPagination(res.data.pagination);
     } catch (err) {
+      if (err.response?.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
       console.error('Failed to fetch history:', err);
     } finally {
       setHistoryLoading(false);
@@ -109,8 +117,8 @@ function Monitoring() {
             <h3 style={{ marginBottom: '1rem' }}>{String(endpoints.name)} v{String(endpoints.version)}</h3>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>{String(endpoints.description)}</p>
             
-            <div style={{ marginBottom: '1.5rem', padding: '1rem', background: '#f5f5f5', borderRadius: '6px' }}>
-              <strong>Base URL:</strong> <code style={{ background: '#fff', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>{String(endpoints.baseUrl)}</code>
+            <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--surface)', borderRadius: '6px' }}>
+              <strong>Base URL:</strong> <code style={{ background: 'var(--surface-hover)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>{String(endpoints.baseUrl)}</code>
               <button 
                 className="btn btn-small" 
                 style={{ marginLeft: '0.5rem' }}
@@ -123,7 +131,7 @@ function Monitoring() {
             <h4 style={{ marginBottom: '1rem' }}>Available Endpoints:</h4>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid #eee' }}>
+                <tr style={{ borderBottom: '2px solid var(--border)' }}>
                   <th style={{ textAlign: 'left', padding: '0.5rem' }}>Method</th>
                   <th style={{ textAlign: 'left', padding: '0.5rem' }}>Path</th>
                   <th style={{ textAlign: 'left', padding: '0.5rem' }}>Description</th>
@@ -132,7 +140,7 @@ function Monitoring() {
               </thead>
               <tbody>
                 {endpoints.endpoints.map((ep, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                  <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '0.5rem' }}>
                       <span style={{ 
                         padding: '0.125rem 0.375rem', 
@@ -154,7 +162,7 @@ function Monitoring() {
             </table>
             
             <h4 style={{ marginTop: '1.5rem', marginBottom: '1rem' }}>Usage Examples:</h4>
-            <div style={{ background: '#1e1e1e', color: '#d4d4d4', padding: '1rem', borderRadius: '6px', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+            <div style={{ background: 'var(--surface)', color: 'var(--text)', padding: '1rem', borderRadius: '6px', fontFamily: 'monospace', fontSize: '0.8rem' }}>
               <div style={{ marginBottom: '0.5rem' }}># List tools</div>
               <div style={{ marginBottom: '1rem', color: '#9cdcfe' }}>{`curl -H "X-API-Key: mcp_xxx" ${endpoints.baseUrl}/tools`}</div>
               <div style={{ marginBottom: '0.5rem' }}># Execute tool</div>

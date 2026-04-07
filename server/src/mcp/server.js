@@ -3,6 +3,7 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { loadModels } = require('../config/database');
 const { recordToolCall } = require('../services/metrics');
+const { logToolCall } = require('../services/tool-logger');
 const AdapterFactory = require('../adapters');
 const encryption = require('../services/encryption');
 const logger = require('../services/logger');
@@ -167,6 +168,10 @@ class MCPConnectServer {
     }
 
     const method = (endpoint.method || 'GET').toUpperCase();
+    const startTime = Date.now();
+    let success = true;
+    let responseStatus = 200;
+    let errorMessage = null;
     
     try {
       if (method === 'GET') {
@@ -188,8 +193,49 @@ class MCPConnectServer {
       
       throw new Error(`Unsupported method: ${method}`);
     } catch (error) {
+      success = false;
+      responseStatus = error.response?.status || 500;
+      errorMessage = error.message;
       logger.error({ tool: tool.name, error: error.message }, 'Tool execution failed');
+      
+      await logToolCall({
+        toolId: tool.id,
+        userId: tool.userId,
+        integrationId: integration.id,
+        callerId: null,
+        callerType: 'mcp',
+        method,
+        path: endpoint.path,
+        requestHeaders: {},
+        requestBody: bodyParams,
+        queryParams: remainingParams,
+        responseStatus,
+        responseBody: { error: errorMessage },
+        responseTime: Date.now() - startTime,
+        success: false,
+        errorMessage,
+      });
+      
       throw error;
+    } finally {
+      if (success) {
+        await logToolCall({
+          toolId: tool.id,
+          userId: tool.userId,
+          integrationId: integration.id,
+          callerId: null,
+          callerType: 'mcp',
+          method,
+          path: endpoint.path,
+          requestHeaders: {},
+          requestBody: bodyParams,
+          queryParams: remainingParams,
+          responseStatus,
+          responseBody: null,
+          responseTime: Date.now() - startTime,
+          success: true,
+        });
+      }
     }
   }
 

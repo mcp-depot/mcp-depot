@@ -10,6 +10,7 @@ const audit = require('../services/audit');
 const OpenAPIParser = require('../services/openapi-parser');
 const WADLParser = require('../services/wadl-parser');
 const encryption = require('../services/encryption');
+const secretStore = require('../services/secret-store');
 const logger = require('../services/logger');
 
 const router = express.Router();
@@ -156,13 +157,13 @@ router.post('/', auth, async (req, res) => {
     let finalConfig = config;
     if (config && config.auth && config.auth.credentials && config.auth.type !== 'none') {
       const credentials = config.auth.credentials;
-      if (credentials.token && !credentials.token.startsWith('U2FsdGVk')) {
+      if (credentials.token && !credentials.token.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.token)) {
         credentials.token = encryption.encrypt(credentials.token);
       }
-      if (credentials.username && !credentials.username.startsWith('U2FsdGVk')) {
+      if (credentials.username && !credentials.username.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.username)) {
         credentials.username = encryption.encrypt(credentials.username);
       }
-      if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk')) {
+      if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.apiKey)) {
         credentials.apiKey = encryption.encrypt(credentials.apiKey);
       }
       finalConfig = config;
@@ -226,13 +227,13 @@ router.put('/:id', auth, async (req, res) => {
     if (config !== undefined) {
       if (config.auth?.credentials && config.auth.type !== 'none') {
         const credentials = config.auth.credentials;
-        if (credentials.token && !credentials.token.startsWith('U2FsdGVk')) {
+        if (credentials.token && !credentials.token.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.token)) {
           credentials.token = encryption.encrypt(credentials.token);
         }
-        if (credentials.username && !credentials.username.startsWith('U2FsdGVk')) {
+        if (credentials.username && !credentials.username.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.username)) {
           credentials.username = encryption.encrypt(credentials.username);
         }
-        if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk')) {
+        if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.apiKey)) {
           credentials.apiKey = encryption.encrypt(credentials.apiKey);
         }
       }

@@ -261,7 +261,7 @@ function Workflows() {
           <div className="card" style={{ marginTop: '1.5rem' }}>
             <h3>Execution Result</h3>
             {executionResult.error ? (
-              <div style={{ marginTop: '1rem', padding: '1rem', background: '#f8d7da', borderRadius: 'var(--radius)', color: 'var(--danger)' }}>
+              <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--error-bg)', borderRadius: 'var(--radius)', color: 'var(--danger)' }}>
                 {executionResult.error}
               </div>
             ) : (
@@ -273,7 +273,7 @@ function Workflows() {
               <div style={{ marginTop: '1rem' }}>
                 <h4>Action Results:</h4>
                 {executionResult.results.map((r, i) => (
-                  <div key={i} style={{ padding: '0.5rem', marginBottom: '0.5rem', background: r.success ? '#d4edda' : '#f8d7da', borderRadius: '4px' }}>
+                  <div key={i} style={{ padding: '0.5rem', marginBottom: '0.5rem', background: r.success ? 'var(--success-bg)' : 'var(--error-bg)', borderRadius: '4px' }}>
                     <strong>Action {i + 1}:</strong> {r.success ? '✅ Success' : '❌ Failed'}
                     {r.error && <div style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{r.error}</div>}
                   </div>
@@ -579,7 +579,7 @@ function Workflows() {
                   ))}
                 </div>
 
-                <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#e8f5e9', borderRadius: 'var(--radius)' }}>
+                <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--success-bg)', borderRadius: 'var(--radius)' }}>
                   <strong>💡 To execute:</strong> Ask Claude to implement the JIRA ticket, it will automatically call these tools.
                 </div>
               </div>
@@ -712,8 +712,8 @@ function Workflows() {
                     )}
 
                     {selectedNode?.condition && (
-                      <div style={{ marginBottom: '1.5rem', padding: '0.75rem', background: '#fff3e0', borderRadius: '6px', borderLeft: '3px solid #ff9800' }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#e65100' }}>Condition</div>
+                      <div style={{ marginBottom: '1.5rem', padding: '0.75rem', background: 'var(--warning-bg)', borderRadius: '6px', borderLeft: '3px solid var(--warning)' }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--warning)' }}>Condition</div>
                         <code style={{ fontSize: '0.85rem' }}>{selectedNode.condition}</code>
                       </div>
                     )}
@@ -723,7 +723,7 @@ function Workflows() {
                         <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>On Success ({selectedNode.onSuccess.length})</h4>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                           {selectedNode.onSuccess.map((a, i) => (
-                            <div key={i} style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', background: '#e8f5e9', borderRadius: '4px' }}>
+                            <div key={i} style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', background: 'var(--success-bg)', borderRadius: '4px' }}>
                               {i + 1}. {a.name}
                             </div>
                           ))}
@@ -736,7 +736,7 @@ function Workflows() {
                         <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>On Failure ({selectedNode.onFailure.length})</h4>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                           {selectedNode.onFailure.map((a, i) => (
-                            <div key={i} style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', background: '#ffebee', borderRadius: '4px' }}>
+                            <div key={i} style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem', background: 'var(--error-bg)', borderRadius: '4px' }}>
                               {i + 1}. {a.name}
                             </div>
                           ))}

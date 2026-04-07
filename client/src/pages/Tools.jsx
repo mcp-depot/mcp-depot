@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon } from '../utils/integrationIcons';
@@ -9,8 +9,10 @@ import { StyledSelect } from '../components/StyledSelect';
 function Tools({ all: isAllTools }) {
   const params = useParams();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const id = params.id;
   const highlightedToolId = searchParams.get('highlighted');
+  const showResponse = searchParams.get('response');
   console.log('Highlighted tool ID:', highlightedToolId);
   const { user } = useAuth();
   const [allToolsData, setAllToolsData] = useState([]);
@@ -326,9 +328,13 @@ function Tools({ all: isAllTools }) {
     try {
       const res = await api.post(`/consume/tools/${toolId}/execute`, { params: testParams });
       setTestResult({ success: true, data: res.data, request: requestDetails });
+      setShowTestModal(false);
+      navigate(`?response=true&toolId=${toolId}`);
     } catch (err) {
       const errorMsg = err.response?.data?.error || 'Tool execution failed';
       setTestResult({ success: false, error: typeof errorMsg === 'object' ? JSON.stringify(errorMsg) : errorMsg, request: requestDetails });
+      setShowTestModal(false);
+      navigate(`?response=true&toolId=${toolId}`);
     } finally {
       setTestingTool(null);
     }
@@ -647,14 +653,14 @@ function Tools({ all: isAllTools }) {
           </div>
         )}
 
-        {testResult && (
+        {(testResult || showResponse) && (
           <div className="card" style={{ marginTop: '1.5rem' }}>
             <div className="card-header">
               <h3 className="card-title">Test Result</h3>
-              <button className="btn btn-ghost btn-small" onClick={() => setTestResult(null)}>Clear</button>
+              <button className="btn btn-ghost btn-small" onClick={() => { setTestResult(null); navigate('?'); }}>Clear</button>
             </div>
             {testResult.request && (
-              <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#fff3cd', borderRadius: '4px', fontSize: '0.85rem' }}>
+              <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--warning-bg)', borderRadius: '4px', fontSize: '0.85rem' }}>
                 <strong style={{ color: 'var(--warning)' }}>Request Details:</strong>
                 <div style={{ marginTop: '0.5rem', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   <div><strong>Method:</strong> <span style={{ background: 'var(--surface-hover)', padding: '2px 6px', borderRadius: '3px' }}>{testResult.request.method}</span></div>
@@ -672,18 +678,6 @@ function Tools({ all: isAllTools }) {
                   {testResult.request.body && (
                     <div><strong>Body:</strong> {typeof testResult.request.body === 'string' ? testResult.request.body : JSON.stringify(testResult.request.body)}</div>
                   )}
-                  <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: '#e8f4f8', borderRadius: '4px' }}>
-                    <strong>Auth Config:</strong>
-                    <div style={{ marginTop: '0.25rem' }}>Type: {testResult.request.auth?.type || 'None'}</div>
-                    <div style={{ color: testResult.request.auth?.hasCredentials ? '#22c55e' : '#dc2626' }}>
-                      {testResult.request.auth?.hasCredentials ? '✓ Credentials present' : '⚠ No credentials configured'}
-                    </div>
-                    {testResult.request.auth?.credentialsKeys?.length > 0 && (
-                      <div style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                        Stored keys: {testResult.request.auth.credentialsKeys.join(', ')}
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             )}
@@ -1014,7 +1008,7 @@ function Tools({ all: isAllTools }) {
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                               {Object.entries(tool.inputSchema.properties).map(([param, details]) => (
                                 <span key={param} style={{ 
-                                  background: '#e0e0e0', 
+                                  background: 'var(--surface-hover)', 
                                   padding: '0.2rem 0.5rem', 
                                   borderRadius: '4px',
                                   fontSize: '0.8rem'
@@ -1030,7 +1024,7 @@ function Tools({ all: isAllTools }) {
                   </div>
                 )}
                 
-                <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#e3f2fd', borderRadius: '8px', borderLeft: '4px solid #2196f3' }}>
+                <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--primary-bg)', borderRadius: '8px', borderLeft: '4px solid var(--primary)' }}>
                   <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem' }}>💡 Example Prompts for AI Assistants</h4>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
                     Copy these prompts and give to Claude/Cursor/OpenCode to automate tasks:
@@ -1085,7 +1079,7 @@ function Tools({ all: isAllTools }) {
                   </select>
                 </div>
 
-                <div style={{ display: 'grid', gap: '1rem', padding: '1rem', background: '#f9f9f9', borderRadius: '8px' }}>
+                <div style={{ display: 'grid', gap: '1rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: '8px' }}>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>JIRA Ticket ID *</label>
                     <input 
