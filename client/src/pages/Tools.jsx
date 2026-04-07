@@ -750,7 +750,7 @@ function Tools({ all: isAllTools }) {
               <div className="modal-body">
                 {discoveredEndpoints.length === 0 ? (
                   <form onSubmit={handleExplore}>
-                    <div style={{ marginBottom: '1rem', padding: '0.75rem', background: '#f5f5f5', borderRadius: '4px' }}>
+                    <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '4px' }}>
                       <strong>Base URL:</strong> {integration?.config?.baseUrl}
                     </div>
                     <div className="form-group">
@@ -788,11 +788,11 @@ function Tools({ all: isAllTools }) {
                   </form>
                 ) : (
                   <div>
-                    <div style={{ marginBottom: '1rem', padding: '0.75rem', background: '#e8f5e9', borderRadius: '4px' }}>
+                    <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--success-bg, #e8f5e9)', borderRadius: '4px' }}>
                       <strong>Found {discoveredEndpoints.length} endpoints</strong>
                     </div>
-                    <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '1rem', border: '1px solid #ddd' }}>
-                      <div style={{ padding: '0.5rem', background: '#f5f5f5', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+                      <div style={{ padding: '0.5rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                           <input type="checkbox" checked={selectedEndpoints.length === discoveredEndpoints.length} onChange={toggleSelectAll} />
                           <strong>Select All</strong>
@@ -813,7 +813,7 @@ function Tools({ all: isAllTools }) {
                         ep.method.toLowerCase().includes(endpointSearch.toLowerCase()) ||
                         (ep.operationId && ep.operationId.toLowerCase().includes(endpointSearch.toLowerCase()))
                       ) : discoveredEndpoints).map((ep, idx) => (
-                        <div key={idx} style={{ padding: '0.5rem', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div key={idx} style={{ padding: '0.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <input 
                             type="checkbox" 
                             checked={selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method)}
