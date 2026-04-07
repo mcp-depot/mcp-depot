@@ -632,7 +632,7 @@ router.post('/:id/import-tools', auth, async (req, res) => {
           };
           extractVars(ep.bodyTemplate);
         } else if (isBodyMethod && bodyParams) {
-          const VALID_KEY = /^[a-zA-Z0-9_.\-]{1,64}$/;
+          const VALID_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
           const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
           Object.entries(bodyParams).forEach(([key, val]) => {
             if (OPENAPI_KEYWORDS.has(key) || !VALID_KEY.test(key)) return;
