@@ -34,11 +34,18 @@ class OpenAPIParser {
     const basePath = servers[0]?.url || this.baseUrl;
     const definitions = spec.definitions || spec.components?.schemas || {};
 
+    const resolving = new Set();
+
     const resolveRef = (ref) => {
       if (!ref || !ref.startsWith('#/')) return ref;
+      if (resolving.has(ref)) return { type: 'object', properties: {} };
       const path = ref.replace('#/definitions/', '').replace('#/components/schemas/', '');
       const resolved = definitions[path];
-      return resolved ? resolveSchema(resolved) : ref;
+      if (!resolved) return ref;
+      resolving.add(ref);
+      const result = resolveSchema(resolved);
+      resolving.delete(ref);
+      return result;
     };
 
     const resolveSchema = (schema) => {
