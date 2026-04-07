@@ -176,9 +176,11 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
 
     try {
       if (tool.mockEnabled && tool.mockResponse) {
-        result = typeof tool.mockResponse === 'string' 
-          ? JSON.parse(tool.mockResponse.replace(/\{(\w+)\}/g, (match, key) => JSON.stringify(mergedParams[key] || match)))
-          : tool.mockResponse;
+        let mockStr = JSON.stringify(tool.mockResponse);
+        mockStr = mockStr.replace(/"\{(\w+)\}"/g, (match, key) =>
+          mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : `"${key}"`
+        );
+        result = JSON.parse(mockStr);
       } else {
         switch (tool.endpoint.method) {
           case 'GET':

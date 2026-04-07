@@ -494,6 +494,14 @@ function Tools({ all: isAllTools }) {
                       <h3>{integration.name}</h3>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      {showBulkActions && (
+                        <input 
+                          type="checkbox" 
+                          checked={selectedTools.size === tools.length && tools.length > 0}
+                          onChange={() => toggleAllToolsSelect(tools)}
+                          title="Select all"
+                        />
+                      )}
                       <button 
                         className="btn btn-sm" 
                         onClick={() => setShowBulkActions(!showBulkActions)}

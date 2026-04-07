@@ -9,6 +9,9 @@ const logger = require('../services/logger');
 
 const { randomUUID } = require('crypto');
 
+const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
+const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
+
 class MCPConnectServer {
   constructor() {
     this.server = null;
@@ -44,9 +47,6 @@ class MCPConnectServer {
     
     const schema = {};
     const required = [];
-    
-    const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
-    const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
 
     for (const [key, param] of Object.entries(params)) {
       if (OPENAPI_KEYWORDS.has(key) || !VALID_SCHEMA_KEY.test(key)) continue;

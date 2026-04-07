@@ -713,7 +713,7 @@ router.post('/:id/import-tools', auth, async (req, res) => {
       }
     }
 
-    if (process.env.MCP_STDIO_ENABLED === 'true' && createdTools.length > 0) {
+    if (process.env.MCP_ENABLED === 'true' && createdTools.length > 0) {
       const { refreshToolsIfEnabled } = require('../mcp/server');
       refreshToolsIfEnabled();
     }
