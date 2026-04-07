@@ -106,7 +106,7 @@ services:
       - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY:-change-infisical-encryption-key}
       - AUTH_SECRET=${INFISICAL_AUTH_SECRET:-change-infisical-auth-secret}
       - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical
-      - REDIS_URL=valkey://valkey:6379
+      - REDIS_URL=redis://valkey:6379
       - SITE_URL=http://localhost:8080
     depends_on:
       postgres:
