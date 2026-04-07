@@ -696,29 +696,32 @@ function Tools({ all: isAllTools }) {
                         value={form.body} 
                         onChange={e => {
                           const newBody = e.target.value;
-                          setForm({ ...form, body: newBody });
-                          
                           const bodyVars = (newBody.match(/\{(\w+)\}/g) || []).map(m => m.slice(1, -1));
-                          if (bodyVars.length > 0) {
-                            let parsedParams = {};
-                            try {
-                              parsedParams = form.params ? JSON.parse(form.params) : {};
-                            } catch {
-                              parsedParams = {};
-                            }
-                            
-                            let changed = false;
-                            bodyVars.forEach(varName => {
-                              if (!parsedParams[varName]) {
-                                parsedParams[varName] = { type: 'string', required: true, description: '' };
-                                changed = true;
+
+                          setForm(f => {
+                            const next = { ...f, body: newBody };
+
+                            if (bodyVars.length > 0) {
+                              let parsedParams = {};
+                              try {
+                                parsedParams = f.params ? JSON.parse(f.params) : {};
+                              } catch {
+                                parsedParams = {};
                               }
-                            });
-                            
-                            if (changed) {
-                              setForm(f => ({ ...f, params: JSON.stringify(parsedParams, null, 2) }));
+                              let changed = false;
+                              bodyVars.forEach(varName => {
+                                if (!parsedParams[varName]) {
+                                  parsedParams[varName] = { type: 'string', required: true, description: '' };
+                                  changed = true;
+                                }
+                              });
+                              if (changed) {
+                                next.params = JSON.stringify(parsedParams, null, 2);
+                              }
                             }
-                          }
+
+                            return next;
+                          });
                         }} 
                         placeholder='{"transition": {"id": "{transitionId}"}}' 
                       />
