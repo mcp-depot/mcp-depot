@@ -74,15 +74,17 @@ class OpenAPIParser {
       return schema;
     };
 
-    const generateBodyTemplate = (schema, keyPrefix = '') => {
+    const generateBodyTemplate = (schema, keyPrefix = '', depth = 0) => {
       if (!schema || schema.type !== 'object' || !schema.properties) return null;
+      if (depth >= 2) return null;
       const SKIP = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
       const template = {};
       for (const [key, val] of Object.entries(schema.properties)) {
         if (SKIP.has(key)) continue;
         const varName = keyPrefix ? `${keyPrefix}_${key}` : key;
+        if (varName.length > 64) continue;
         if (val?.type === 'object' && val?.properties) {
-          const nested = generateBodyTemplate(val, varName);
+          const nested = generateBodyTemplate(val, varName, depth + 1);
           if (nested) template[key] = nested;
         } else if (val?.type === 'array') {
           // skip — arrays need manual setup
