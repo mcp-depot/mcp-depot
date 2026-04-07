@@ -40,6 +40,14 @@ const Tool = sequelize.define('Tool', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  mockEnabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  mockResponse: {
+    type: DataTypes.JSONB,
+    defaultValue: null
+  },
   usageCount: {
     type: DataTypes.INTEGER,
     defaultValue: 0

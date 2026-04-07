@@ -173,29 +173,35 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     let callSuccess = true;
     let callError = null;
     let responseStatus = 200;
-    
-    try {
-      switch (tool.endpoint.method) {
-        case 'GET':
-          result = await adapter.get(path, { params: queryParams, headers: mergedHeaders });
-          break;
-        case 'POST':
-          result = await adapter.post(path, bodyParams, { params: queryParams, headers: mergedHeaders });
-          break;
-        case 'PUT':
-          result = await adapter.put(path, bodyParams, { params: queryParams, headers: mergedHeaders });
-          break;
-        case 'PATCH':
-          result = await adapter.patch(path, bodyParams, { params: queryParams, headers: mergedHeaders });
-          break;
-        case 'DELETE':
-          result = await adapter.delete(path, { params: queryParams, headers: mergedHeaders });
-          break;
+
+    if (tool.mockEnabled && tool.mockResponse) {
+      result = typeof tool.mockResponse === 'string' 
+        ? JSON.parse(tool.mockResponse.replace(/\{(\w+)\}/g, (match, key) => JSON.stringify(mergedParams[key] || match)))
+        : tool.mockResponse;
+    } else {
+      try {
+        switch (tool.endpoint.method) {
+          case 'GET':
+            result = await adapter.get(path, { params: queryParams, headers: mergedHeaders });
+            break;
+          case 'POST':
+            result = await adapter.post(path, bodyParams, { params: queryParams, headers: mergedHeaders });
+            break;
+          case 'PUT':
+            result = await adapter.put(path, bodyParams, { params: queryParams, headers: mergedHeaders });
+            break;
+          case 'PATCH':
+            result = await adapter.patch(path, bodyParams, { params: queryParams, headers: mergedHeaders });
+            break;
+          case 'DELETE':
+            result = await adapter.delete(path, { params: queryParams, headers: mergedHeaders });
+            break;
+        }
+      } catch (callError) {
+        callSuccess = false;
+        responseStatus = callError.response?.status || 500;
+        throw callError;
       }
-    } catch (callError) {
-      callSuccess = false;
-      responseStatus = callError.response?.status || 500;
-      throw callError;
     } finally {
       const responseTime = Date.now() - startTime;
       
