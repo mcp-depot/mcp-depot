@@ -62,7 +62,7 @@ function Integrations() {
     
     try {
       const authConfig = { type: discoverForm.authType };
-      if ((discoverForm.authType === 'bearer' || discoverForm.authType === 'infisical') && discoverForm.token) {
+      if (discoverForm.authType === 'bearer' && discoverForm.token) {
         authConfig.credentials = { token: discoverForm.token };
       }
       
@@ -109,7 +109,7 @@ function Integrations() {
         baseUrl: form.baseUrl,
         auth: {
           type: discoverForm.authType,
-          credentials: (discoverForm.authType === 'bearer' || discoverForm.authType === 'infisical') ? { token: discoverForm.token } : {}
+          credentials: discoverForm.authType === 'bearer' ? { token: discoverForm.token } : {}
         }
       };
       
@@ -178,7 +178,7 @@ function Integrations() {
 
         if (form.authType === 'basic') {
           config.auth.credentials = { username: form.username, token: form.token };
-        } else if (form.authType === 'bearer' || form.authType === 'infisical') {
+        } else if (form.authType === 'bearer') {
           config.auth.credentials = { token: form.bearerToken };
         } else if (form.authType === 'apiKey') {
           config.auth.credentials = { key: form.apiKeyName, value: form.apiKey, addTo: form.apiKeyIn };
@@ -447,10 +447,9 @@ function Integrations() {
                       <StyledSelect
                         options={[
                           { value: 'none', label: 'None' },
-                          { value: 'bearer', label: 'Bearer Token' },
-                          { value: 'infisical', label: 'Infisical Secret' }
+                          { value: 'bearer', label: 'Bearer Token' }
                         ]}
-                        value={{ value: discoverForm.authType, label: discoverForm.authType === 'none' ? 'None' : discoverForm.authType === 'bearer' ? 'Bearer Token' : 'Infisical Secret' }}
+                        value={{ value: discoverForm.authType, label: discoverForm.authType === 'none' ? 'None' : 'Bearer Token' }}
                         onChange={(opt) => setDiscoverForm({ ...discoverForm, authType: opt?.value || 'none' })}
                         isSearchable={false}
                       />
@@ -462,18 +461,7 @@ function Integrations() {
                           type="password" 
                           value={discoverForm.token} 
                           onChange={e => setDiscoverForm({ ...discoverForm, token: e.target.value })} 
-                          placeholder="Enter your API token"
-                        />
-                      </div>
-                    )}
-                    {discoverForm.authType === 'infisical' && (
-                      <div className="form-group">
-                        <label>Secret Reference</label>
-                        <input 
-                          type="text" 
-                          value={discoverForm.token} 
-                          onChange={e => setDiscoverForm({ ...discoverForm, token: e.target.value })} 
-                          placeholder="infisical://dev/JIRA_TOKEN"
+                          placeholder="Enter your API token or infisical://dev/SECRET_NAME"
                         />
                       </div>
                     )}
@@ -591,38 +579,37 @@ function Integrations() {
                   </div>
                   <div className="form-group">
                     <label>Authentication</label>
-                    <StyledSelect
-                      options={[
-                        { value: 'none', label: 'None' },
-                        { value: 'basic', label: 'Basic Auth' },
-                        { value: 'bearer', label: 'Bearer Token' },
-                        { value: 'apiKey', label: 'API Key' },
-                        { value: 'infisical', label: 'Infisical Secret' }
-                      ]}
-                      value={{ value: form.authType, label: form.authType === 'none' ? 'None' : form.authType === 'basic' ? 'Basic Auth' : form.authType === 'bearer' ? 'Bearer Token' : form.authType === 'apiKey' ? 'API Key' : 'Infisical Secret' }}
-                      onChange={(opt) => setForm({ ...form, authType: opt?.value || 'none' })}
-                      isSearchable={false}
-                    />
-                  </div>
-                  {form.authType === 'basic' && (
-                    <div className="auth-section">
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label>Username</label>
-                          <input type="text" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
-                        </div>
-                        <div className="form-group">
-                          <label>Password/Token</label>
-                          <input type="password" value={form.token} onChange={e => setForm({ ...form, token: e.target.value })} />
+                      <StyledSelect
+                        options={[
+                          { value: 'none', label: 'None' },
+                          { value: 'basic', label: 'Basic Auth' },
+                          { value: 'bearer', label: 'Bearer Token' },
+                          { value: 'apiKey', label: 'API Key' }
+                        ]}
+                        value={{ value: form.authType, label: form.authType === 'none' ? 'None' : form.authType === 'basic' ? 'Basic Auth' : form.authType === 'bearer' ? 'Bearer Token' : 'API Key' }}
+                        onChange={(opt) => setForm({ ...form, authType: opt?.value || 'none' })}
+                        isSearchable={false}
+                      />
+                    </div>
+                    {form.authType === 'basic' && (
+                      <div className="auth-section">
+                        <div className="form-row">
+                          <div className="form-group">
+                            <label>Username</label>
+                            <input type="text" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} />
+                          </div>
+                          <div className="form-group">
+                            <label>Password/Token</label>
+                            <input type="password" value={form.token} onChange={e => setForm({ ...form, token: e.target.value })} placeholder="password or infisical://dev/SECRET_NAME" />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
                   {form.authType === 'bearer' && (
                     <div className="auth-section">
                       <div className="form-group">
                         <label>Bearer Token</label>
-                        <input type="password" value={form.bearerToken} onChange={e => setForm({ ...form, bearerToken: e.target.value })} placeholder="Enter token" />
+                        <input type="password" value={form.bearerToken} onChange={e => setForm({ ...form, bearerToken: e.target.value })} placeholder="Enter token or infisical://dev/SECRET_NAME" />
                       </div>
                     </div>
                   )}
@@ -635,7 +622,7 @@ function Integrations() {
                         </div>
                         <div className="form-group">
                           <label>Key Value</label>
-                          <input type="password" value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
+                          <input type="password" value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} placeholder="Enter key or infisical://dev/SECRET_NAME" />
                         </div>
                       </div>
                       <div className="form-group">
@@ -648,31 +635,6 @@ function Integrations() {
                           value={{ value: form.apiKeyIn, label: form.apiKeyIn === 'header' ? 'HTTP Header' : 'Query Parameter' }}
                           onChange={(opt) => setForm({ ...form, apiKeyIn: opt?.value || 'header' })}
                           isSearchable={false}
-                        />
-                      </div>
-                    </div>
-                  )}
-                  {form.authType === 'infisical' && (
-                    <div className="auth-section">
-                      <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                        Use secrets from Infisical. Enter the secret reference in the format: <code>infisical://env/secret-name</code> or <code>infisical://env/folder/secret-name</code>
-                      </p>
-                      <div className="form-group">
-                        <label>Secret Reference (Token)</label>
-                        <input 
-                          type="text" 
-                          value={form.bearerToken} 
-                          onChange={e => setForm({ ...form, bearerToken: e.target.value })} 
-                          placeholder="infisical://dev/JIRA_TOKEN"
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Key Name</label>
-                        <input 
-                          type="text" 
-                          value={form.apiKeyName || 'token'} 
-                          onChange={e => setForm({ ...form, apiKeyName: e.target.value })} 
-                          placeholder="e.g., token, api_key, password"
                         />
                       </div>
                     </div>

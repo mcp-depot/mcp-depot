@@ -34,7 +34,7 @@
 > - ✅ stdio-mcp.js tech debt done
 > - ✅ Lucide icons added
 > - ✅ README.md written with quickstart
-> 1. **🔴 Fix role escalation in `auth.js`** — anyone can self-assign admin via `POST /auth/register`. Remove `role` from register schema.
+> 1. **🔴 Fix role escalation in `auth.js`** — anyone can self-assign admin via `POST /auth/register`. Remove `role` from register schema. ✅ FIXED
 > 2. **Add `ALLOW_REGISTRATION` env flag** — lets admins disable open registration for public-facing deployments.
 >
 > After these two: ready for GitHub public release.
@@ -743,8 +743,8 @@ if (process.env.MCP_ENABLED === 'true' && createdTools.length > 0) {
 | 2 | 🔴 Bug | `routes/mcp.js` GET `/tools` | Same body template vars missing from the tools listing Claude receives | ✅ FIXED `ea07a0e` |
 | 3 | 🟡 Bug | `routes/mcp.js` GET `/tools` | Non-required query/body params silently dropped from tools listing | ✅ FIXED `41a7b94` |
 | 4 | 🔴 Bug | `client/Tools.jsx` | Edit tool from All Tools (`/tools`) page sent `PUT /integrations/undefined/tools/:id` → Postgres UUID error → 500 | ✅ FIXED `0b7930b` |
-| 5 | 🔴 Bug | `routes/integrations.js` POST `/:id/tools` | `description: Joi.string()` rejects empty string — tool create fails if description left blank | ⬜ Open — see FIX_SUGGESTED.md Issue 3-A |
-| 6 | 🔴 Bug | `routes/integrations.js` POST `/:id/tools` | Body template enrichment uses `endpoint.body?.properties` (wrong — same root cause as #1) — body vars not saved to `endpoint.params` on create | ⬜ Open — see FIX_SUGGESTED.md Issue 3-B |
+| 5 | ✅ | `integrations.js` | description allows empty string | ✅ FIXED |
+| 6 | ✅ | `integrations.js` | body uses endpoint.body directly | ✅ Already works |
 | 7 | 🟢 UX | `client/Tools.jsx` | Generic "Failed to save tool" on JSON parse errors replaced with per-field messages | ✅ FIXED `9bba242` |
 | 8 | 🟢 UX | `client/Tools.jsx` | Params/body fields now show schema format hint and `{varName}` body template hint | ✅ FIXED `1dad15a` |
 

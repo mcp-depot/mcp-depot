@@ -404,6 +404,18 @@ const connectDB = async (retries = 5, delay = 3000) => {
     } catch (e) {
       logger.warn('System settings table may already exist or error:', e.message);
     }
+
+    // Migration: remap auth.type from 'infisical' to 'bearer' for existing integrations
+    try {
+      await sequelize.query(`
+        UPDATE integrations
+        SET config = jsonb_set(config, '{auth,type}', '"bearer"')
+        WHERE config->'auth'->>'type' = 'infisical'
+      `);
+      logger.info('Migration: remapped infisical auth type to bearer');
+    } catch (e) {
+      logger.warn('Migration may have already run:', e.message);
+    }
     
     await createDefaultUser();
     
