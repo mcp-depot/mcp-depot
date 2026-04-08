@@ -120,6 +120,7 @@ async function resolveSecret(secretRef) {
     }
 
     const data = await response.json();
+    logger.info({ dataKeys: Object.keys(data), hasSecret: !!data.secret, secretValueLength: data.secret?.secretValue?.length }, 'Infisical response parsed');
     return data.secret?.secretValue || null;
   } catch (error) {
     logger.error({ err: error.message, secretRef }, 'Failed to resolve secret');

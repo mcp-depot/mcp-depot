@@ -6,6 +6,7 @@ const Tool = require('../models/Tool');
 const AdapterFactory = require('../adapters');
 const audit = require('../services/audit');
 const { logToolCall } = require('../services/tool-logger');
+const logger = require('../services/logger');
 const encryption = require('../services/encryption');
 const secretStore = require('../services/secret-store');
 
@@ -139,7 +140,9 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
         const resolveIfNeeded = async (cred) => {
           for (const [key, value] of Object.entries(cred)) {
             if (typeof value === 'string' && secretStore.isSecretRef(value)) {
+              logger.info({ key, value }, 'Resolving Infisical secret');
               const resolved = await secretStore.resolveSecret(value);
+              logger.info({ key, resolved: resolved?.substring(0, 20), fullLength: resolved?.length }, 'Resolved Infisical secret');
               if (resolved) cred[key] = resolved;
             }
           }

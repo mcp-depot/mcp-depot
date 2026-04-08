@@ -37,6 +37,7 @@ class DynamicAdapter {
         return { 'Authorization': `Basic ${auth}` };
 
       case 'bearer':
+      case 'infisical':
         const token = encryption.decrypt(credentials.token) || credentials.token;
         if (!token) return {};
         return { 'Authorization': `Bearer ${token}` };
