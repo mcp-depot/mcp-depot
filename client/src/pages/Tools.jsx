@@ -653,7 +653,7 @@ function Tools({ all: isAllTools }) {
           </div>
         )}
 
-        {(testResult || showResponse) && (
+        {testResult && (
           <div className="card" style={{ marginTop: '1.5rem' }}>
             <div className="card-header">
               <h3 className="card-title">Test Result</h3>
@@ -664,8 +664,7 @@ function Tools({ all: isAllTools }) {
                 <strong style={{ color: 'var(--warning)' }}>Request Details:</strong>
                 <div style={{ marginTop: '0.5rem', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   <div><strong>Method:</strong> <span style={{ background: 'var(--surface-hover)', padding: '2px 6px', borderRadius: '3px' }}>{testResult.request.method}</span></div>
-                  <div><strong>Full URL:</strong> <span style={{ wordBreak: 'break-all' }}>{testResult.request.url}</span></div>
-                  <div><strong>Path Template:</strong> {testResult.request.path}</div>
+                  <div><strong>URL:</strong> <span style={{ wordBreak: 'break-all' }}>{testResult.request.path}</span></div>
                   {Object.keys(testResult.request.pathParams || {}).length > 0 && (
                     <div><strong>Path Params:</strong> {JSON.stringify(testResult.request.pathParams)}</div>
                   )}
