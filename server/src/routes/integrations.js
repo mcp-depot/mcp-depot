@@ -22,7 +22,7 @@ const integrationSchema = Joi.object({
   config: Joi.object({
     baseUrl: Joi.string().uri().required(),
     auth: Joi.object({
-      type: Joi.string().valid('none', 'basic', 'bearer', 'apiKey', 'oauth2').default('none'),
+      type: Joi.string().valid('none', 'basic', 'bearer', 'apiKey', 'oauth2', 'infisical').default('none'),
       credentials: Joi.object()
     }).default({ type: 'none' }),
     headers: Joi.object().default({}),
