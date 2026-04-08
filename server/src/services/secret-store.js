@@ -51,7 +51,7 @@ async function init(options) {
     siteUrl: options.siteUrl,
     clientId: options.clientId,
     clientSecret: options.clientSecret,
-    workspaceId: options.workspaceId,
+    workspaceId: options.workspaceId,  // This is actually the project ID
     environment: options.environment || 'dev'
   };
 
@@ -103,21 +103,24 @@ async function resolveSecret(secretRef) {
 
   try {
     const token = await getAccessToken();
-    const secretPath = `${config.siteUrl}/api/v3/secrets/raw/${secretName}?environment=${env}&secretPath=${folderPath}&workspaceId=${config.workspaceId}`;
+    logger.info({ tokenPreview: token?.substring(0, 20), siteUrl: config.siteUrl, projectId: config.workspaceId, env, folderPath, secretName }, 'Fetching secret from Infisical');
     
-    const response = await fetch(secretPath, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
+    // Use v3 secrets API: /api/v3/secrets/raw/{secretName}?workspaceId=<projectId>&environment=<env>&secretPath=<path>
+    const url = `${config.siteUrl}/api/v3/secrets/raw/${encodeURIComponent(secretName)}` +
+      `?workspaceId=${config.workspaceId}&environment=${env}&secretPath=${encodeURIComponent(folderPath)}`;
+    
+    const response = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
     });
+
+    logger.info({ status: response.status, statusText: response.statusText }, 'Infisical response');
 
     if (!response.ok) {
       throw new Error(`Failed to fetch secret: ${response.status}`);
     }
 
     const data = await response.json();
-    return data.secretValue || null;
+    return data.secret?.secretValue || null;
   } catch (error) {
     logger.error({ err: error.message, secretRef }, 'Failed to resolve secret');
     return null;
