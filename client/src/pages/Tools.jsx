@@ -329,12 +329,10 @@ function Tools({ all: isAllTools }) {
       const res = await api.post(`/consume/tools/${toolId}/execute`, { params: testParams });
       setTestResult({ success: true, data: res.data, request: requestDetails });
       setShowTestModal(false);
-      navigate(`?response=true&toolId=${toolId}`);
     } catch (err) {
       const errorMsg = err.response?.data?.error || 'Tool execution failed';
       setTestResult({ success: false, error: typeof errorMsg === 'object' ? JSON.stringify(errorMsg) : errorMsg, request: requestDetails });
       setShowTestModal(false);
-      navigate(`?response=true&toolId=${toolId}`);
     } finally {
       setTestingTool(null);
     }
