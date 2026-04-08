@@ -18,7 +18,7 @@ const router = express.Router();
 const integrationSchema = Joi.object({
   type: Joi.string().required(),
   name: Joi.string().required(),
-  description: Joi.string(),
+  description: Joi.string().allow('').optional(),
   config: Joi.object({
     baseUrl: Joi.string().uri().required(),
     auth: Joi.object({

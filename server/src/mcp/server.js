@@ -293,8 +293,21 @@ async function refreshToolsIfEnabled() {
   }
 }
 
+let mcpEnabled = false;
+let mcpStartTime = null;
+
 function getMcpClients() {
-  return 0;
+  // Return 1 if MCP is enabled and has started, 0 otherwise
+  // For stdio mode, there's no connection tracking - this indicates server availability
+  // For HTTP mode, actual connection tracking would require SSE session management
+  return mcpEnabled && mcpStartTime ? 1 : 0;
+}
+
+function setMcpEnabled(enabled) {
+  mcpEnabled = enabled;
+  if (enabled && !mcpStartTime) {
+    mcpStartTime = Date.now();
+  }
 }
 
 module.exports = mcpServerInstance;

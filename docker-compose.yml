@@ -5,12 +5,13 @@ services:
     image: postgres:15
     container_name: mcpconnect-postgres
     restart: unless-stopped
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
       POSTGRES_DB: ${POSTGRES_DB:-mcpconnect}
-    expose:
-      - "5432"
+      PGTZ: UTC
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
@@ -52,7 +53,7 @@ services:
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       - JWT_EXPIRE=15m
       - JWT_REFRESH_EXPIRE=7d
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-change-this-encryption-key}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - ALLOW_SELF_SIGNED_CERTS=${ALLOW_SELF_SIGNED_CERTS:-true}
       - TOOLS_CACHE_ENABLED=${TOOLS_CACHE_ENABLED:-false}
       - TOOLS_CACHE_TTL=${TOOLS_CACHE_TTL:-300000}

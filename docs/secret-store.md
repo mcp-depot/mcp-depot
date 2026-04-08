@@ -65,7 +65,10 @@ docker-compose --profile secret-store up -d
 #### Step 6: Get IDs
 
 - **Organization ID**: In URL `http://localhost:8080/org/<org-id>/settings/...`
+- **Project ID**: In URL `http://localhost:8080/project/<project-id>/secrets/...`
 - **Environment**: Go to project → **Environments** tab → note your environment names (e.g., `dev`, `prod`)
+
+> **Important**: Use the **Project ID** (not Organization ID) for `SECRET_STORE_WORKSPACE_ID`
 
 ---
 

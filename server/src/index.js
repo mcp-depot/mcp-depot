@@ -84,6 +84,7 @@ setExternalMcpClearCache(clearToolsCache);
 if (process.env.MCP_ENABLED === 'true') {
   const mcpServer = require('./mcp/server');
   mcpServer.initialize().then(async () => {
+    mcpServer.setMcpEnabled(true);
     if (process.env.MCP_TRANSPORT === 'http' || !process.env.MCP_TRANSPORT) {
       await mcpServer.startHttp(app).catch(err => {
         logger.error({ err: err.message }, 'Failed to start MCP HTTP server');

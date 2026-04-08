@@ -202,6 +202,7 @@ function Integrations() {
   };
 
   const handleEdit = (integration) => {
+    const credentials = integration.config?.auth?.credentials || {};
     setEditingId(integration._id);
     setForm({
       type: integration.type,
@@ -209,12 +210,12 @@ function Integrations() {
       description: integration.description || '',
       baseUrl: integration.baseUrl,
       authType: integration.authType || 'none',
-      username: '',
-      token: '',
-      apiKey: '',
-      apiKeyName: '',
-      apiKeyIn: 'header',
-      bearerToken: ''
+      username: credentials.username || '',
+      token: credentials.token || '',
+      apiKey: credentials.value || '',
+      apiKeyName: credentials.key || '',
+      apiKeyIn: credentials.addTo || 'header',
+      bearerToken: credentials.token || ''
     });
     setShowModal(true);
   };
