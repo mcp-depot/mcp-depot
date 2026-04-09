@@ -864,8 +864,44 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         source: 'local',
         result
       });
+
+      const userId = req.user?.id || req.apiKey?.userId;
+      await logToolCall({
+        toolId: tool.id,
+        userId,
+        integrationId: integration.id,
+        callerId: req.apiKey?.id || null,
+        callerType: req.apiKey ? 'api' : 'rest',
+        method: tool.endpoint.method,
+        path: tool.endpoint.path,
+        requestHeaders: mergedHeaders,
+        requestBody: bodyParams,
+        queryParams,
+        responseStatus: 200,
+        responseBody: result,
+        responseTime: 0,
+        success: true,
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
+
+      await logToolCall({
+        toolId: tool.id,
+        userId,
+        integrationId: integration.id,
+        callerId: req.apiKey?.id || null,
+        callerType: req.apiKey ? 'api' : 'rest',
+        method: tool.endpoint.method,
+        path: tool.endpoint.path,
+        requestHeaders: mergedHeaders,
+        requestBody: bodyParams,
+        queryParams,
+        responseStatus: error.response?.status || 500,
+        responseBody: { error: error.message },
+        responseTime: 0,
+        success: false,
+        errorMessage: error.message,
+      });
     }
   } catch (error) {
     res.status(500).json({ error: error.message });
