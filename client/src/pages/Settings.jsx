@@ -148,7 +148,7 @@ mcp-connect
 
 function Settings() {
   const { user, logout } = useAuth();
-  const { themeName, setThemeName, themes: availableThemes } = useTheme();
+  const { themeName, setThemeName, themes: availableThemes, customColors, previewColors, setPreviewColors, confirmColors, resetPreview, setCustomColors } = useTheme();
   const [activeTab, setActiveTab] = useState('profile');
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyMessage, setApiKeyMessage] = useState('');
@@ -428,7 +428,7 @@ function Settings() {
                     {availableThemes.map(t => (
                       <div 
                         key={t}
-                        onClick={() => setThemeName(t)}
+                        onClick={() => { setThemeName(t); resetPreview(); }}
                         style={{ 
                           cursor: 'pointer',
                           padding: '0.75rem 1rem',
@@ -451,6 +451,94 @@ function Settings() {
                         <span style={{ fontSize: '0.9rem' }}>{t.charAt(0).toUpperCase() + t.slice(1)}</span>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Custom Colors</label>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+                    Customize colors for this theme. Preview changes instantly, save or cancel.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                    {[
+                      { key: 'primary', label: 'Primary' },
+                      { key: 'success', label: 'Success' },
+                      { key: 'danger', label: 'Danger' },
+                      { key: 'warning', label: 'Warning' },
+                      { key: 'background', label: 'Background' },
+                      { key: 'surface', label: 'Surface' },
+                      { key: 'text', label: 'Text' },
+                      { key: 'textSecondary', label: 'Text Secondary' }
+                    ].map(({ key, label }) => {
+                      const currentVal = (previewColors || customColors || themes[themeName])[key] || '';
+                      return (
+                        <div key={key}>
+                          <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{label}</label>
+                          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                            <input 
+                              type="color" 
+                              value={currentVal.startsWith('rgba') ? '#000000' : currentVal}
+                              onChange={(e) => {
+                                const newColors = { ...(previewColors || customColors || {}), [key]: e.target.value };
+                                setPreviewColors(newColors);
+                              }}
+                              style={{ 
+                                width: '40px', 
+                                height: '32px', 
+                                padding: 0, 
+                                border: '1px solid var(--border-light)', 
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                              }}
+                            />
+                            <input 
+                              type="text" 
+                              value={currentVal}
+                              onChange={(e) => {
+                                const newColors = { ...(previewColors || customColors || {}), [key]: e.target.value };
+                                setPreviewColors(newColors);
+                              }}
+                              style={{ 
+                                flex: 1, 
+                                padding: '0.4rem', 
+                                fontSize: '0.8rem',
+                                background: 'var(--surface)', 
+                                border: '1px solid var(--border-light)', 
+                                borderRadius: '4px',
+                                color: 'var(--text)'
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem' }}>
+                    {previewColors && (
+                      <>
+                        <button 
+                          className="btn btn-primary"
+                          onClick={() => confirmColors(previewColors)}
+                        >
+                          Save Colors
+                        </button>
+                        <button 
+                          className="btn btn-ghost"
+                          onClick={resetPreview}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                    {(customColors && Object.keys(customColors).length > 0) && !previewColors && (
+                      <button 
+                        className="btn btn-ghost"
+                        onClick={() => saveCustomColors({})}
+                        style={{ color: 'var(--danger)' }}
+                      >
+                        Reset to Default
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
