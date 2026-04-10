@@ -13,7 +13,6 @@ function Tools({ all: isAllTools }) {
   const id = params.id;
   const highlightedToolId = searchParams.get('highlighted');
   const showResponse = searchParams.get('response');
-  console.log('Highlighted tool ID:', highlightedToolId);
   const { user } = useAuth();
   const [allToolsData, setAllToolsData] = useState([]);
   const [integration, setIntegration] = useState(null);
@@ -215,11 +214,9 @@ function Tools({ all: isAllTools }) {
   const handleDelete = async (toolId) => {
     if (!confirm('Are you sure you want to delete this tool?')) return;
     try {
-      console.log('Deleting tool:', toolId);
       await api.delete(`/integrations/${id}/tools/${toolId}`);
       fetchData();
     } catch (err) {
-      console.error('Delete error:', err);
       alert('Failed to delete tool: ' + (err.response?.data?.error || err.message));
     }
   };
@@ -620,12 +617,45 @@ function Tools({ all: isAllTools }) {
           </div>
         ) : (
           <div className="card">
-            <div className="card-header">
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 className="card-title">Available Tools ({tools.length})</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {showBulkActions && (
+                  <input 
+                    type="checkbox" 
+                    checked={selectedTools.size === tools.length && tools.length > 0}
+                    onChange={() => toggleAllToolsSelect(tools)}
+                    title="Select all"
+                  />
+                )}
+                <button 
+                  className="btn btn-sm" 
+                  onClick={() => setShowBulkActions(!showBulkActions)}
+                  title="Bulk actions"
+                >
+                  ☑ {selectedTools.size > 0 ? `(${selectedTools.size})` : ''}
+                </button>
+              </div>
             </div>
+            {showBulkActions && selectedTools.size > 0 && (
+              <div style={{ padding: '0.75rem', marginBottom: '0.5rem', background: 'var(--primary)', borderRadius: '8px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{ color: 'white' }}>{selectedTools.size} selected</span>
+                <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')}>Enable</button>
+                <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')}>Disable</button>
+                <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')}>Delete</button>
+              </div>
+            )}
             <div className="tool-list">
               {tools.map(tool => (
-                <div key={tool._id} className="tool-item">
+                <div key={tool._id} className="tool-item" style={{ display: 'flex', alignItems: 'center' }}>
+                  {showBulkActions && (
+                    <input 
+                      type="checkbox" 
+                      checked={selectedTools.has(tool._id)} 
+                      onChange={() => toggleToolSelect(tool._id)}
+                      style={{ marginRight: '0.5rem' }}
+                    />
+                  )}
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem' }}>
                       <strong>{tool.name}</strong>
