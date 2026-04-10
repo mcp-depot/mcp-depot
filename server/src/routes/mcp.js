@@ -14,6 +14,7 @@ const encryption = require('../services/encryption');
 const config = require('../config/env');
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
 const { checkRateLimit } = require('../services/rate-limiter');
+const logger = require('../services/logger');
 
 const router = express.Router();
 
@@ -30,7 +31,7 @@ function safeJsonParse(value, defaultValue) {
   try {
     return JSON.parse(value);
   } catch (e) {
-    console.error('JSON parse error:', e.message);
+    logger.error({ error: e.message }, 'JSON parse error');
     return defaultValue;
   }
 }
@@ -136,7 +137,7 @@ router.get('/fetch-url', optionalAuth, async (req, res) => {
       fetchedAt: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Fetch URL error:', error.message);
+    logger.error({ error: error.message, url: url }, 'Fetch URL error');
     res.status(500).json({ 
       error: 'Failed to fetch URL',
       message: error.message 
@@ -226,7 +227,7 @@ const fetchExternalMcpTools = async (userId, role) => {
         }
       } catch (e) {
         const errorMsg = e.name === 'AbortError' ? 'Request timeout' : e.message;
-        console.error(`Failed to fetch tools from external MCP server ${server.name}:`, errorMsg);
+        logger.error({ serverName: server.name, error: errorMsg }, 'Failed to fetch tools from external MCP server');
         try {
           await server.update({ lastFetchError: errorMsg });
         } catch (err) {}
@@ -235,7 +236,7 @@ const fetchExternalMcpTools = async (userId, role) => {
     
     return allExternalTools;
   } catch (e) {
-    console.error('Error fetching external MCP tools:', e);
+    logger.error({ error: e.message }, 'Error fetching external MCP tools');
     return [];
   }
 };
@@ -521,7 +522,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
     
     res.json(result);
   } catch (error) {
-    console.error('Error fetching tools:', error);
+    logger.error({ error: error.message }, 'Error fetching tools');
     res.status(500).json({ error: 'Failed to fetch tools' });
   }
 });
@@ -1019,7 +1020,7 @@ router.get('/tools', optionalAuth, async (req, res) => {
     
     res.json(result);
   } catch (error) {
-    console.error('Tools error:', error);
+    logger.error({ error: error.message }, 'Tools fetch failed');
     res.status(500).json({ error: 'Failed to fetch tools' });
   }
 });

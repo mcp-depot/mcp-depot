@@ -1,4 +1,5 @@
 const AuditLog = require('../models/AuditLog');
+const logger = require('./logger');
 
 class AuditService {
   async log(params) {
@@ -18,7 +19,7 @@ class AuditService {
       
       return logEntry;
     } catch (error) {
-      console.error('Audit log error:', error);
+      logger.error({ error: error.message }, 'Audit log error');
     }
   }
 

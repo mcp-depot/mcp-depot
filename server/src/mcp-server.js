@@ -3,6 +3,7 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
 const { Integration } = require('./models/Integration');
 const Tool = require('./models/Tool');
 const AdapterFactory = require('./adapters');
+const logger = require('./services/logger');
 
 class MCPConnectClient {
   constructor(baseUrl) {
@@ -27,10 +28,10 @@ class MCPConnectClient {
         }
       }));
 
-      console.log(`Loaded ${this.tools.length} tools for MCP`);
+      logger.info({ toolCount: this.tools.length }, 'Loaded tools for MCP');
       return this.tools;
     } catch (error) {
-      console.error('Failed to load tools:', error.message);
+      logger.error({ error: error.message }, 'Failed to load tools');
       return [];
     }
   }

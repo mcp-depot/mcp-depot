@@ -1,5 +1,6 @@
 const CryptoJS = require('crypto-js');
 const config = require('../config/env');
+const logger = require('./logger');
 
 const SENSITIVE_FIELDS = [
   'password',
@@ -58,7 +59,7 @@ function sanitizeObject(obj) {
 
 function sanitizeLog(message, ...args) {
   const sanitizedArgs = args.map(arg => sanitizeObject(arg));
-  console.log(message, ...sanitizedArgs);
+  logger.info(sanitizedArgs, message);
 }
 
 function sanitizeErrorLog(message, error) {
@@ -73,7 +74,7 @@ function sanitizeErrorLog(message, error) {
   delete sanitizedError.config;
   delete sanitizedError.request;
   
-  console.error(message, sanitizedError);
+  logger.error(sanitizedError, message);
 }
 
 const LogSanitizer = {

@@ -2,6 +2,7 @@ const express = require('express');
 const Joi = require('joi');
 const { spawn } = require('child_process');
 const { auth, requireAdmin } = require('../middleware/auth');
+const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
 
@@ -49,7 +50,7 @@ function safeJsonParse(value, defaultValue) {
     const parsed = JSON.parse(value);
     return parsed;
   } catch (e) {
-    console.error('JSON parse error:', e.message);
+    logger.error({ error: e.message }, 'JSON parse error in external MCP');
     return defaultValue;
   }
 }
@@ -131,7 +132,7 @@ async function getStdioMcpTools(command, args, envVars, runtime = 'node') {
     const result = await callStdioMcp(command, args, envVars, 'tools/list', {}, runtime);
     return result;
   } catch (error) {
-    console.error('Stdio MCP tools error:', error.message);
+    logger.error({ error: error.message }, 'Stdio MCP tools error');
     throw error;
   }
 }
@@ -144,7 +145,7 @@ async function executeStdioMcpTool(command, args, envVars, toolName, arguments_,
     }, runtime);
     return result;
   } catch (error) {
-    console.error('Stdio MCP execute error:', error.message);
+    logger.error({ error: error.message }, 'Stdio MCP execute error');
     throw error;
   }
 }
@@ -168,7 +169,7 @@ router.get('/', auth, async (req, res) => {
       authToken: s.authToken ? '***' : null
     })));
   } catch (error) {
-    console.error('List external MCP servers error:', error);
+    logger.error({ error: error.message }, 'List external MCP servers error');
     res.status(500).json({ error: 'Failed to list external MCP servers' });
   }
 });
@@ -201,7 +202,7 @@ router.post('/', auth, async (req, res) => {
       authToken: '***'
     });
   } catch (error) {
-    console.error('Create external MCP server error:', error);
+    logger.error({ error: error.message }, 'Create external MCP server error');
     res.status(500).json({ error: 'Failed to create external MCP server' });
   }
 });
@@ -241,7 +242,7 @@ router.put('/:id', auth, async (req, res) => {
       authToken: server.authToken ? '***' : null
     });
   } catch (error) {
-    console.error('Update external MCP server error:', error);
+    logger.error({ error: error.message }, 'Update external MCP server error');
     res.status(500).json({ error: 'Failed to update external MCP server' });
   }
 });
@@ -265,7 +266,7 @@ router.delete('/:id', auth, async (req, res) => {
     
     res.json({ message: 'External MCP server deleted' });
   } catch (error) {
-    console.error('Delete external MCP server error:', error);
+    logger.error({ error: error.message }, 'Delete external MCP server error');
     res.status(500).json({ error: 'Failed to delete external MCP server' });
   }
 });
@@ -312,7 +313,7 @@ router.get('/:id/tools', auth, async (req, res) => {
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    console.error('Fetch external MCP tools error:', error);
+    logger.error({ error: error.message }, 'Fetch external MCP tools error');
     res.status(500).json({ error: 'Failed to fetch tools from external MCP server: ' + error.message });
   }
 });
@@ -369,7 +370,7 @@ router.post('/:id/execute', auth, async (req, res) => {
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    console.error('Execute external MCP tool error:', error);
+    logger.error({ error: error.message }, 'Execute external MCP tool error');
     res.status(500).json({ error: 'Failed to execute tool on external MCP server: ' + error.message });
   }
 });
@@ -429,7 +430,7 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
       }, 120000);
     });
   } catch (error) {
-    console.error('Install npm package error:', error);
+    logger.error({ error: error.message }, 'Install npm package error');
     res.status(500).json({ error: 'Failed to install package: ' + error.message });
   }
 });

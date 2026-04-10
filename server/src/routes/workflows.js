@@ -1,6 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 const { auth } = require('../middleware/auth');
+const logger = require('../services/logger');
 const Workflow = require('../models/Workflow');
 const Integration = require('../models/Integration');
 const AdapterFactory = require('../adapters');
@@ -67,7 +68,7 @@ async function waitForJenkinsBuild(adapter, buildUrl, maxWait = JENKINS_MAX_WAIT
         };
       }
     } catch (e) {
-      console.error('Polling error:', e.message);
+      logger.error({ error: e.message, workflowId }, 'Workflow polling error');
     }
     
     await new Promise(resolve => setTimeout(resolve, JENKINS_POLL_INTERVAL));
@@ -144,7 +145,7 @@ router.get('/', auth, async (req, res) => {
 
     res.json(workflows);
   } catch (error) {
-    console.error('List workflows error:', error);
+    logger.error({ error: error.message }, 'List workflows error');
     res.status(500).json({ error: 'Failed to list workflows' });
   }
 });
@@ -188,7 +189,7 @@ router.post('/', auth, async (req, res) => {
 
     res.status(201).json(workflow);
   } catch (error) {
-    console.error('Create workflow error:', error);
+    logger.error({ error: error.message }, 'Create workflow error');
     res.status(500).json({ error: 'Failed to create workflow' });
   }
 });
@@ -470,7 +471,7 @@ router.post('/:id/execute', auth, async (req, res) => {
       errors
     });
   } catch (error) {
-    console.error('Execute workflow error:', error);
+    logger.error({ error: error.message }, 'Execute workflow error');
     res.status(500).json({ error: 'Failed to execute workflow' });
   }
 });
@@ -545,7 +546,7 @@ router.post('/from-template', auth, async (req, res) => {
     
     res.status(201).json(workflow);
   } catch (error) {
-    console.error('Create workflow from template error:', error);
+    logger.error({ error: error.message }, 'Create workflow from template error');
     res.status(500).json({ error: 'Failed to create workflow from template' });
   }
 });

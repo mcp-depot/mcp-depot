@@ -1,6 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 const { auth } = require('../middleware/auth');
+const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 
 const router = express.Router();
@@ -34,7 +35,7 @@ router.get('/', auth, async (req, res) => {
     });
     res.json(prompts);
   } catch (error) {
-    console.error('List prompts error:', error);
+    logger.error({ error: error.message }, 'List prompts error');
     res.status(500).json({ error: 'Failed to list prompts' });
   }
 });
@@ -60,7 +61,7 @@ router.post('/', auth, async (req, res) => {
     
     res.status(201).json(newPrompt);
   } catch (error) {
-    console.error('Create prompt error:', error);
+    logger.error({ error: error.message }, 'Create prompt error');
     res.status(500).json({ error: 'Failed to create prompt' });
   }
 });
@@ -93,7 +94,7 @@ router.put('/:id', auth, async (req, res) => {
     
     res.json(existingPrompt);
   } catch (error) {
-    console.error('Update prompt error:', error);
+    logger.error({ error: error.message }, 'Update prompt error');
     res.status(500).json({ error: 'Failed to update prompt' });
   }
 });
@@ -119,7 +120,7 @@ router.delete('/:id', auth, async (req, res) => {
     
     res.json({ success: true });
   } catch (error) {
-    console.error('Delete prompt error:', error);
+    logger.error({ error: error.message }, 'Delete prompt error');
     res.status(500).json({ error: 'Failed to delete prompt' });
   }
 });

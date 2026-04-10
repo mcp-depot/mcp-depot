@@ -1,6 +1,7 @@
 const express = require('express');
 const { Op } = require('sequelize');
 const { auth } = require('../middleware/auth');
+const logger = require('../services/logger');
 const { loadModels, sequelize } = require('../config/database');
 
 const router = express.Router();
@@ -146,7 +147,7 @@ router.get('/stats', auth, async (req, res) => {
       callsByCallerType
     });
   } catch (error) {
-    console.error('Get stats error:', error);
+    logger.error({ error: error.message }, 'Get stats failed');
     res.status(500).json({ error: 'Failed to get stats' });
   }
 });
@@ -268,8 +269,8 @@ router.get('/history', auth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get history error:', error);
-    res.status(500).json({ error: 'Failed to get call history' });
+    logger.error({ error: error.message }, 'Get history failed');
+    res.status(500).json({ error: 'Failed to get history' });
   }
 });
 
@@ -330,7 +331,7 @@ router.get('/tool/:toolId/stats', auth, async (req, res) => {
       recentErrors
     });
   } catch (error) {
-    console.error('Get tool stats error:', error);
+    logger.error({ error: error.message }, 'Get tool stats failed');
     res.status(500).json({ error: 'Failed to get tool stats' });
   }
 });
@@ -403,7 +404,7 @@ router.post('/replay/:callId', auth, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Replay error:', error);
+    logger.error({ error: error.message }, 'Replay tool call failed');
     res.status(500).json({ error: 'Failed to replay tool call: ' + error.message });
   }
 });

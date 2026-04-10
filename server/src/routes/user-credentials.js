@@ -1,6 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 const { auth } = require('../middleware/auth');
+const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
 
@@ -36,7 +37,7 @@ router.get('/credentials/:integrationId', auth, async (req, res) => {
       credentials: decryptedCredentials
     });
   } catch (error) {
-    console.error('Get credentials error:', error);
+    logger.error({ error: error.message }, 'Get credentials error');
     res.status(500).json({ error: 'Failed to get credentials' });
   }
 });
@@ -72,7 +73,7 @@ router.post('/credentials/:integrationId', auth, async (req, res) => {
       message: created ? 'Credentials saved' : 'Credentials updated' 
     });
   } catch (error) {
-    console.error('Save credentials error:', error);
+    logger.error({ error: error.message }, 'Save credentials error');
     res.status(500).json({ error: 'Failed to save credentials' });
   }
 });
@@ -93,7 +94,7 @@ router.delete('/credentials/:integrationId', auth, async (req, res) => {
       res.status(404).json({ error: 'No credentials found' });
     }
   } catch (error) {
-    console.error('Delete credentials error:', error);
+    logger.error({ error: error.message }, 'Delete credentials error');
     res.status(500).json({ error: 'Failed to delete credentials' });
   }
 });
@@ -124,7 +125,7 @@ router.get('/shared', auth, async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    console.error('Get shared integrations error:', error);
+    logger.error({ error: error.message }, 'Get shared integrations error');
     res.status(500).json({ error: 'Failed to get integrations' });
   }
 });

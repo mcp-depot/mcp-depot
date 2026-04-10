@@ -1,4 +1,5 @@
 const { loadModels } = require('../config/database');
+const logger = require('./logger');
 
 const sanitizeValue = (value, maxLength = 1000) => {
   if (value === null || value === undefined) return null;
@@ -71,7 +72,7 @@ const logToolCall = async ({
       userAgent: userAgent ? userAgent.substring(0, 500) : null
     });
   } catch (error) {
-    console.error('Failed to log tool call:', error.message);
+    logger.error({ error: error.message }, 'Failed to log tool call');
   }
 };
 
