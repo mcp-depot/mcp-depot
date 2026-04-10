@@ -335,4 +335,77 @@ router.get('/tool/:toolId/stats', auth, async (req, res) => {
   }
 });
 
+router.post('/replay/:callId', auth, async (req, res) => {
+  try {
+    const { ToolCall, Tool, Integration } = loadModels();
+    const currentUserId = req.user.id;
+    const isAdmin = req.user.role === 'admin';
+    
+    const toolCall = await ToolCall.findByPk(req.params.callId);
+    if (!toolCall) {
+      return res.status(404).json({ error: 'Tool call not found' });
+    }
+    
+    const tool = await Tool.findByPk(toolCall.toolId);
+    if (!tool) {
+      return res.status(404).json({ error: 'Tool not found' });
+    }
+    
+    if (!isAdmin && tool.userId !== currentUserId) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+    
+    const integration = await Integration.findByPk(toolCall.integrationId);
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+    
+    const AdapterFactory = require('../adapters');
+    const adapter = AdapterFactory.create(integration.type, integration.config);
+    
+    const params = { ...toolCall.queryParams, ...toolCall.requestBody };
+    const method = (tool.endpoint?.method || 'GET').toUpperCase();
+    let path = tool.endpoint?.path || '';
+    
+    for (const [key, value] of Object.entries(params || {})) {
+      if (path.includes(`{${key}}`)) {
+        path = path.replace(`{${key}}`, encodeURIComponent(value));
+      }
+    }
+    
+    let result;
+    try {
+      switch (method) {
+        case 'GET':
+          result = await adapter.get(path, { params: toolCall.queryParams });
+          break;
+        case 'POST':
+          result = await adapter.post(path, toolCall.requestBody);
+          break;
+        case 'PUT':
+          result = await adapter.put(path, toolCall.requestBody);
+          break;
+        case 'DELETE':
+          result = await adapter.delete(path, { params: toolCall.queryParams });
+          break;
+        case 'PATCH':
+          result = await adapter.patch(path, toolCall.requestBody);
+          break;
+        default:
+          return res.status(400).json({ error: 'Unsupported method' });
+      }
+      res.json({ success: true, result: result.data || result });
+    } catch (apiError) {
+      res.json({ 
+        success: false, 
+        error: apiError.message,
+        status: apiError.response?.status 
+      });
+    }
+  } catch (error) {
+    console.error('Replay error:', error);
+    res.status(500).json({ error: 'Failed to replay tool call: ' + error.message });
+  }
+});
+
 module.exports = router;

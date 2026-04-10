@@ -15,6 +15,9 @@ function Monitoring() {
   const [endpoints, setEndpoints] = useState(null);
   const [endpointsLoading, setEndpointsLoading] = useState(false);
   const [showEndpoints, setShowEndpoints] = useState(false);
+  const [expandedCall, setExpandedCall] = useState(null);
+  const [replaying, setReplaying] = useState(null);
+  const [liveMode, setLiveMode] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -72,6 +75,18 @@ function Monitoring() {
   const formatTime = (ms) => {
     if (!ms) return '-';
     return `${ms}ms`;
+  };
+
+  const handleReplay = async (callId) => {
+    setReplaying(callId);
+    try {
+      const res = await api.post(`/monitoring/replay/${callId}`);
+      alert(`Replay result: ${JSON.stringify(res.data, null, 2)}`);
+    } catch (err) {
+      alert(`Replay failed: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setReplaying(null);
+    }
   };
 
   const fetchEndpoints = async () => {
@@ -289,6 +304,7 @@ function Monitoring() {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                        <th style={{ textAlign: 'left', padding: '0.5rem', width: '30px' }}></th>
                         <th style={{ textAlign: 'left', padding: '0.5rem' }}>Time</th>
                         <th style={{ textAlign: 'left', padding: '0.5rem' }}>Tool</th>
                         <th style={{ textAlign: 'left', padding: '0.5rem' }}>Integration</th>
@@ -296,11 +312,15 @@ function Monitoring() {
                         <th style={{ textAlign: 'left', padding: '0.5rem' }}>Caller</th>
                         <th style={{ textAlign: 'left', padding: '0.5rem' }}>Status</th>
                         <th style={{ textAlign: 'left', padding: '0.5rem' }}>Time</th>
+                        <th style={{ textAlign: 'left', padding: '0.5rem' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {history.map(call => (
-                        <tr key={call.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <><tr key={call.id} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', background: expandedCall === call.id ? 'var(--surface-hover)' : 'transparent' }} onClick={() => setExpandedCall(expandedCall === call.id ? null : call.id)}>
+                          <td style={{ padding: '0.5rem' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>{expandedCall === call.id ? '▼' : '▶'}</span>
+                          </td>
                           <td style={{ padding: '0.5rem', fontSize: '0.85rem' }}>{formatDate(call.createdAt)}</td>
                           <td style={{ padding: '0.5rem' }}>{call.toolName}</td>
                           <td style={{ padding: '0.5rem' }}>{call.integrationName}</td>
@@ -329,7 +349,44 @@ function Monitoring() {
                             </span>
                           </td>
                           <td style={{ padding: '0.5rem', fontSize: '0.85rem' }}>{formatTime(call.responseTime)}</td>
+                          <td style={{ padding: '0.5rem' }}>
+                            <button 
+                              className="btn btn-small"
+                              onClick={(e) => { e.stopPropagation(); handleReplay(call.id); }}
+                              disabled={replaying === call.id}
+                            >
+                              {replaying === call.id ? '...' : 'Replay'}
+                            </button>
+                          </td>
                         </tr>
+                        {expandedCall === call.id && (
+                          <tr key={`${call.id}-expanded`}>
+                            <td colSpan={9} style={{ padding: '1rem', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                  <h4 style={{ marginBottom: '0.5rem' }}>Request</h4>
+                                  <div style={{ marginBottom: '0.5rem' }}><strong>Path:</strong> <code>{call.path}</code></div>
+                                  {call.queryParams && Object.keys(call.queryParams).length > 0 && (
+                                    <div style={{ marginBottom: '0.5rem' }}><strong>Query:</strong> <pre style={{ margin: '0.25rem 0', padding: '0.5rem', background: 'var(--surface-hover)', borderRadius: '4px', fontSize: '0.8rem', overflow: 'auto' }}>{JSON.stringify(call.queryParams, null, 2)}</pre></div>
+                                  )}
+                                  {call.requestBody && Object.keys(call.requestBody).length > 0 && (
+                                    <div><strong>Body:</strong> <pre style={{ margin: '0.25rem 0', padding: '0.5rem', background: 'var(--surface-hover)', borderRadius: '4px', fontSize: '0.8rem', overflow: 'auto' }}>{JSON.stringify(call.requestBody, null, 2)}</pre></div>
+                                  )}
+                                </div>
+                                <div>
+                                  <h4 style={{ marginBottom: '0.5rem' }}>Response</h4>
+                                  {call.errorMessage && (
+                                    <div style={{ marginBottom: '0.5rem', color: 'var(--danger)' }}><strong>Error:</strong> {call.errorMessage}</div>
+                                  )}
+                                  {call.responseBody && (
+                                    <pre style={{ margin: 0, padding: '0.5rem', background: 'var(--surface-hover)', borderRadius: '4px', fontSize: '0.8rem', overflow: 'auto', maxHeight: '300px' }}>{typeof call.responseBody === 'string' ? call.responseBody : JSON.stringify(call.responseBody, null, 2)}</pre>
+                                  )}
+                                  {!call.responseBody && !call.errorMessage && <span style={{ color: 'var(--text-secondary)' }}>No response body recorded</span>}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}</>
                       ))}
                     </tbody>
                   </table>
