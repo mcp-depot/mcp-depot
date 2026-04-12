@@ -20,6 +20,7 @@ const userCredentialsRoutes = require('./routes/user-credentials');
 const { router: externalMcpRoutes, setClearToolsCache: setExternalMcpClearCache } = require('./routes/external-mcp');
 const promptLibraryRoutes = require('./routes/prompt-library');
 const systemRoutes = require('./routes/system');
+const oauthRoutes = require('./routes/oauth');
 
 const app = express();
 
@@ -75,6 +76,7 @@ v1Router.use('/user-credentials', userCredentialsRoutes);
 v1Router.use('/external-mcp', externalMcpRoutes);
 v1Router.use('/prompt-library', promptLibraryRoutes);
 v1Router.use('/system', systemRoutes);
+v1Router.use('/oauth', oauthRoutes);
 
 app.use('/api/v1', v1Router);
 app.use('/api', v1Router); // Backward compatibility
