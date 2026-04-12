@@ -356,6 +356,7 @@ function Settings() {
               <div className={`tab ${activeTab === 'api' ? 'active' : ''}`} onClick={() => setActiveTab('api')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>My API Access</div>
               <div className={`tab ${activeTab === 'preferences' ? 'active' : ''}`} onClick={() => setActiveTab('preferences')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>Preferences</div>
               <div className={`tab ${activeTab === 'external-mcp' ? 'active' : ''}`} onClick={() => { setActiveTab('external-mcp'); fetchExternalServers(); }} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>External MCP</div>
+              <div className={`tab ${activeTab === 'oauth' ? 'active' : ''}`} onClick={() => setActiveTab('oauth')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>OAuth Providers</div>
               <div className={`tab ${activeTab === 'import-export' ? 'active' : ''}`} onClick={() => setActiveTab('import-export')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>Import / Export</div>
               <div className={`tab ${activeTab === 'mcp-server' ? 'active' : ''}`} onClick={() => setActiveTab('mcp-server')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>MCP Server (For AI Assistants)</div>
             </div>
@@ -884,6 +885,37 @@ function Settings() {
                       </div>
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'oauth' && (
+              <div>
+                <h2 className="card-title" style={{ marginBottom: '1rem' }}>OAuth Providers</h2>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                  Configure OAuth providers for integrations. Users will be able to connect using OAuth when creating integrations.
+                </p>
+                <div className="card" style={{ padding: '1rem', background: 'var(--surface-hover)', border: '1px solid var(--border)' }}>
+                  <p style={{ color: 'var(--text-secondary)' }}>
+                    OAuth provider configuration is managed via environment variables.
+                  </p>
+                  <pre style={{ marginTop: '1rem', padding: '1rem', background: 'var(--surface)', borderRadius: '6px', fontSize: '0.8rem', overflow: 'auto' }}>
+{`# Example environment variables for OAuth:
+OAUTH_GITHUB_CLIENT_ID=your_github_client_id
+OAUTH_GITHUB_CLIENT_SECRET=your_github_client_secret
+OAUTH_GITHUB_REDIRECT_URI=https://your-domain.com/api/oauth/callback
+
+OAUTH_GOOGLE_CLIENT_ID=your_google_client_id
+OAUTH_GOOGLE_CLIENT_SECRET=your_google_client_secret  
+OAUTH_GOOGLE_REDIRECT_URI=https://your-domain.com/api/oauth/callback
+
+OAUTH_SLACK_CLIENT_ID=your_slack_client_id
+OAUTH_SLACK_CLIENT_SECRET=your_slack_client_secret
+OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
+                  </pre>
+                  <p style={{ color: 'var(--text-light)', fontSize: '0.8rem', marginTop: '1rem' }}>
+                    Configure these in your environment and restart the server to enable OAuth providers.
+                  </p>
                 </div>
               </div>
             )}
