@@ -52,10 +52,22 @@ class DynamicAdapter {
         }
         return {};
 
-      case 'oauth2':
+      case 'oauth2': {
         const accessToken = encryption.decrypt(credentials.accessToken) || credentials.accessToken;
         if (!accessToken) return {};
+        
+        const tokenData = credentials.tokenData || {};
+        if (tokenData.expiresIn && tokenData.createdAt) {
+          const expiresAt = tokenData.createdAt + (tokenData.expiresIn * 1000);
+          const fiveMinutes = 5 * 60 * 1000;
+          
+          if (Date.now() > (expiresAt - fiveMinutes) && credentials.refreshToken) {
+            return { 'Authorization': `Bearer ${accessToken}`, 'X-OAuth-Refresh': 'true' };
+          }
+        }
+        
         return { 'Authorization': `Bearer ${accessToken}` };
+      }
 
       default:
         return {};
