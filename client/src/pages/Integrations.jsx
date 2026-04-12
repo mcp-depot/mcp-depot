@@ -444,7 +444,8 @@ function Integrations() {
                       <StyledSelect
                         options={[
                           { value: 'none', label: 'None' },
-                          { value: 'bearer', label: 'Bearer Token' }
+                          { value: 'bearer', label: 'Bearer Token' },
+                          { value: 'oauth2', label: 'OAuth 2.0' }
                         ]}
                         value={{ value: discoverForm.authType, label: discoverForm.authType === 'none' ? 'None' : 'Bearer Token' }}
                         onChange={(opt) => setDiscoverForm({ ...discoverForm, authType: opt?.value || 'none' })}
@@ -581,7 +582,8 @@ function Integrations() {
                           { value: 'none', label: 'None' },
                           { value: 'basic', label: 'Basic Auth' },
                           { value: 'bearer', label: 'Bearer Token' },
-                          { value: 'apiKey', label: 'API Key' }
+                          { value: 'apiKey', label: 'API Key' },
+                          { value: 'oauth2', label: 'OAuth 2.0' }
                         ]}
                         value={{ value: form.authType, label: form.authType === 'none' ? 'None' : form.authType === 'basic' ? 'Basic Auth' : form.authType === 'bearer' ? 'Bearer Token' : 'API Key' }}
                         onChange={(opt) => setForm({ ...form, authType: opt?.value || 'none' })}
@@ -609,34 +611,44 @@ function Integrations() {
                         <input type="password" value={form.bearerToken} onChange={e => setForm({ ...form, bearerToken: e.target.value })} placeholder="Enter token or infisical://dev/SECRET_NAME" />
                       </div>
                     </div>
-                  )}
-                  {form.authType === 'apiKey' && (
-                    <div className="auth-section">
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label>Key Name</label>
-                          <input type="text" value={form.apiKeyName} onChange={e => setForm({ ...form, apiKeyName: e.target.value })} placeholder="X-API-Key" />
+)}
+                    {form.authType === 'apiKey' && (
+                      <div className="auth-section">
+                        <div className="form-row">
+                          <div className="form-group">
+                            <label>Key Name</label>
+                            <input type="text" value={form.apiKeyName} onChange={e => setForm({ ...form, apiKeyName: e.target.value })} placeholder="X-API-Key" />
+                          </div>
+                          <div className="form-group">
+                            <label>Key Value</label>
+                            <input type="password" value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} placeholder="Enter key or infisical://dev/SECRET_NAME" />
+                          </div>
                         </div>
                         <div className="form-group">
-                          <label>Key Value</label>
-                          <input type="password" value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} placeholder="Enter key or infisical://dev/SECRET_NAME" />
+                          <label>Add To</label>
+                          <StyledSelect
+                            options={[
+                              { value: 'header', label: 'HTTP Header' },
+                              { value: 'query', label: 'Query Parameter' }
+                            ]}
+                            value={{ value: form.apiKeyIn, label: form.apiKeyIn === 'header' ? 'HTTP Header' : 'Query Parameter' }}
+                            onChange={(opt) => setForm({ ...form, apiKeyIn: opt?.value || 'header' })}
+                            isSearchable={false}
+                          />
                         </div>
                       </div>
-                      <div className="form-group">
-                        <label>Add To</label>
-                        <StyledSelect
-                          options={[
-                            { value: 'header', label: 'HTTP Header' },
-                            { value: 'query', label: 'Query Parameter' }
-                          ]}
-                          value={{ value: form.apiKeyIn, label: form.apiKeyIn === 'header' ? 'HTTP Header' : 'Query Parameter' }}
-                          onChange={(opt) => setForm({ ...form, apiKeyIn: opt?.value || 'header' })}
-                          isSearchable={false}
-                        />
+                    )}
+                    {form.authType === 'oauth2' && (
+                      <div className="auth-section">
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                          OAuth 2.0 authentication. Configure OAuth provider in Settings first, then connect your account.
+                        </p>
+                        <button className="btn btn-primary" type="button">
+                          Connect OAuth Account
+                        </button>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
                   <button type="submit" className="btn btn-primary">{editingId ? 'Update' : 'Create'} Integration</button>
