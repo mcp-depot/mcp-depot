@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import Navbar from '../components/Navbar';
 
 const defaultTemplates = [
   {
@@ -154,7 +153,6 @@ function PromptLibrary() {
 
   return (
     <div>
-      <Navbar />
       <div className="container">
         <div className="page-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

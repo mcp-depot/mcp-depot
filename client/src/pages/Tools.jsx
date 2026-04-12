@@ -3,7 +3,6 @@ import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon } from '../utils/integrationIcons';
-import Navbar from '../components/Navbar';
 import { StyledSelect } from '../components/StyledSelect';
 
 function Tools({ all: isAllTools }) {
@@ -453,8 +452,6 @@ function Tools({ all: isAllTools }) {
   if (isAllTools) {
     return (
       <div>
-        <Navbar />
-
         <div className="container">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div>
@@ -571,7 +568,6 @@ function Tools({ all: isAllTools }) {
   if (!integration) {
     return (
       <div>
-        <Navbar />
         <div className="container">
           <p>Integration not found. ID: {id}</p>
         </div>
@@ -581,8 +577,6 @@ function Tools({ all: isAllTools }) {
 
   return (
     <div>
-      <Navbar />
-
       <div className="container">
         <div className="page-header">
           <div className="breadcrumb">

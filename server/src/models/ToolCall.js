@@ -12,16 +12,16 @@ const ToolCall = sequelize.define('ToolCall', {
     allowNull: false,
     references: { model: 'tools', key: 'id' }
   },
-  userId: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    references: { model: 'users', key: 'id' }
-  },
-  integrationId: {
-    type: DataTypes.UUID,
-    allowNull: false,
-    references: { model: 'integrations', key: 'id' }
-  },
+userId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: { model: 'users', key: 'id' }
+    },
+integrationId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: { model: 'integrations', key: 'id' }
+    },
   callerId: {
     type: DataTypes.STRING(255),
     allowNull: true,

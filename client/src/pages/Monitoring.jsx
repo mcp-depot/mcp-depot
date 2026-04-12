@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
-import Navbar from '../components/Navbar';
 import { StyledSelect } from '../components/StyledSelect';
 
 function Monitoring() {
@@ -18,6 +17,7 @@ function Monitoring() {
   const [expandedCall, setExpandedCall] = useState(null);
   const [replaying, setReplaying] = useState(null);
   const [liveMode, setLiveMode] = useState(false);
+  const [testerModal, setTesterModal] = useState({ open: false, call: null, params: {}, result: null, testing: false });
 
   useEffect(() => {
     fetchStats();
@@ -89,6 +89,34 @@ function Monitoring() {
     }
   };
 
+  const openTester = (call) => {
+    const params = {};
+    if (call.queryParams) {
+      Object.entries(call.queryParams).forEach(([k, v]) => { params[k] = typeof v === 'object' ? JSON.stringify(v) : String(v); });
+    }
+    if (call.requestBody) {
+      Object.entries(call.requestBody).forEach(([k, v]) => { params[k] = typeof v === 'object' ? JSON.stringify(v) : String(v); });
+    }
+    setTesterModal({ open: true, call, params, result: null, testing: false });
+  };
+
+  const runTest = async () => {
+    setTesterModal(m => ({ ...m, testing: true, result: null }));
+    try {
+      let parsedParams = {};
+      Object.entries(testerModal.params).forEach(([k, v]) => {
+        try { parsedParams[k] = JSON.parse(v); } catch { parsedParams[k] = v; }
+      });
+      const res = await api.post(`/mcp/execute`, {
+        toolName: testerModal.call.toolName,
+        params: parsedParams
+      });
+      setTesterModal(m => ({ ...m, testing: false, result: res.data }));
+    } catch (err) {
+      setTesterModal(m => ({ ...m, testing: false, result: { error: err.response?.data?.error || err.message } }));
+    }
+  };
+
   const fetchEndpoints = async () => {
     if (endpoints) return;
     setEndpointsLoading(true);
@@ -109,8 +137,6 @@ function Monitoring() {
 
   return (
     <div>
-      <Navbar />
-
       <div className="container" style={{ marginTop: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
           <h1>Monitoring</h1>
@@ -354,8 +380,17 @@ function Monitoring() {
                               className="btn btn-small"
                               onClick={(e) => { e.stopPropagation(); handleReplay(call.id); }}
                               disabled={replaying === call.id}
+                              title="Replay with same params"
                             >
                               {replaying === call.id ? '...' : 'Replay'}
+                            </button>
+                            <button 
+                              className="btn btn-small"
+                              style={{ marginLeft: '0.25rem' }}
+                              onClick={(e) => { e.stopPropagation(); openTester(call); }}
+                              title="Test with modified params"
+                            >
+                              Test
                             </button>
                           </td>
                         </tr>
@@ -419,6 +454,55 @@ function Monitoring() {
         ) : (
           <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
             Unable to load monitoring data
+          </div>
+        )}
+
+        {testerModal.open && (
+          <div className="modal-overlay" onClick={() => setTesterModal({ open: false, call: null, params: {}, result: null, testing: false })}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+              <div className="modal-header">
+                <h2>Test Tool: {testerModal.call?.toolId}</h2>
+                <button className="modal-close" onClick={() => setTesterModal({ open: false, call: null, params: {}, result: null, testing: false })}>&times;</button>
+              </div>
+              <div className="modal-body" style={{ maxHeight: '70vh', overflow: 'auto' }}>
+                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px' }}>
+                  <strong>Method:</strong> {testerModal.call?.method} {testerModal.call?.path}
+                </div>
+                <div style={{ marginBottom: '1rem' }}>
+                  <h4 style={{ marginBottom: '0.5rem' }}>Parameters (modify and test)</h4>
+                  {Object.keys(testerModal.params).length === 0 ? (
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No parameters in original request</p>
+                  ) : (
+                    Object.keys(testerModal.params).map(key => (
+                      <div key={key} style={{ marginBottom: '0.5rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.25rem' }}>{key}</label>
+                        <input 
+                          type="text"
+                          value={testerModal.params[key]}
+                          onChange={e => setTesterModal(m => ({ ...m, params: { ...m.params, [key]: e.target.value } }))}
+                          style={{ width: '100%', padding: '0.5rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)' }}
+                        />
+                      </div>
+                    ))
+                  )}
+                </div>
+                <button 
+                  className="btn btn-primary"
+                  onClick={runTest}
+                  disabled={testerModal.testing}
+                >
+                  {testerModal.testing ? 'Testing...' : 'Execute'}
+                </button>
+                {testerModal.result && (
+                  <div style={{ marginTop: '1rem' }}>
+                    <h4>Result</h4>
+                    <pre style={{ margin: '0.5rem 0', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px', fontSize: '0.8rem', maxHeight: '200px', overflow: 'auto' }}>
+                      {typeof testerModal.result === 'string' ? testerModal.result : JSON.stringify(testerModal.result, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>

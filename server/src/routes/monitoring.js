@@ -152,6 +152,72 @@ router.get('/stats', auth, async (req, res) => {
   }
 });
 
+router.get('/history-chart', auth, async (req, res) => {
+  try {
+    const { ToolCall, Tool, Integration } = loadModels();
+    const currentUserId = req.user.id;
+    const isAdmin = req.user.role === 'admin';
+    
+    let whereClause;
+    
+    if (isAdmin) {
+      whereClause = {};
+    } else {
+      const userTools = await Tool.findAll({
+        where: { userId: currentUserId },
+        attributes: ['id'],
+        raw: true
+      });
+      const userToolIds = userTools.map(t => t.id);
+      
+      const userIntegrations = await Integration.findAll({
+        where: { userId: currentUserId },
+        attributes: ['id'],
+        raw: true
+      });
+      const userIntegrationIds = userIntegrations.map(i => i.id);
+      
+      whereClause = {
+        [Op.or]: [
+          { toolId: { [Op.in]: userToolIds } },
+          { integrationId: { [Op.in]: userIntegrationIds } }
+        ]
+      };
+    }
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const last7Days = new Date(today - 6 * 24 * 60 * 60 * 1000);
+
+    const dailyData = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today - i * 24 * 60 * 60 * 1000);
+      const nextDate = new Date(date);
+      nextDate.setDate(nextDate.getDate() + 1);
+      
+      const count = await ToolCall.count({
+        where: {
+          ...whereClause,
+          createdAt: {
+            [Op.gte]: date,
+            [Op.lt]: nextDate
+          }
+        }
+      });
+      
+      dailyData.push({
+        date: date.toISOString().split('T')[0],
+        calls: count
+      });
+    }
+
+    res.json(dailyData);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Get history chart failed');
+    res.status(500).json({ error: 'Failed to get history chart' });
+  }
+});
+
 router.get('/history', auth, async (req, res) => {
   try {
     const { ToolCall, Tool, Integration } = loadModels();

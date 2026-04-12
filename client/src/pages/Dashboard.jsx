@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import Navbar from '../components/Navbar';
 import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings } from 'lucide-react';
 
 function Dashboard() {
@@ -89,8 +88,6 @@ function Dashboard() {
 
   return (
     <div>
-      <Navbar />
-      
       <div className="container">
         <div className="page-header">
           <h1>Welcome back, {user?.name}</h1>

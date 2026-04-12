@@ -7,17 +7,29 @@
 
 ## Priority Table
 
-| # | Feature | Effort | Impact | Notes |
-|---|---|---|---|---|
-| 1 | Tool Marketplace | Medium | 🔥🔥🔥 | Network effect — nobody has done this for MCP yet |
-| 2 | Smart OpenAPI Import (body templates) | Low | 🔥🔥🔥 | Fix documented in FIX_SUGGESTED.md Issue 9 — highest ROI |
-| 3 | Bulk Tool Actions | Low | 🔥🔥 | Checkboxes on tool list — enable/disable/delete multiple at once |
-| 4 | OAuth Manager | High | 🔥🔥🔥 | Handles OAuth dance + auto-refresh — unlocks GitHub, Google, Slack |
-| 5 | Call Inspector | Low | 🔥🔥 | Data already in `tool_calls` table — mostly frontend work |
-| 6 | Composite Tools | Medium | 🔥🔥🔥 | Chain multiple API calls into one MCP tool — reduces AI round-trips |
-| 7 | Mock Mode | Low | 🔥🔥 | Static responses for demos and testing |
-| 8 | Optional LLM Integration | Medium | 🔥🔥🔥 | No hard dependency — unlocks tool generation, error diagnosis |
-| UI | UI overhaul (sidebar, palette, sparklines) | Low-Medium | 🔥🔥🔥 | Looks production-ready, scales to more nav items |
+| # | Feature | Status | UI Visible | Effort | Impact | Notes |
+|---|---|---|---|---|---|---
+| 1 | Tool Marketplace | 🗺️ Planning | ❌ | Medium | 🔥🔥🔥 | Pre-built tool packs - like appStore for integrations |
+| 2 | Smart OpenAPI Import (body templates) | ⚠️ | ⚠️ | Low | 🔥🔥🔥 | Fix documented in FIX_SUGGESTED.md Issue 9 — highest ROI |
+| 3 | Bulk Tool Actions | ✅ | ✅ | Low | 🔥🔥 | Checkboxes on tool list — enable/disable/delete multiple at once |
+| 4 | OAuth Manager | ❌ | ❌ | High | 🔥🔥🔥 | Handles OAuth dance + auto-refresh — unlocks GitHub, Google, Slack |
+| 5 | Call Inspector + Tester | ✅ | ✅ | Low | 🔥🔥 | Expand rows, see details, replay, test with modified params |
+| 6 | Composite Tools | ❌ | ❌ | Medium | 🔥🔥🔥 | Chain multiple API calls into one MCP tool — reduces AI round-trips |
+| 7 | Mock Mode | ❌ | ❌ | Low | 🔥🔥 | Static responses for demos and testing |
+| 8 | Optional LLM Integration | ❌ | ❌ | Medium | 🔥🔥🔥 | No hard dependency — unlocks tool generation, error diagnosis |
+| UI | Tool Tester (in Monitoring) | ✅ | ✅ | Low | 🔥🔥🔥 | Test tool from Monitoring page - modify params and execute |
+| UI | Dashboard sparklines | 🔶 | ❌ | Low | 🔥🔥🔥 | 7-day activity chart per stat card - in source, disabled pending feedback |
+| UI | Command palette Cmd+K | ❌ | ❌ | Low | 🔥🔥🔥 | Quick navigation |
+| UI | Left sidebar | ✅ | ✅ | Low-Medium | 🔥🔥🔥 | Done - collapsible sidebar with sections |
+
+---
+## Completed (Ready for review)
+
+- ✅ Feature 3: Bulk Tool Actions (527fe24)
+- ✅ Feature 5: Call Inspector (571d1d2)
+- ✅ Feature 9: Secret Store (Infisical) - complete integration
+- ✅ UI: Left sidebar (collapsible, sections, user info)
+- ✅ Pino logging (8a4f152)
 
 ---
 

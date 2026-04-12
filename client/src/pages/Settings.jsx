@@ -3,7 +3,6 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import themes from '../config/themes';
 import api from '../services/api';
-import Navbar from '../components/Navbar';
 import { StyledSelect } from '../components/StyledSelect';
 
 function LoadingDots({ text = 'Loading' }) {
@@ -343,8 +342,6 @@ function Settings() {
 
   return (
     <div>
-      <Navbar />
-
       <div className="container">
         <div className="page-header">
           <h1>Settings</h1>

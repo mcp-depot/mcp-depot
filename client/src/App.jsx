@@ -11,6 +11,7 @@ import Workflows from './pages/Workflows';
 import Settings from './pages/Settings';
 import Monitoring from './pages/Monitoring';
 import PromptLibrary from './pages/PromptLibrary';
+import Layout from './components/Layout';
 
 function PrivateRoute({ children }) {
   const { isAuthenticated, loading, needsPasswordReset } = useAuth();
@@ -46,14 +47,14 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
       <Route path="/reset-password" element={<PasswordReset />} />
-      <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-      <Route path="/integrations" element={<PrivateRoute><Integrations /></PrivateRoute>} />
-      <Route path="/integrations/:id/tools" element={<PrivateRoute><Tools /></PrivateRoute>} />
-      <Route path="/tools" element={<PrivateRoute><Tools all /></PrivateRoute>} />
-      <Route path="/workflows" element={<PrivateRoute><Workflows /></PrivateRoute>} />
-      <Route path="/monitoring" element={<PrivateRoute><Monitoring /></PrivateRoute>} />
-      <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
-      <Route path="/prompts" element={<PrivateRoute><PromptLibrary /></PrivateRoute>} />
+      <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
+      <Route path="/integrations" element={<PrivateRoute><Layout><Integrations /></Layout></PrivateRoute>} />
+      <Route path="/integrations/:id/tools" element={<PrivateRoute><Layout><Tools /></Layout></PrivateRoute>} />
+      <Route path="/tools" element={<PrivateRoute><Layout><Tools all /></Layout></PrivateRoute>} />
+      {/* <Route path="/workflows" element={<PrivateRoute><Layout><Workflows /></Layout></PrivateRoute>} /> */}
+      <Route path="/monitoring" element={<PrivateRoute><Layout><Monitoring /></Layout></PrivateRoute>} />
+      <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
+      <Route path="/prompts" element={<PrivateRoute><Layout><PromptLibrary /></Layout></PrivateRoute>} />
     </Routes>
   );
 }

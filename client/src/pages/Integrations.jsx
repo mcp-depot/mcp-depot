@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon, getIntegrationColor } from '../utils/integrationIcons';
-import Navbar from '../components/Navbar';
 import { StyledSelect } from '../components/StyledSelect';
 
 function Integrations() {
@@ -317,8 +316,6 @@ function Integrations() {
 
   return (
     <div>
-      <Navbar />
-
       <div className="container">
         <div className="page-header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
