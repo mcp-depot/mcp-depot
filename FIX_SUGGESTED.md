@@ -1375,3 +1375,175 @@ This does not block saving — it is a warning only. The user may have a legitim
 Users who accidentally paste credentials into Default Params or body templates will see a clear warning directing them to use the Integration auth settings instead.
 
 ---
+
+---
+
+## Issue 15 — OAuth token refresh is signaled but never executed
+
+**Status:** Open
+
+**Symptom:** OAuth tokens expire and API calls start returning 401. The app never automatically refreshes them, even though a refresh service exists.
+
+**Root cause — two disconnected implementations:**
+
+`oauth.js` has a complete `getValidToken()` / `refreshToken()` implementation, but `DynamicAdapter.js` never calls it. Instead, `DynamicAdapter` does its own inline expiry check (lines 62-67) and returns an `X-OAuth-Refresh: true` header as a signal:
+
+```js
+if (Date.now() > (expiresAt - fiveMinutes) && credentials.refreshToken) {
+  return { 'Authorization': `Bearer ${accessToken}`, 'X-OAuth-Refresh': 'true' };
+}
+```
+
+Nothing reads that header and triggers a refresh. The old expired token is sent to the provider's API, which returns 401. The user has no way to recover without manually re-authenticating.
+
+**Fix — replace the inline check with a call to `getValidToken`:**
+
+In `server/src/adapters/DynamicAdapter.js`, change the `case 'oauth2':` block to:
+
+```js
+case 'oauth2': {
+  const { getValidToken } = require('../services/oauth');
+  const { Integration } = loadModels(); // or pass integration as context
+
+  // Try to get a valid (possibly refreshed) token
+  const tokenResult = await getValidToken(this.auth.provider, credentials);
+
+  let accessToken;
+  if (tokenResult?.accessToken) {
+    // Refreshed — persist new token back to DB
+    const decrypted = encryption.decrypt(tokenResult.accessToken) || tokenResult.accessToken;
+    accessToken = decrypted;
+
+    // Save refreshed token back so the next request doesn't refresh again
+    await Integration.update(
+      {
+        credentials: encryption.encrypt(JSON.stringify({
+          ...credentials,
+          accessToken: tokenResult.accessToken,
+          refreshToken: tokenResult.refreshToken,
+          tokenData: { createdAt: tokenResult.createdAt, expiresIn: tokenResult.expiresIn }
+        }))
+      },
+      { where: { id: this.integrationId } }
+    );
+  } else {
+    accessToken = encryption.decrypt(credentials.accessToken) || credentials.accessToken;
+  }
+
+  if (!accessToken) return {};
+  return { 'Authorization': `Bearer ${accessToken}` };
+}
+```
+
+**Note:** `DynamicAdapter` needs to receive `integrationId` as a constructor argument so it can persist the refreshed token. Check how it is instantiated in `consume.js` and `mcp/server.js` and pass `integration.id` through.
+
+---
+
+## Issue 16 — OAuth refresh does not persist the new token
+
+**Status:** Open (companion to Issue 15)
+
+**Symptom:** Even if `getValidToken` is called, the refreshed token is returned in memory but never written back to the database. The next request will attempt another refresh — and for providers that issue single-use refresh tokens (Google, Notion), the second refresh will fail with 400, permanently locking the user out.
+
+**Root cause:**
+
+`oauth.js` `getValidToken()` returns the new encrypted token but has no database access:
+
+```js
+return {
+  accessToken: encryption.encrypt(refreshed.accessToken),
+  refreshToken: encryption.encrypt(refreshed.refreshToken || storedTokens.refreshToken),
+  createdAt: refreshed.createdAt,
+  expiresIn: refreshed.expiresIn
+};
+```
+
+The caller (`DynamicAdapter`) does nothing with this return value — it is discarded.
+
+**Fix:** As described in Issue 15 — the caller must persist the returned token back to the `integrations` table immediately after a successful refresh. This is especially critical for Google and Notion which rotate refresh tokens on every use.
+
+---
+
+## Issue 17 — Linear OAuth `authUrl` has wrong domain
+
+**Status:** Open
+
+**Symptom:** Clicking "Connect with Linear" opens a browser to `https://linear/oauth/authorize` — an invalid URL. The OAuth dance never starts.
+
+**Root cause:**
+
+In `server/src/services/oauth.js`, the Linear provider config has a typo:
+
+```js
+linear: {
+  authUrl: 'https://linear/oauth/authorize',  // ← missing .app
+  ...
+}
+```
+
+**Fix — one character:**
+
+```js
+linear: {
+  authUrl: 'https://linear.app/oauth/authorize',
+  tokenUrl: 'https://api.linear.app/oauth/token',
+  scopes: ['read', 'write'],
+  baseUrl: 'https://api.linear.app'
+},
+```
+
+---
+
+## Issue 18 — Jira and Notion OAuth token exchange will fail
+
+**Status:** Open
+
+**Symptom:** After the OAuth redirect, exchanging the code for a token fails silently. The user is redirected back but no token is stored.
+
+### Jira — wrong OAuth version endpoints
+
+The current config uses OAuth 1.0a-style endpoints (`{baseUrl}/oauth/authorize`). Jira Cloud uses Atlassian's OAuth 2.0 (3LO) with fixed Atlassian auth URLs, not instance-relative ones.
+
+**Fix:**
+
+```js
+jira: {
+  name: 'Jira',
+  authUrl: 'https://auth.atlassian.com/authorize',
+  tokenUrl: 'https://auth.atlassian.com/oauth/token',
+  scopes: ['read:jira-work', 'write:jira-work', 'offline_access'],
+  baseUrl: null,
+  // Jira Cloud requires audience param
+  extraAuthParams: { audience: 'api.atlassian.com', prompt: 'consent' }
+},
+```
+
+The `audience=api.atlassian.com` and `prompt=consent` params are required by Atlassian — without them the token will not have the right claims and all API calls will return 403. Update `buildAuthUrl()` to append `extraAuthParams` if present.
+
+### Notion — wrong Content-Type and missing Basic auth
+
+Notion's token endpoint requires:
+- `Authorization: Basic base64(clientId:clientSecret)` header
+- `Content-Type: application/json`
+- JSON body (not URL-encoded form)
+
+The current `exchangeCode()` sends all providers as `URLSearchParams` (URL-encoded form) with no Authorization header. Notion returns 400.
+
+**Fix — add a provider-specific branch in `exchangeCode()`:**
+
+```js
+if (provider === 'notion') {
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const res = await axios.post(tokenUrl, {
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri
+  }, {
+    headers: {
+      'Authorization': `Basic ${basicAuth}`,
+      'Content-Type': 'application/json'
+    }
+  });
+  // ... same return mapping
+}
+```

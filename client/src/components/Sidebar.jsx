@@ -10,17 +10,23 @@ import {
   Settings, 
   ChevronLeft,
   Zap,
-  ChevronRight
+  ChevronRight,
+  LogOut
 } from 'lucide-react';
 import { useState } from 'react';
 
 function Sidebar() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { themeName, setThemeName } = useTheme();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
 
   const isActive = (path) => location.pathname === path ? 'active' : '';
+
+  const handleLogout = async () => {
+    await logout();
+    window.location.href = '/login';
+  };
 
   const toggleTheme = () => {
     const newTheme = themeName === 'dark' ? 'light' : themeName === 'light' ? 'dark' : themeName === 'ocean' ? 'light' : 'dark';
@@ -96,6 +102,15 @@ function Sidebar() {
             </div>
           )}
         </div>
+        <button 
+          className="btn btn-small"
+          onClick={handleLogout}
+          title="Logout"
+          style={{ marginTop: '0.5rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+        >
+          <LogOut size={14} />
+          {!collapsed && <span>Logout</span>}
+        </button>
       </div>
     </div>
   );

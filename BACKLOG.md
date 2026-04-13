@@ -459,3 +459,199 @@ Mixed usage works automatically — one integration can reference Infisical, ano
 | Biggest growth impact | **Feature 1** (Marketplace) — network effect |
 | Reduce setup friction | **Feature 2** (Smart Import) — fix already documented in FIX_SUGGESTED.md Issue 9 |
 | Enterprise/team security | **Feature 9** (Secret Store) — keeps credentials out of MCPConnect DB entirely |
+
+
+---
+
+## Feature 10 - Prompts as Skills
+
+**Why:** The `PromptLibrary` model exists but prompts are currently passive - they sit in a library and must be copy-pasted manually. Redesigning them as **Skills** means they become first-class, parameterized, executable units: invokable by the AI as MCP tools, shareable between users, and usable as slash commands in any AI client.
+
+The gap today:
+- A prompt like "Write a standup update for {{project}}" is just stored text
+- The AI cannot discover or invoke it without the user manually pasting it
+- There is no way to share prompts between team members
+
+**What a Skill is:**
+```
+Skill = name + description + typed inputs + prompt template + (optional) output format
+```
+
+Example skill: `standup_update`
+```json
+{
+  "name": "standup_update",
+  "description": "Generate a standup update for a project",
+  "inputs": [
+    { "name": "project", "type": "string", "description": "Project or ticket key", "required": true },
+    { "name": "tone",    "type": "string", "description": "casual or formal",       "required": false, "default": "casual" }
+  ],
+  "prompt": "Write a concise standup update for {{project}} in a {{tone}} tone. Include what was done, what is next, and any blockers.",
+  "isShared": false
+}
+```
+
+**How it works:**
+1. Skills are exposed to connected AI clients as MCP tools (`GET /api/mcp/tools` includes skills)
+2. Claude calls `use_skill(name="standup_update", project="P20009868-47", tone="formal")`
+3. MCPConnect interpolates inputs into the prompt template and returns the rendered prompt as the tool result
+4. Claude uses the rendered prompt as context/instruction for the next response
+
+**Migration from PromptLibrary:**
+- Rename `prompt_library` table to `skills` (or add `isSkill` flag to existing table to avoid a migration)
+- Add typed `inputs`: `{ name, type, description, required, default }`
+- Add `isShared` boolean field (see Feature 11)
+- Add `outputFormat`: `text` | `json` | `markdown`
+- Existing prompts migrate automatically as skills with no inputs - zero breaking change
+
+**New endpoints:**
+```
+GET    /api/skills              -> list skills (own + shared ones)
+POST   /api/skills              -> create skill
+PUT    /api/skills/:id          -> update skill
+DELETE /api/skills/:id          -> delete skill
+POST   /api/skills/:id/invoke   -> render prompt with inputs, returns resolved text
+```
+
+**MCP exposure (`mcp/server.js`):**
+Register each skill as an MCP tool. The tool handler interpolates the prompt template with the provided inputs and returns the rendered text. The AI can then use that rendered prompt as its instruction.
+
+**UI:**
+- Rename "Prompts" page to "Skills" in the sidebar
+- Form: name, description, prompt textarea with `{{variable}}` syntax highlighting, inputs table (name / type / required / default)
+- "Test" button: fill inputs, see rendered output live before saving
+- "Share" toggle (requires Feature 11)
+
+**Effort:** Medium - 2-3 days. DB migration + new routes + MCP registration hook + UI rename/extend.
+
+**Impact:** High - turns a passive library into an active AI capability. Users can build team-specific MCP tools without writing any code.
+
+---
+
+## Feature 11 - Integration Sharing (Admin to Users)
+
+**Why:** Today every integration is private to the user who created it. In a team deployment, every user must set up the same Jira / Bitbucket / GitHub integration separately - duplicating config and multiplying the chance of misconfiguration.
+
+**Current state (from reading the code):**
+- `Integration` model has `userId` - strictly per-owner
+- Admins see all integrations via `req.user.role === 'admin'` bypass in the where clause
+- `UserIntegrationCredentials` table already exists (`userId`, `integrationId`, `credentials` JSONB, `isActive`) with a unique index on `(userId, integrationId)`
+- That table is queried in `GET /integrations` to show credential status badges - but **no write route exists anywhere**. The table is read-only today.
+
+**Proposed model: Admin-defined structure, per-user credentials**
+
+```
+Admin creates integration -> marks it "shared" -> visible to all users
+Each user sees the integration but provides their own credentials
+Tools/config defined once by admin; credentials are per-user
+```
+
+This is the "bring your own key" pattern. Admin sets up the Jira integration (base URL, tools, endpoints). Each user adds their own Jira API token. MCPConnect picks up the right credential at call time.
+
+**Schema change - one column:**
+```sql
+ALTER TABLE integrations ADD COLUMN visibility VARCHAR(10) NOT NULL DEFAULT 'private';
+-- 'private'  = owner + admin only (current behaviour, no change)
+-- 'shared'   = all authenticated users can see and use it
+```
+
+**New endpoints:**
+```
+PUT /api/integrations/:id/visibility    -> admin only: toggle 'private' | 'shared'
+GET /api/integrations/:id/users         -> admin only: see which users have credentials set
+```
+
+**Execution change in `DynamicAdapter.js`:**
+```js
+// Before building auth headers, check for per-user credentials
+const userCred = await UserIntegrationCredentials.findOne({
+  where: { userId: context.userId, integrationId: integration.id, isActive: true }
+});
+const credentials = userCred
+  ? JSON.parse(encryption.decrypt(userCred.credentials))
+  : integration.config.auth.credentials;
+```
+
+**UI - two views:**
+
+Admin view on an integration:
+- Shows "Shared" badge with connected user count
+- "Manage Sharing" toggle: private vs shared
+- Table: which users have connected, when they last updated credentials
+
+Non-admin view of a shared integration:
+- Appears in the list with a "Shared by admin" label
+- Read-only: cannot edit config or tools
+- Shows "Connect" button -> credential form for that auth type (token / API key / OAuth)
+- Once connected: "Connected" indicator + "Update" + "Disconnect"
+
+**Effort:** Medium - ~2 days backend (schema migration + 2 routes + DynamicAdapter hook), 1 day UI.
+
+**Impact:** High - essential for any team deployment. Without this, MCPConnect cannot scale past a single user per instance.
+
+---
+
+## Feature 12 - Per-User Credential Update
+
+**Why:** Even for private integrations, `PUT /:id` requires re-submitting the entire integration config to rotate a credential. There is no lightweight "just update my token" flow. This is friction for:
+- Any user rotating an API key
+- Re-authenticating via OAuth without touching integration config
+- Non-owner users on a shared integration (Feature 11) who should never see the full config
+
+**Current state:**
+- `PUT /api/integrations/:id` - updates the whole integration; owner/admin only
+- Non-owners have no credential route at all
+- `UserIntegrationCredentials` has no write routes despite the table existing
+
+**New routes:**
+
+```
+PATCH  /api/integrations/:id/credentials
+Body:  { credentials: { token: "...", apiKey: "..." } }
+
+- Owner or admin on a private integration: updates config.auth.credentials
+- Any user on a shared integration: upserts into UserIntegrationCredentials
+
+DELETE /api/integrations/:id/credentials
+- Owner: clears integration-level credentials
+- Non-owner on shared: removes their UserIntegrationCredentials row (disconnects)
+```
+
+**Backend logic:**
+```js
+router.patch('/:id/credentials', auth, async (req, res) => {
+  const integration = await Integration.findByPk(req.params.id);
+  if (!integration) return res.status(404).json({ error: 'Not found' });
+
+  const isOwnerOrAdmin = integration.userId === req.user.id || req.user.role === 'admin';
+  const isSharedForOthers = integration.visibility === 'shared' && !isOwnerOrAdmin;
+
+  if (isSharedForOthers) {
+    // Non-owner on a shared integration -> write to UserIntegrationCredentials
+    await UserIntegrationCredentials.upsert({
+      userId: req.user.id,
+      integrationId: integration.id,
+      credentials: encryptCredentials(req.body.credentials),
+      isActive: true
+    });
+  } else if (isOwnerOrAdmin) {
+    // Owner/admin -> update config only
+    const config = { ...integration.config };
+    config.auth.credentials = encryptCredentials(req.body.credentials);
+    await integration.update({ config });
+  } else {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  res.json({ success: true });
+});
+```
+
+**UI changes:**
+- Integration detail page: "Update Credentials" button opens a small modal with only the credential fields (token / API key / username+password depending on auth type) - not the full integration edit form
+- Calls `PATCH /:id/credentials`, not `PUT /:id`
+- For shared integrations: non-owners see only this modal, not the config/tools editor
+
+**Effort:** Low - 2 backend routes + small frontend modal. Builds directly on Feature 11 infrastructure.
+
+**Impact:** Medium-High - quality-of-life for all users, and a required prerequisite for Feature 11 to be usable.
