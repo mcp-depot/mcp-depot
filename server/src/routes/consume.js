@@ -183,9 +183,14 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     }
     
     if (typeof bodyParams === 'object' && bodyParams !== null) {
-      bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/\{(\w+)\}/g, (match, key) => {
-        return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : match;
-      }));
+      bodyParams = JSON.parse(JSON.stringify(bodyParams)
+        .replace(/"(\{\w+\})"/g, (match, placeholder) => {
+          const key = placeholder.slice(1, -1);
+          return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : match;
+        })
+        .replace(/\{(\w+)\}/g, (match, key) => {
+          return mergedParams[key] !== undefined ? String(mergedParams[key]) : 'null';
+        }));
     }
     
     let result;
