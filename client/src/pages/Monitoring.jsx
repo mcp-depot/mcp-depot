@@ -397,24 +397,35 @@ function Monitoring() {
                         {expandedCall === call.id && (
                           <tr key={`${call.id}-expanded`}>
                             <td colSpan={9} style={{ padding: '1rem', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                <div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', height: '250px' }}>
+                                <div 
+                                  tabIndex={0} 
+                                  onClick={(e) => e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                                  style={{ overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '4px', padding: '0.5rem', cursor: 'pointer' }}
+                                >
                                   <h4 style={{ marginBottom: '0.5rem' }}>Request</h4>
-                                  <div style={{ marginBottom: '0.5rem' }}><strong>Path:</strong> <code>{call.path}</code></div>
+                                  <div style={{ marginBottom: '0.5rem', wordBreak: 'break-word' }}><strong>Path:</strong> <code>{call.path}</code></div>
                                   {call.queryParams && Object.keys(call.queryParams).length > 0 && (
-                                    <div style={{ marginBottom: '0.5rem' }}><strong>Query:</strong> <pre style={{ margin: '0.25rem 0', padding: '0.5rem', background: 'var(--surface-hover)', borderRadius: '4px', fontSize: '0.8rem', overflow: 'auto' }}>{JSON.stringify(call.queryParams, null, 2)}</pre></div>
+                                    <div style={{ marginBottom: '0.5rem' }}><strong>Query:</strong> <pre style={{ margin: '0.25rem 0', padding: '0.5rem', background: 'var(--surface)', borderRadius: '4px', fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{JSON.stringify(call.queryParams, null, 2)}</pre></div>
                                   )}
                                   {call.requestBody && Object.keys(call.requestBody).length > 0 && (
-                                    <div><strong>Body:</strong> <pre style={{ margin: '0.25rem 0', padding: '0.5rem', background: 'var(--surface-hover)', borderRadius: '4px', fontSize: '0.8rem', overflow: 'auto' }}>{JSON.stringify(call.requestBody, null, 2)}</pre></div>
+                                    <div><strong>Body:</strong> <pre style={{ margin: '0.25rem 0', padding: '0.5rem', background: 'var(--surface)', borderRadius: '4px', fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{JSON.stringify(call.requestBody, null, 2)}</pre></div>
+                                  )}
+                                  {(!call.requestBody || Object.keys(call.requestBody).length === 0) && (!call.queryParams || Object.keys(call.queryParams).length === 0) && (
+                                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No request body</span>
                                   )}
                                 </div>
-                                <div>
+                                <div 
+                                  tabIndex={0} 
+                                  onClick={(e) => e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                                  style={{ overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '4px', padding: '0.5rem', cursor: 'pointer' }}
+                                >
                                   <h4 style={{ marginBottom: '0.5rem' }}>Response</h4>
                                   {call.errorMessage && (
                                     <div style={{ marginBottom: '0.5rem', color: 'var(--danger)' }}><strong>Error:</strong> {call.errorMessage}</div>
                                   )}
                                   {call.responseBody && (
-                                    <pre style={{ margin: 0, padding: '0.5rem', background: 'var(--surface-hover)', borderRadius: '4px', fontSize: '0.8rem', overflow: 'auto', maxHeight: '300px' }}>{typeof call.responseBody === 'string' ? call.responseBody : JSON.stringify(call.responseBody, null, 2)}</pre>
+                                    <pre style={{ margin: 0, padding: '0.5rem', background: 'var(--surface)', borderRadius: '4px', fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{typeof call.responseBody === 'string' ? call.responseBody : JSON.stringify(call.responseBody, null, 2)}</pre>
                                   )}
                                   {!call.responseBody && !call.errorMessage && <span style={{ color: 'var(--text-secondary)' }}>No response body recorded</span>}
                                 </div>

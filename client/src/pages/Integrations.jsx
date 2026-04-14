@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon, getIntegrationColor } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
+import { Eye, EyeOff } from 'lucide-react';
 
 function Integrations() {
   const { user } = useAuth();
@@ -13,6 +14,7 @@ function Integrations() {
   const [showDiscoverModal, setShowDiscoverModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showAllUrls, setShowAllUrls] = useState(false);
   const [selectedForExport, setSelectedForExport] = useState([]);
   const [selectedForImport, setSelectedForImport] = useState([]);
   const [importData, setImportData] = useState(null);
@@ -334,6 +336,14 @@ function Integrations() {
               <p>Connect to any third-party API</p>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowAllUrls(!showAllUrls)}
+                title={showAllUrls ? 'Hide all URLs' : 'Show all URLs'}
+              >
+                {showAllUrls ? <EyeOff size={16} /> : <Eye size={16} />}
+                <span style={{ marginLeft: '0.25rem' }}>{showAllUrls ? 'Hide URLs' : 'Show URLs'}</span>
+              </button>
               <button className="btn btn-secondary" onClick={() => { setShowDiscoverModal(true); }}>
                 Discover API
               </button>
@@ -398,7 +408,9 @@ function Integrations() {
                   )}
                 </div>
                 <p className="integration-description">{integration.description}</p>
-                <p className="integration-url">{integration.baseUrl}</p>
+                <p className="integration-url" style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  {showAllUrls ? integration.baseUrl : '••••••••••'}
+                </p>
                 <span className="integration-type">{integration.type}</span>
                 <div className="integration-actions">
                   <Link to={`/integrations/${integration._id}/tools`} className="btn btn-primary btn-small">

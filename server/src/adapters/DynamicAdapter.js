@@ -56,18 +56,6 @@ class DynamicAdapter {
       case 'oauth2': {
         const accessToken = encryption.decrypt(credentials.accessToken) || credentials.accessToken;
         if (!accessToken) return {};
-        
-        const tokenData = credentials.tokenData || {};
-        if (tokenData.expiresIn && tokenData.createdAt) {
-          const expiresAt = tokenData.createdAt + (tokenData.expiresIn * 1000);
-          const fiveMinutes = 5 * 60 * 1000;
-          
-          if (Date.now() > (expiresAt - fiveMinutes) && credentials.refreshToken) {
-            // Signal that refresh is needed - caller should handle this
-            return { 'Authorization': `Bearer ${accessToken}`, 'X-OAuth-Refresh': 'true' };
-          }
-        }
-        
         return { 'Authorization': `Bearer ${accessToken}` };
       }
 
@@ -105,6 +93,10 @@ class DynamicAdapter {
 
   async makeRequest(method, path, data = null, options = {}) {
     const { params, headers, retries = 3 } = options;
+    
+    if (this.auth.type === 'oauth2') {
+      await this.ensureValidToken();
+    }
     
     const config = {
       method,
@@ -197,9 +189,37 @@ class DynamicAdapter {
       const freshTokens = await getValidToken(provider, { oauth: credentials });
       if (!freshTokens) return null;
       
-      return encryption.decrypt(freshTokens.accessToken) || freshTokens.accessToken;
+      this.auth.credentials.accessToken = freshTokens.accessToken;
+      if (freshTokens.refreshToken) {
+        this.auth.credentials.refreshToken = freshTokens.refreshToken;
+      }
+      if (freshTokens.createdAt) {
+        this.auth.credentials.tokenData.createdAt = freshTokens.createdAt;
+      }
+      if (freshTokens.expiresIn) {
+        this.auth.credentials.tokenData.expiresIn = freshTokens.expiresIn;
+      }
+      
+      if (this.integrationId) {
+        this._persistCredentials();
+      }
+      
+      return this.auth.credentials.accessToken;
     } catch (err) {
       return null;
+    }
+  }
+  
+  async _persistCredentials() {
+    try {
+      const { Integration } = require('../models');
+      const integration = await Integration.findByPk(this.integrationId);
+      if (integration) {
+        integration.config.auth.credentials = this.auth.credentials;
+        await integration.save();
+      }
+    } catch (err) {
+      console.error('Failed to persist OAuth credentials:', err.message);
     }
   }
 }
