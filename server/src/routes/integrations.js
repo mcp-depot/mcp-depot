@@ -217,12 +217,15 @@ router.put('/:id', auth, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    const { name, description, config, metadata, isActive } = req.body;
+    const { name, description, config, metadata, isActive, visibility } = req.body;
 
     if (name !== undefined) integration.name = name;
     if (description !== undefined) integration.description = description;
     if (metadata !== undefined) integration.metadata = metadata;
     if (isActive !== undefined) integration.isActive = isActive;
+    if (visibility !== undefined && ['private', 'shared'].includes(visibility)) {
+      integration.visibility = visibility;
+    }
     
     if (config !== undefined) {
       if (config.auth?.credentials && config.auth.type !== 'none') {
@@ -900,6 +903,61 @@ router.post('/import', auth, async (req, res) => {
     }
   } catch (error) {
     logger.error({ err: error.message }, 'Import error');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/:id/visibility', auth, async (req, res) => {
+  try {
+    const whereClause = req.user.role === 'admin'
+      ? { id: req.params.id }
+      : { id: req.params.id, userId: req.user.id };
+    
+    const integration = await Integration.findOne({ where: whereClause });
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    const { visibility } = req.body;
+    if (!['private', 'shared'].includes(visibility)) {
+      return res.status(400).json({ error: 'Invalid visibility value' });
+    }
+
+    await integration.update({ visibility });
+    res.json({ success: true, visibility: integration.visibility });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Update visibility error');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/:id/users', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+
+    const integration = await Integration.findByPk(req.params.id);
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    const userCreds = await UserIntegrationCredentials.findAll({
+      where: { integrationId: req.params.id },
+      attributes: ['userId', 'updatedAt']
+    });
+
+    const { User } = loadModels();
+    const users = await Promise.all(
+      userCreds.map(async (uc) => {
+        const user = await User.findByPk(uc.userId, { attributes: ['id', 'name', 'email'] });
+        return { user: user?.toJSON(), lastConnected: uc.updatedAt };
+      })
+    );
+
+    res.json({ sharedCount: userCreds.length, users });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Get integration users error');
     res.status(500).json({ error: error.message });
   }
 });

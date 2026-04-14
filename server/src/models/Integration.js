@@ -32,6 +32,10 @@ const Integration = sequelize.define('Integration', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  visibility: {
+    type: DataTypes.STRING(10),
+    defaultValue: 'private'
+  },
   metadata: {
     type: DataTypes.JSONB,
     defaultValue: {}
