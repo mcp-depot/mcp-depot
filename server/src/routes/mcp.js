@@ -693,14 +693,29 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     const requiresCredentials = authType !== 'none';
     const hasIntegrationCredentials = !!integration.config?.auth?.credentials;
     
+    const isSharedForUser = integration.visibility === 'shared' && 
+                           integration.userId !== userId && 
+                           req.user?.role !== 'admin';
+    
     let userCreds = null;
     if (userId) {
       const userCredsRecord = await UserIntegrationCredentials.findOne({
         where: { userId, integrationId: integration.id, isActive: true }
       });
       if (userCredsRecord && userCredsRecord.credentials) {
-        userCreds = encryption.decrypt(userCredsRecord.credentials);
+        const decrypted = encryption.decrypt(userCredsRecord.credentials);
+        userCreds = JSON.parse(decrypted);
       }
+    }
+    
+    if (requiresCredentials && isSharedForUser && !userCreds) {
+      return res.status(403).json({ 
+        error: 'Credentials required',
+        message: 'Please connect to this shared integration and add your credentials first.',
+        integrationId: integration.id,
+        integrationName: integration.name,
+        authType
+      });
     }
     
     if (requiresCredentials && !hasIntegrationCredentials && !userCreds) {
@@ -714,11 +729,20 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     }
     
     let config = { ...integration.config };
-    if (userCreds) {
-      config.auth = userCreds;
+    if (isSharedForUser) {
+      if (userCreds) {
+        config.auth = { ...integration.config.auth, credentials: userCreds };
+      } else {
+        config.auth = { type: 'none' };
+      }
+    } else if (userCreds) {
+      config.auth = { ...integration.config.auth, credentials: userCreds };
     }
     
-    const adapter = AdapterFactory.create(integration.type, config);
+    const adapter = AdapterFactory.create(integration.type, {
+      ...config,
+      integrationId: integration.id
+    }, { userId });
     
     if (tool.name === 'fetch-url' && tool.endpoint.method === 'GET') {
     const paramDefs = tool.endpoint.params || {};
