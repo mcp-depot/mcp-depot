@@ -159,13 +159,28 @@ router.get('/', auth, async (req, res) => {
 
 router.get('/:id', auth, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    let integration;
     
-    const integration = await Integration.findOne({
-      where: whereClause
-    });
+    if (req.user.role === 'admin') {
+      integration = await Integration.findOne({ where: { id: req.params.id } });
+    } else {
+      const { User } = loadModels();
+      const adminIds = await User.findAll({
+        where: { role: 'admin' },
+        attributes: ['id'],
+        raw: true
+      }).then(admins => admins.map(a => a.id));
+      
+      integration = await Integration.findOne({
+        where: {
+          id: req.params.id,
+          [Op.or]: [
+            { userId: req.user.id },
+            { visibility: 'shared', userId: { [Op.in]: adminIds } }
+          ]
+        }
+      });
+    }
 
     if (!integration) {
       return res.status(404).json({ error: 'Integration not found' });
