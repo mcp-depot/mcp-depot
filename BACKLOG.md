@@ -12,7 +12,7 @@
 | 1 | Tool Marketplace | 🗺️ Planning | ❌ | Medium | 🔥🔥🔥 | Community registry + one-click install |
 | 2 | Smart OpenAPI Import | ✅ Done | ✅ | - | - | Body templates + type inference |
 | 3 | Bulk Tool Actions | ✅ Done | ✅ | - | - | Enable/disable/delete multiple tools |
-| 4 | OAuth Manager | 🔶 Partial | 🔶 | High | 🔥🔥🔥 | Service + UI done; refresh broken (FIX_SUGGESTED Issues 15-18) |
+| 4 | OAuth Manager | ✅ Done | ✅ | - | - | Auto token refresh + persistence (Issues 15-18 fixed) |
 | 5 | Call Inspector + Tester | ✅ Done | ✅ | - | - | Replay + debug tool calls |
 | 6 | Composite Tools | ❌ | ❌ | Medium | 🔥🔥🔥 | Chain multiple API calls into one MCP tool |
 | 7 | Mock Mode | ✅ Done | ✅ | - | - | Static responses for demos/testing (f35cd8a) |
@@ -20,7 +20,7 @@
 | 9 | Secret Store (Infisical) | ✅ Done | ✅ | - | - | External credential store; never touch DB |
 | 10 | Prompts as Skills | ❌ | ❌ | Medium | 🔥🔥🔥 | First-class parameterised MCP tools from prompts |
 | 11 | Integration Sharing | ✅ Done | ✅ | - | - | Admin shares; users add own credentials |
-| 12 | Per-User Credential Update | ❌ | ❌ | Low | 🔥🔥 | PATCH /:id/credentials — no full re-submit |
+| 12 | Per-User Credential Update | ✅ Done | ✅ | - | - | PATCH/DELETE /:id/credentials for shared integrations |
 | UI | Dashboard sparklines | 🔶 | ❌ | Low | 🔥🔥🔥 | Component exists, disabled pending feedback |
 | UI | Command palette Cmd+K | ❌ | ❌ | Low | 🔥🔥🔥 | Quick navigation via cmdk |
 
@@ -30,10 +30,12 @@
 
 - ✅ Feature 2: Smart OpenAPI Import + body templates + type inference
 - ✅ Feature 3: Bulk Tool Actions (527fe24)
+- ✅ Feature 4: OAuth Manager (Issues 15-18 fixed - auto refresh + persistence)
 - ✅ Feature 5: Call Inspector + Tester (571d1d2)
 - ✅ Feature 7: Mock Mode (f35cd8a)
 - ✅ Feature 9: Secret Store / Infisical
-- ✅ Feature 11: Integration Sharing - visibility column + admin/user endpoints + UI badge
+- ✅ Feature 11: Integration Sharing - visibility + endpoints + per-user credentials UI
+- ✅ Feature 12: Per-User Credential Update - PATCH/DELETE credentials endpoints
 - ✅ UI: Left sidebar (260px/68px collapsible, user dropdown, profile/logout)
 - ✅ UI: Tool Tester in Monitoring page
 - ✅ UI: Credential warning in tool editor (FIX_SUGGESTED Issue 14)
@@ -49,11 +51,9 @@
 
 | Goal | Feature to pick up |
 |------|-------------------|
-| Fix live OAuth tokens | **Issues 15-18** in FIX_SUGGESTED.md |
 | Biggest DX impact | **Feature 6** (Composite Tools) - hides API complexity from AI |
 | Biggest growth impact | **Feature 1** (Marketplace) - network effect |
 | Turn prompts into power tools | **Feature 10** (Prompts as Skills) |
-| Team deployment blocker | **Feature 12** (Per-User Credentials) - low effort, unlocks Feature 11 fully |
 | AI-assisted tool building | **Feature 8** (Optional LLM Integration) |
 
 ---
