@@ -8,6 +8,7 @@ class DynamicAdapter {
     this.auth = config.auth || { type: 'none' };
     this.customHeaders = config.headers || {};
     this.timeout = config.timeout || 30000;
+    this.integrationId = config.integrationId;
     this.client = null;
     this.initClient();
   }
@@ -62,6 +63,7 @@ class DynamicAdapter {
           const fiveMinutes = 5 * 60 * 1000;
           
           if (Date.now() > (expiresAt - fiveMinutes) && credentials.refreshToken) {
+            // Signal that refresh is needed - caller should handle this
             return { 'Authorization': `Bearer ${accessToken}`, 'X-OAuth-Refresh': 'true' };
           }
         }
@@ -172,6 +174,33 @@ class DynamicAdapter {
 
   async delete(path, options = {}) {
     return this.makeRequest('DELETE', path, null, options);
+  }
+
+  async ensureValidToken() {
+    if (this.auth.type !== 'oauth2') return;
+    
+    const { credentials } = this.auth;
+    if (!credentials?.accessToken) return null;
+    
+    const tokenData = credentials.tokenData || {};
+    if (!tokenData.expiresIn || !tokenData.createdAt) return;
+    
+    const expiresAt = tokenData.createdAt + (tokenData.expiresIn * 1000);
+    const fiveMinutes = 5 * 60 * 1000;
+    
+    if (Date.now() < (expiresAt - fiveMinutes)) return;
+    
+    const { getValidToken } = require('../services/oauth');
+    const provider = credentials.provider || 'github';
+    
+    try {
+      const freshTokens = await getValidToken(provider, { oauth: credentials });
+      if (!freshTokens) return null;
+      
+      return encryption.decrypt(freshTokens.accessToken) || freshTokens.accessToken;
+    } catch (err) {
+      return null;
+    }
   }
 }
 

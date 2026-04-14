@@ -655,3 +655,53 @@ router.patch('/:id/credentials', auth, async (req, res) => {
 **Effort:** Low - 2 backend routes + small frontend modal. Builds directly on Feature 11 infrastructure.
 
 **Impact:** Medium-High - quality-of-life for all users, and a required prerequisite for Feature 11 to be usable.
+
+
+---
+
+## Project - Rename to Toolshed
+
+**Decision:** Rename the project from MCPConnect to **Toolshed**.
+
+**Why MCPConnect doesn't work:**
+- The name MCPConnect is already used by other tools in the MCP ecosystem
+- Branding around a protocol acronym (MCP) ties the identity to an implementation detail
+- Generic "Connect" suffix adds no personality or recall
+
+**Why Toolshed:**
+- A shed is something you run yourself, on your own land - perfect self-hosted metaphor
+- Immediately descriptive: a place where tools live and are built
+- Community-friendly: "just use Toolshed", "I self-host Toolshed" flows naturally
+- Clean open-source brand: no corporate feel, approachable for contributors
+- No serious collision risk on GitHub, npm, or Docker Hub
+- Logo-friendly: a shed silhouette with a wrench - simple and memorable
+- Timeless: not tied to MCP branding if the protocol evolves
+
+**Tagline:** Self-hosted MCP gateway. Turn any API into an AI tool.
+
+**What needs to change:**
+
+| Location | Change |
+|----------|--------|
+| GitHub repo name | `mcpconnect` -> `toolshed` |
+| GitHub org/username | update if creating a dedicated org |
+| `package.json` (server + client) | `name` field |
+| `docker-compose.yml` | container names: `mcpconnect-*` -> `toolshed-*` |
+| `README.md` | all references to MCPConnect |
+| `client/src/` | any hardcoded "MCPConnect" strings in UI |
+| `server/src/` | log messages, email templates referencing the name |
+| Admin email default | `admin@mcpconnect.io` -> `admin@toolshed.io` (or just `admin@localhost`) |
+| Docs (`docs/connect/*.md`) | product name references |
+| Docker Hub image | `toolshed/server`, `toolshed/client` |
+| Domain (future) | `toolshed.dev` or `toolshed.io` |
+
+**Search strings to replace across the repo:**
+```
+MCPConnect      -> Toolshed
+mcpconnect      -> toolshed
+mcpconnect.io   -> toolshed.dev
+```
+
+**Effort:** Low - mostly find-and-replace. ~1-2 hours. No logic changes.
+
+**Do this before the public GitHub release** - renaming after a repo goes public breaks existing clone URLs and stars.
