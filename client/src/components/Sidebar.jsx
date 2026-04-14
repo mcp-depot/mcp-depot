@@ -11,7 +11,9 @@ import {
   ChevronLeft,
   Zap,
   ChevronRight,
-  LogOut
+  LogOut,
+  ChevronDown,
+  User
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -20,6 +22,7 @@ function Sidebar() {
   const { themeName, setThemeName } = useTheme();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   const isActive = (path) => location.pathname === path ? 'active' : '';
 
@@ -91,26 +94,77 @@ function Sidebar() {
           <input type="checkbox" checked={themeName === 'dark'} onChange={toggleTheme} />
           <span className="toggle-slider"></span>
         </label>
-        <div className="sidebar-user" onClick={() => window.location.href = '/settings'} style={{ cursor: 'pointer' }}>
-          <div className="sidebar-user-avatar">
-            {user?.name?.charAt(0)}
+        <div style={{ position: 'relative', width: '100%' }}>
+          <div 
+            className="sidebar-user" 
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          >
+            <div className="sidebar-user-avatar">
+              {user?.name?.charAt(0)}
+            </div>
+            {!collapsed && (
+              <>
+                <div className="sidebar-user-info">
+                  <div className="sidebar-user-name">{user?.name}</div>
+                  <div className="sidebar-user-email">{user?.email}</div>
+                </div>
+                <ChevronDown size={14} style={{ marginLeft: 'auto' }} />
+              </>
+            )}
           </div>
-          {!collapsed && (
-            <div className="sidebar-user-info">
-              <div className="sidebar-user-name">{user?.name}</div>
-              <div className="sidebar-user-email">{user?.email}</div>
+          {showUserMenu && (
+            <div style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: 0,
+              right: 0,
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              padding: '0.25rem',
+              marginBottom: '0.5rem',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+            }}>
+              <button 
+                onClick={() => { window.location.href = '/settings'; setShowUserMenu(false); }}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  borderRadius: '4px'
+                }}
+              >
+                <User size={14} />
+                <span>Profile</span>
+              </button>
+              <button 
+                onClick={handleLogout}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--danger)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  borderRadius: '4px'
+                }}
+              >
+                <LogOut size={14} />
+                <span>Logout</span>
+              </button>
             </div>
           )}
         </div>
-        <button 
-          className="btn btn-small"
-          onClick={handleLogout}
-          title="Logout"
-          style={{ marginTop: '0.5rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
-        >
-          <LogOut size={14} />
-          {!collapsed && <span>Logout</span>}
-        </button>
       </div>
     </div>
   );
