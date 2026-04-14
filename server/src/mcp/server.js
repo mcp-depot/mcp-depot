@@ -73,7 +73,7 @@ class MCPConnectServer {
 
     const adapter = tool.Integration ? AdapterFactory.create(
       tool.Integration.type,
-      tool.Integration.config
+      { ...tool.Integration.config, integrationId: tool.Integration.id }
     ) : null;
 
     this.toolsMap.set(toolName, { tool, adapter });

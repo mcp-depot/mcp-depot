@@ -240,6 +240,51 @@ function Integrations() {
     }
   };
 
+  const handleConnectShared = async (integration) => {
+    const authType = integration.authType || 'none';
+    
+    let credentials = {};
+    
+    if (authType === 'basic') {
+      const username = prompt('Enter username:');
+      if (!username) return;
+      const password = prompt('Enter password:');
+      if (!password) return;
+      credentials = { username, token: password };
+    } else if (authType === 'bearer') {
+      const token = prompt('Enter bearer token:');
+      if (!token) return;
+      credentials = { token };
+    } else if (authType === 'apiKey') {
+      const key = prompt('Enter API key name (e.g., X-API-Key):');
+      if (!key) return;
+      const value = prompt('Enter API key value:');
+      if (!value) return;
+      credentials = { key, value, addTo: 'header' };
+    } else if (authType === 'oauth2') {
+      alert('OAuth2 connection requires the admin to configure OAuth first.');
+      return;
+    }
+    
+    try {
+      await api.patch(`/integrations/${integration._id}/credentials`, { credentials });
+      fetchIntegrations();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save credentials');
+    }
+  };
+
+  const handleDisconnectShared = async (id) => {
+    if (!confirm('Are you sure you want to disconnect? Your credentials will be removed.')) return;
+    
+    try {
+      await api.delete(`/integrations/${id}/credentials`);
+      fetchIntegrations();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to disconnect');
+    }
+  };
+
   const handleDelete = async (id) => {
     const integration = integrations.find(i => i._id === id);
     const hasTools = integration?.metadata?.toolCount > 0;
@@ -381,11 +426,11 @@ function Integrations() {
                     {integration.requiresCredentials && !integration.canUse && (
                       <span 
                         className="badge badge-warning" 
-                        title="Credentials required - click to configure"
-                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                        onClick={() => window.location.href = `/integrations/${integration._id}/tools`}
+                        title={integration.isOwner ? 'Configure credentials to use this integration' : 'Connect with your credentials to use this integration'}
+                        style={{ cursor: integration.isOwner ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                        onClick={() => integration.isOwner ? window.location.href = `/integrations/${integration._id}/tools` : handleConnectShared(integration)}
                       >
-                        ⚠️ Credentials needed
+                        {integration.isOwner ? '⚠️ Credentials needed' : '⚠️ Connect required'}
                       </span>
                     )}
                   </div>
@@ -404,7 +449,9 @@ function Integrations() {
                     </span>
                   </div>
                   {integration.visibility === 'shared' && (
-                    <span className="badge badge-info" style={{ marginLeft: '0.5rem' }}>Shared</span>
+                    <span className="badge badge-info" style={{ marginLeft: '0.5rem' }}>
+                      {integration.sharedByName ? `Shared by ${integration.sharedByName}` : 'Shared'}
+                    </span>
                   )}
                 </div>
                 <p className="integration-description">{integration.description}</p>
@@ -416,6 +463,24 @@ function Integrations() {
                   <Link to={`/integrations/${integration._id}/tools`} className="btn btn-primary btn-small">
                     Tools
                   </Link>
+                  {!integration.isOwner && integration.requiresCredentials && !integration.hasUserCredentials && (
+                    <button 
+                      className="btn btn-secondary btn-small"
+                      onClick={() => handleConnectShared(integration)}
+                      title="Connect with your credentials"
+                    >
+                      Connect
+                    </button>
+                  )}
+                  {!integration.isOwner && integration.requiresCredentials && integration.hasUserCredentials && (
+                    <button 
+                      className="btn btn-icon"
+                      onClick={() => handleDisconnectShared(integration._id)}
+                      title="Disconnect - remove your credentials"
+                    >
+                      Disconnect
+                    </button>
+                  )}
                   {user?.role === 'admin' && (
                     <button 
                       className={`btn btn-icon ${integration.visibility === 'shared' ? 'btn-info' : ''}`}
@@ -425,18 +490,22 @@ function Integrations() {
                       {integration.visibility === 'shared' ? 'Shared' : 'Share'}
                     </button>
                   )}
-                  <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit integration">
-                    Edit
-                  </button>
-                  <button 
-                    className="btn btn-icon btn-danger" 
-                    onClick={() => handleDelete(integration._id)} 
-                    title={integration.name === 'MCPConnect' ? 'Cannot delete default integration' : 'Delete integration'}
-                    disabled={integration.name === 'MCPConnect'}
-                    style={{ opacity: integration.name === 'MCPConnect' ? 0.5 : 1, cursor: integration.name === 'MCPConnect' ? 'not-allowed' : 'pointer' }}
-                  >
-                    Del
-                  </button>
+                  {integration.isOwner && (
+                    <>
+                      <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit integration">
+                        Edit
+                      </button>
+                      <button 
+                        className="btn btn-icon btn-danger" 
+                        onClick={() => handleDelete(integration._id)} 
+                        title={integration.name === 'MCPConnect' ? 'Cannot delete default integration' : 'Delete integration'}
+                        disabled={integration.name === 'MCPConnect'}
+                        style={{ opacity: integration.name === 'MCPConnect' ? 0.5 : 1, cursor: integration.name === 'MCPConnect' ? 'not-allowed' : 'pointer' }}
+                      >
+                        Del
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}

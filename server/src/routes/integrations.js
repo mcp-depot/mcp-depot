@@ -47,12 +47,31 @@ const toolSchema = Joi.object({
 
 router.get('/', auth, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin' ? {} : { userId: req.user.id };
+    let integrations;
     
-    const integrations = await Integration.findAll({
-      where: whereClause,
-      order: [['createdAt', 'DESC']]
-    });
+    if (req.user.role === 'admin') {
+      integrations = await Integration.findAll({
+        order: [['createdAt', 'DESC']]
+      });
+    } else {
+      const { User } = loadModels();
+      const ownerIds = await User.findAll({
+        where: { role: 'admin' },
+        attributes: ['id'],
+        raw: true
+      });
+      const adminIds = ownerIds.map(u => u.id);
+      
+      integrations = await Integration.findAll({
+        where: {
+          [Op.or]: [
+            { userId: req.user.id },
+            { visibility: 'shared', userId: { [Op.in]: adminIds } }
+          ]
+        },
+        order: [['createdAt', 'DESC']]
+      });
+    }
 
     // Get tool counts for each integration
     const integrationIds = integrations.map(i => i.id);
@@ -69,9 +88,10 @@ router.get('/', auth, async (req, res) => {
     }, {});
     
     // Get user credentials status for each integration
-    const { UserIntegrationCredentials } = loadModels();
+    const { UserIntegrationCredentials, User } = loadModels();
     let userCredsMap = {};
-    if (req.user.role !== 'admin' && integrationIds.length > 0) {
+    
+    if (integrationIds.length > 0) {
       const userCreds = await UserIntegrationCredentials.findAll({
         where: {
           userId: req.user.id,
@@ -87,11 +107,23 @@ router.get('/', auth, async (req, res) => {
       }, {});
     }
     
+    // Get owner names for shared integrations
+    const ownerIds = [...new Set(integrations.filter(i => i.visibility === 'shared').map(i => i.userId))];
+    const owners = ownerIds.length > 0 ? await User.findAll({
+      where: { id: { [Op.in]: ownerIds } },
+      attributes: ['id', 'name', 'email'],
+      raw: true
+    }) : [];
+    const ownerMap = owners.reduce((acc, o) => { acc[o.id] = o; return acc; }, {});
+    
     const sanitized = integrations.map(i => {
       const authType = i.config.auth?.type || 'none';
       const requiresCredentials = authType !== 'none';
       const hasUserCredentials = !!userCredsMap[i.id];
       const hasIntegrationCredentials = !!i.config.auth?.credentials;
+      const isOwner = i.userId === req.user.id;
+      const isShared = i.visibility === 'shared' && !isOwner;
+      const owner = ownerMap[i.userId];
       
       return {
         _id: i.id,
@@ -103,9 +135,12 @@ router.get('/', auth, async (req, res) => {
         requiresCredentials,
         hasUserCredentials,
         hasIntegrationCredentials,
-        canUse: !requiresCredentials || hasUserCredentials || hasIntegrationCredentials,
+        canUse: !requiresCredentials || hasUserCredentials || hasIntegrationCredentials || req.user.role === 'admin',
         isActive: i.isActive,
         visibility: i.visibility || 'private',
+        isOwner,
+        sharedByName: isShared ? (owner?.name || 'Admin') : null,
+        sharedByEmail: isShared ? (owner?.email || '') : null,
         metadata: { 
           ...i.metadata,
           toolCount: toolCountMap[i.id] || 0
@@ -928,7 +963,79 @@ router.patch('/:id/visibility', auth, async (req, res) => {
     res.json({ success: true, visibility: integration.visibility });
   } catch (error) {
     logger.error({ err: error.message }, 'Update visibility error');
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to update visibility' });
+  }
+});
+
+router.patch('/:id/credentials', auth, async (req, res) => {
+  try {
+    const integration = await Integration.findByPk(req.params.id);
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+    
+    const { credentials } = req.body;
+    if (!credentials) {
+      return res.status(400).json({ error: 'Credentials are required' });
+    }
+    
+    const isOwnerOrAdmin = integration.userId === req.user.id || req.user.role === 'admin';
+    const isSharedForOthers = integration.visibility === 'shared' && !isOwnerOrAdmin;
+    
+    if (isSharedForOthers) {
+      const { UserIntegrationCredentials } = loadModels();
+      const encryptedCreds = encryption.encrypt(JSON.stringify(credentials));
+      
+      await UserIntegrationCredentials.upsert({
+        userId: req.user.id,
+        integrationId: integration.id,
+        credentials: encryptedCreds,
+        isActive: true
+      });
+      
+      logger.info({ userId: req.user.id, integrationId: integration.id }, 'User connected to shared integration');
+      res.json({ success: true, message: 'Credentials saved successfully' });
+    } else if (isOwnerOrAdmin) {
+      const config = { ...integration.config };
+      config.auth.credentials = encryption.encryptCredentials(credentials);
+      await integration.update({ config });
+      
+      logger.info({ integrationId: integration.id }, 'Integration credentials updated');
+      res.json({ success: true, message: 'Credentials updated successfully' });
+    } else {
+      return res.status(403).json({ error: 'Not authorized to update credentials for this integration' });
+    }
+  } catch (error) {
+    logger.error({ err: error.message }, 'Update credentials error');
+    res.status(500).json({ error: 'Failed to update credentials' });
+  }
+});
+
+router.delete('/:id/credentials', auth, async (req, res) => {
+  try {
+    const integration = await Integration.findByPk(req.params.id);
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+    
+    const { UserIntegrationCredentials } = loadModels();
+    const isOwnerOrAdmin = integration.userId === req.user.id || req.user.role === 'admin';
+    
+    if (isOwnerOrAdmin) {
+      const config = { ...integration.config };
+      delete config.auth.credentials;
+      await integration.update({ config });
+    }
+    
+    await UserIntegrationCredentials.destroy({
+      where: { userId: req.user.id, integrationId: integration.id }
+    });
+    
+    logger.info({ userId: req.user.id, integrationId: integration.id }, 'User disconnected from integration');
+    res.json({ success: true, message: 'Disconnected successfully' });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Disconnect error');
+    res.status(500).json({ error: 'Failed to disconnect' });
   }
 });
 

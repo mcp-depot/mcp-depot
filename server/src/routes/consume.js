@@ -151,7 +151,10 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       }
     }
     
-    const adapter = AdapterFactory.create(integration.type, config);
+    const adapter = AdapterFactory.create(integration.type, {
+      ...config,
+      integrationId: integration.id
+    }, { userId: req.user?.id });
     
     const { params, headers, body } = req.body;
     const mergedParams = { ...tool.endpoint.params, ...params };

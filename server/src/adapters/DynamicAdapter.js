@@ -2,13 +2,14 @@ const axios = require('axios');
 const encryption = require('../services/encryption');
 
 class DynamicAdapter {
-  constructor(config) {
+  constructor(config, options = {}) {
     this.config = config;
     this.baseUrl = config.baseUrl;
     this.auth = config.auth || { type: 'none' };
     this.customHeaders = config.headers || {};
     this.timeout = config.timeout || 30000;
     this.integrationId = config.integrationId;
+    this.userId = options.userId || null;
     this.client = null;
     this.initClient();
   }
@@ -24,8 +25,44 @@ class DynamicAdapter {
     });
   }
 
-  getAuthHeaders() {
-    const { type, credentials } = this.auth;
+  async resolveCredentials() {
+    if (!this.userId || !this.integrationId) {
+      return this.auth;
+    }
+    
+    if (this.auth.type === 'none') {
+      return this.auth;
+    }
+    
+    if (this.auth.credentials) {
+      const { UserIntegrationCredentials } = require('../models');
+      const userCred = await UserIntegrationCredentials.findOne({
+        where: {
+          userId: this.userId,
+          integrationId: this.integrationId,
+          isActive: true
+        }
+      });
+      
+      if (userCred?.credentials) {
+        try {
+          const decrypted = JSON.parse(encryption.decrypt(userCred.credentials));
+          return {
+            ...this.auth,
+            credentials: decrypted
+          };
+        } catch (e) {
+          // Fall back to integration credentials
+        }
+      }
+    }
+    
+    return this.auth;
+  }
+
+  async getAuthHeaders() {
+    const resolvedAuth = await this.resolveCredentials();
+    const { type, credentials } = resolvedAuth;
     
     if (!credentials) return {};
 
@@ -64,10 +101,11 @@ class DynamicAdapter {
     }
   }
 
-  getQueryParams() {
-    const { type, credentials } = this.auth;
+  async getQueryParams() {
+    const resolvedAuth = await this.resolveCredentials();
+    const { type, credentials } = resolvedAuth;
     
-    if (type === 'apiKey' && credentials.addTo === 'query') {
+    if (type === 'apiKey' && credentials?.addTo === 'query') {
       const key = encryption.decrypt(credentials.key) || credentials.key;
       const value = encryption.decrypt(credentials.value) || credentials.value;
       if (!key || !value) return {};
@@ -82,8 +120,8 @@ class DynamicAdapter {
       const response = await this.client.request({
         method: 'GET',
         url: '/',
-        headers: this.getAuthHeaders(),
-        params: this.getQueryParams()
+        headers: await this.getAuthHeaders(),
+        params: await this.getQueryParams()
       });
       return { success: true, status: response.status };
     } catch (error) {
@@ -102,12 +140,12 @@ class DynamicAdapter {
       method,
       url: path,
       headers: {
-        ...this.getAuthHeaders(),
+        ...await this.getAuthHeaders(),
         ...this.customHeaders,
         ...headers
       },
       params: {
-        ...this.getQueryParams(),
+        ...await this.getQueryParams(),
         ...params
       }
     };
