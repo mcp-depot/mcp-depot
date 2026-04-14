@@ -35,17 +35,18 @@ const PROVIDERS = {
   },
   linear: {
     name: 'Linear',
-    authUrl: 'https://linear/oauth/authorize',
+    authUrl: 'https://linear.app/oauth/authorize',
     tokenUrl: 'https://api.linear.app/oauth/token',
     scopes: ['read', 'write'],
     baseUrl: 'https://api.linear.app'
   },
   jira: {
     name: 'Jira',
-    authUrl: '{baseUrl}/oauth/authorize',
-    tokenUrl: '{baseUrl}/oauth/access_token',
-    scopes: ['read:jira-work', 'write:jira-work'],
-    baseUrl: null
+    authUrl: 'https://auth.atlassian.com/authorize',
+    tokenUrl: 'https://auth.atlassian.com/oauth/token',
+    scopes: ['read:jira-work', 'write:jira-work', 'offline_access'],
+    baseUrl: null,
+    extraAuthParams: { audience: 'api.atlassian.com', prompt: 'consent' }
   }
 };
 
@@ -76,12 +77,15 @@ function buildAuthUrl(provider, clientId, redirectUri, state) {
 
   const scope = config.scopes.join(' ');
   
-  if (provider === 'jira') {
-    const baseUrl = config.baseUrl || 'https://your-domain.atlassian.net';
-    return `${baseUrl}/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}&response_type=code`;
+  let url = `${config.authUrl}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}&response_type=code`;
+  
+  if (config.extraAuthParams) {
+    for (const [key, value] of Object.entries(config.extraAuthParams)) {
+      url += `&${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+    }
   }
 
-  return `${config.authUrl}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&state=${state}&response_type=code`;
+  return url;
 }
 
 async function exchangeCode(provider, code, clientId, clientSecret, redirectUri) {
@@ -89,10 +93,30 @@ async function exchangeCode(provider, code, clientId, clientSecret, redirectUri)
   if (!config) throw new Error(`Provider ${provider} not configured`);
 
   let tokenUrl = config.tokenUrl;
-  if (provider === 'jira') {
-    const baseUrl = config.baseUrl || 'https://your-domain.atlassian.net';
-    tokenUrl = `${baseUrl}/oauth/access_token`;
+
+  if (provider === 'notion') {
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const res = await axios.post(tokenUrl,
+      { grant_type: 'authorization_code', code, redirect_uri: redirectUri },
+      { headers: {
+          'Authorization': `Basic ${basicAuth}`,
+          'Content-Type': 'application/json'
+      }}
+    );
+    const data = res.data;
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresIn: data.expires_in,
+      tokenType: data.token_type,
+      createdAt: Date.now()
+    };
   }
+
+  const headers = {
+    'Accept': 'application/json',
+    ...(provider === 'github' ? { 'Accept': 'application/json' } : {})
+  };
 
   const bodyParams = {
     client_id: clientId,
@@ -100,15 +124,6 @@ async function exchangeCode(provider, code, clientId, clientSecret, redirectUri)
     code,
     redirect_uri: redirectUri,
     grant_type: 'authorization_code'
-  };
-
-  if (provider === 'notion') {
-    bodyParams.grant_type = 'authorization_code';
-  }
-
-  const headers = {
-    'Accept': 'application/json',
-    ...(provider === 'github' ? { 'Accept': 'application/json' } : {})
   };
 
   const res = await axios.post(tokenUrl, new URLSearchParams(bodyParams).toString(), { headers });
