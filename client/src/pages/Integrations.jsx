@@ -228,6 +228,16 @@ function Integrations() {
     }
   };
 
+  const handleToggleVisibility = async (id, currentVisibility) => {
+    try {
+      const newVisibility = currentVisibility === 'shared' ? 'private' : 'shared';
+      await api.patch(`/integrations/${id}/visibility`, { visibility: newVisibility });
+      fetchIntegrations();
+    } catch (err) {
+      alert('Failed to update visibility');
+    }
+  };
+
   const handleDelete = async (id) => {
     const integration = integrations.find(i => i._id === id);
     const hasTools = integration?.metadata?.toolCount > 0;
@@ -383,6 +393,9 @@ function Integrations() {
                       {integration.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
+                  {integration.visibility === 'shared' && (
+                    <span className="badge badge-info" style={{ marginLeft: '0.5rem' }}>Shared</span>
+                  )}
                 </div>
                 <p className="integration-description">{integration.description}</p>
                 <p className="integration-url">{integration.baseUrl}</p>
@@ -391,6 +404,15 @@ function Integrations() {
                   <Link to={`/integrations/${integration._id}/tools`} className="btn btn-primary btn-small">
                     Tools
                   </Link>
+                  {user?.role === 'admin' && (
+                    <button 
+                      className={`btn btn-icon ${integration.visibility === 'shared' ? 'btn-info' : ''}`}
+                      onClick={() => handleToggleVisibility(integration._id, integration.visibility)}
+                      title={integration.visibility === 'shared' ? 'Make private' : 'Share with users'}
+                    >
+                      {integration.visibility === 'shared' ? 'Shared' : 'Share'}
+                    </button>
+                  )}
                   <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit integration">
                     Edit
                   </button>

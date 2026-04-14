@@ -105,6 +105,7 @@ router.get('/', auth, async (req, res) => {
         hasIntegrationCredentials,
         canUse: !requiresCredentials || hasUserCredentials || hasIntegrationCredentials,
         isActive: i.isActive,
+        visibility: i.visibility || 'private',
         metadata: { 
           ...i.metadata,
           toolCount: toolCountMap[i.id] || 0
