@@ -158,7 +158,7 @@ body {
 
 .app-main {
   flex: 1;
-  margin-left: 240px;
+  margin-left: 260px;
   transition: margin-left 0.2s ease;
   background: var(--background);
   min-height: 100vh;
@@ -166,7 +166,7 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 240px;
+  width: 260px;
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
@@ -180,7 +180,7 @@ body {
 }
 
 .sidebar.collapsed {
-  width: 64px;
+  width: 68px;
 }
 
 .sidebar-header {

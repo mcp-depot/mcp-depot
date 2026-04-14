@@ -89,18 +89,30 @@ function Sidebar() {
         ))}
       </nav>
 
-      <div className="sidebar-footer">
-        <label className="sidebar-theme-toggle" title={themeName === 'dark' ? 'Switch to light' : 'Switch to dark'}>
+      <div className="sidebar-footer" style={{ flexDirection: collapsed ? 'column' : 'row', alignItems: 'center' }}>
+        <label 
+          className="sidebar-theme-toggle" 
+          title={themeName === 'dark' ? 'Switch to light' : 'Switch to dark'}
+          style={{ flexShrink: 0 }}
+        >
           <input type="checkbox" checked={themeName === 'dark'} onChange={toggleTheme} />
           <span className="toggle-slider"></span>
         </label>
+        
         <div style={{ position: 'relative', width: '100%' }}>
           <div 
             className="sidebar-user" 
             onClick={() => setShowUserMenu(!showUserMenu)}
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            style={{ 
+              cursor: 'pointer', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem',
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              padding: collapsed ? '0.25rem 0' : '0.25rem 0.5rem'
+            }}
           >
-            <div className="sidebar-user-avatar">
+            <div className="sidebar-user-avatar" style={{ width: collapsed ? '28px' : '32px', height: collapsed ? '28px' : '32px', fontSize: collapsed ? '0.75rem' : '0.875rem' }}>
               {user?.name?.charAt(0)}
             </div>
             {!collapsed && (
@@ -117,14 +129,17 @@ function Sidebar() {
             <div style={{
               position: 'absolute',
               bottom: '100%',
-              left: 0,
-              right: 0,
+              left: collapsed ? '-8px' : '0.5rem',
+              right: collapsed ? '-8px' : '0.5rem',
               background: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: '6px',
               padding: '0.25rem',
               marginBottom: '0.5rem',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              zIndex: 1000,
+              minWidth: collapsed ? 'unset' : 'auto',
+              whiteSpace: 'nowrap'
             }}>
               <button 
                 onClick={() => { window.location.href = '/settings'; setShowUserMenu(false); }}

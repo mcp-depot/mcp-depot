@@ -12,15 +12,16 @@
 | 1 | Tool Marketplace | 🗺️ Planning | ❌ | Medium | 🔥🔥🔥 | Pre-built tool packs - like appStore for integrations |
 | 2 | Smart OpenAPI Import (body templates) | ✅ | ✅ | Low | 🔥🔥🔥 | generateBodyTemplate() + resolveSchema(allOf) - FIX_SUGGESTED Issue 9 applied |
 | 3 | Bulk Tool Actions | ✅ | ✅ | Low | 🔥🔥 | Checkboxes on tool list — enable/disable/delete multiple at once |
-| 4 | OAuth Manager | 🔶 | 🔶 | High | 🔥🔥🔥 | Service + routes implemented; UI tab in Settings |
+| 4 | OAuth Manager | 🔶 | 🔶 | High | 🔥🔥🔥 | Service + routes; Settings tab; Full flow pending |
 | 5 | Call Inspector + Tester | ✅ | ✅ | Low | 🔥🔥 | Expand rows, see details, replay, test with modified params |
-| 6 | Composite Tools | ❌ | ❌ | Medium | 🔥🔥🔥 | Chain multiple API calls into one MCP tool — reduces AI round-trips |
+| 6 | Composite Tools | ❌ | ❌ | Medium | 🔥🔥🔥 | Chain multiple API calls into one MCP tool |
 | 7 | Mock Mode | ❌ | ❌ | Low | 🔥🔥 | Static responses for demos and testing |
-| 8 | Optional LLM Integration | ❌ | ❌ | Medium | 🔥🔥🔥 | No hard dependency — unlocks tool generation, error diagnosis |
-| UI | Tool Tester (in Monitoring) | ✅ | ✅ | Low | 🔥🔥🔥 | Test tool from Monitoring page - modify params and execute |
-| UI | Dashboard sparklines | 🔶 | ❌ | Low | 🔥🔥🔥 | Sparkline component exists, disabled pending feedback |
+| 8 | Optional LLM Integration | ❌ | ❌ | Medium | 🔥🔥🔥 | No hard dependency — unlocks tool generation |
+| 11 | Integration Sharing | ✅ | ✅ | Medium | 🔥🔥🔥 | Admin shares integration, users add own credentials |
+| UI | Tool Tester (in Monitoring) | ✅ | ✅ | Low | 🔥🔥🔥 | Test tool from Monitoring page |
+| UI | Dashboard sparklines | 🔶 | ❌ | Low | 🔥🔥🔥 | Component exists, disabled pending feedback |
 | UI | Command palette Cmd+K | ❌ | ❌ | Low | 🔥🔥🔥 | Quick navigation |
-| UI | Left sidebar | ✅ | ✅ | Low-Medium | 🔥🔥🔥 | Done - collapsible sidebar with sections |
+| UI | Left sidebar | ✅ | ✅ | Low-Medium | 🔥🔥🔥 | Done - collapsible 260px/68px, user dropdown |
 
 ---
 ## Completed (Ready for review)
@@ -28,7 +29,15 @@
 - ✅ Feature 3: Bulk Tool Actions (527fe24)
 - ✅ Feature 5: Call Inspector (571d1d2)
 - ✅ Feature 9: Secret Store (Infisical) - complete integration
-- ✅ UI: Left sidebar (collapsible, sections, user info, logout)
+- ✅ Feature 11: Integration Sharing - visibility + endpoints + UI (share button, badge)
+- ✅ UI: Left sidebar (260px/68px collapsible, user dropdown, profile/logout)
+- ✅ UI: Tool Tester in Monitoring page
+- ✅ UI: Credential warning in tool editor (FIX_SUGGESTED Issue 14)
+- ✅ UI: OAuth 2.0 in Integration auth dropdowns
+- ✅ UI: OAuth Providers tab in Settings
+- ✅ Docker: nginx security headers
+- ✅ Scripts: Backup script with rotation
+- ✅ Docs: Market analysis (ANALYSIS.md)
 - ✅ Pino logging (8a4f152)
 - ✅ UI: Tool Tester in Monitoring page
 - ✅ UI: Credential warning in tool editor (FIX_SUGGESTED Issue 14)
