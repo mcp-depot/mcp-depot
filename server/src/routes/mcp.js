@@ -447,8 +447,12 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
         };
       }
 
+      const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
+
       if (inputSchema.properties && ['POST', 'PUT', 'PATCH'].includes(t.endpoint.method)) {
-        Object.entries(inputSchema.properties).forEach(([key, val]) => {
+        Object.entries(inputSchema.properties)
+          .filter(([key]) => !OPENAPI_KEYWORDS.has(key))
+          .forEach(([key, val]) => {
           params.push({
             name: key,
             in: 'body',
@@ -462,8 +466,9 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
       let mcpInputSchema = { type: 'object', properties: {} };
       if (inputSchema.properties) {
         mcpInputSchema.properties = {};
-        Object.entries(inputSchema.properties).forEach(([key, val]) => {
-          if (key === 'allOf' || key === 'anyOf' || key === 'oneOf' || key.startsWith('$')) return;
+        Object.entries(inputSchema.properties)
+          .filter(([key]) => !OPENAPI_KEYWORDS.has(key))
+          .forEach(([key, val]) => {
           if (val && typeof val === 'object' && val.type) {
             mcpInputSchema.properties[key] = val;
           } else {
