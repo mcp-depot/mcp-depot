@@ -29,3 +29,193 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 16 | OAuth refresh did not persist new token to database | `1be2bba` |
 | 17 | Linear OAuth `authUrl` had wrong domain (`linear` instead of `linear.app`) | `1be2bba` |
 | 18 | Jira OAuth used wrong version; Notion OAuth missing Basic auth + JSON body | `1be2bba` |
+
+---
+
+## Issue 19 - `/admin-reset` has no authentication
+
+**Status:** Open  
+**Severity:** CRITICAL
+
+**Symptom:** Anyone on the network can reset any user's password by POSTing to `/api/auth/admin-reset` with just an email address — no login required.
+
+**Root cause - `auth.js` line 155:**
+```js
+router.post('/admin-reset', async (req, res) => {  // ← no auth middleware
+  const { email, newPassword } = req.body;
+  ...
+  await user.update({ password: hashed });
+```
+
+**Fix — add `auth` + `requireAdmin` middleware:**
+```js
+router.post('/admin-reset', auth, requireAdmin, async (req, res) => {
+```
+
+---
+
+## Issue 20 - System settings routes have no authentication
+
+**Status:** Open  
+**Severity:** CRITICAL
+
+**Symptom:** `GET /api/system/`, `GET /api/system/mcp`, and `GET /api/system/:key` are wide open. Any unauthenticated request returns all system settings including OAuth provider client IDs, MCP configuration, and secret store config.
+
+**Root cause - `system.js` lines 21, 34, 43:**
+```js
+router.get('/', async (req, res) => { ... })       // no auth
+router.get('/mcp', async (req, res) => { ... })    // no auth
+router.get('/:key', async (req, res) => { ... })   // no auth
+```
+
+**Fix — add `auth` middleware to all three:**
+```js
+router.get('/', auth, async (req, res) => { ... })
+router.get('/mcp', auth, async (req, res) => { ... })
+router.get('/:key', auth, async (req, res) => { ... })
+```
+
+---
+
+## Issue 21 - mcpAuth middleware silently passes on any exception
+
+**Status:** Open  
+**Severity:** CRITICAL
+
+**Symptom:** Any runtime exception inside `mcpAuth.js` causes the middleware to call `next()` instead of returning 401. Auth is effectively bypassed for any error path — misconfigured DB, malformed JWT, network blip, etc.
+
+**Root cause - `middleware/mcpAuth.js` lines 73-76:**
+```js
+    next();       // ← line 73: falls through even when not authenticated
+  } catch (error) {
+    next();       // ← line 75: exceptions grant access instead of denying it
+  }
+```
+
+**Fix — return 401 in catch, and only call `next()` when authenticated:**
+```js
+    if (!authenticated) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Authentication error' });
+  }
+```
+
+---
+
+## Issue 22 - `GET /mcp/endpoints` has no authentication
+
+**Status:** Open  
+**Severity:** CRITICAL
+
+**Symptom:** `GET /api/mcp/endpoints` exposes every tool's name, description, parameter schema, and HTTP endpoint path to unauthenticated callers.
+
+**Root cause - `routes/mcp.js` line 535:**
+```js
+router.get('/endpoints', async (req, res) => {   // ← no auth
+```
+
+**Fix:**
+```js
+router.get('/endpoints', checkMcpAuth, async (req, res) => {
+```
+
+---
+
+## Issue 23 - Duplicate `/mcp/tools` route makes tool listing unauthenticated
+
+**Status:** Open  
+**Severity:** HIGH
+
+**Symptom:** There are two `GET /tools` routes registered in `mcp.js`. Express uses the first match, so which one wins depends on file load order — but line 917 uses `optionalAuth`, meaning the tool list can be accessed without credentials.
+
+**Root cause - `routes/mcp.js` lines 391 and 917:**
+```js
+router.get('/tools', checkMcpAuth, ...)   // line 391
+...
+router.get('/tools', optionalAuth, ...)   // line 917 — duplicate, shadows or conflicts
+```
+
+**Fix — remove the duplicate route at line 917.** If both serve different purposes, consolidate into one handler with the stricter `checkMcpAuth`.
+
+---
+
+## Issue 24 - `PUT /system/:key` and `POST /system/import` missing admin check
+
+**Status:** Open  
+**Severity:** HIGH
+
+**Symptom:** Any authenticated user (not just admins) can:
+- Update any system setting via `PUT /api/system/:key` — including OAuth secrets and MCP config
+- Import arbitrary integrations, tools, and external MCP servers via `POST /api/system/import`
+
+**Root cause - `system.js` lines 55 and 136:**
+```js
+router.put('/:key', auth, async ...)          // ← no requireAdmin
+router.post('/import', auth, async ...)       // ← no requireAdmin
+```
+
+**Fix — add `requireAdmin` to both:**
+```js
+router.put('/:key', auth, requireAdmin, async ...)
+router.post('/import', auth, requireAdmin, async ...)
+```
+
+---
+
+## Issue 25 - Export leaks external MCP server auth tokens in plaintext
+
+**Status:** Open  
+**Severity:** HIGH
+
+**Symptom:** `POST /api/system/export` includes the `authHeader` field of external MCP servers in the export JSON. This is the raw authentication credential (Bearer token, API key) used to connect to those servers — exported unencrypted to whoever downloads the file.
+
+**Root cause - `system.js` lines 92-96:**
+```js
+{
+  ...
+  authType: s.authType,
+  authHeader: s.authHeader,   // ← plaintext credential in export
+  isActive: s.isActive
+}
+```
+
+**Fix — strip credential fields from export:**
+```js
+{
+  name: s.name,
+  command: s.command,
+  args: s.args,
+  env: s.env,
+  authType: s.authType,
+  // authHeader intentionally omitted — never export credentials
+  isActive: s.isActive
+}
+```
+
+---
+
+## Issue 26 - N+1 queries in integrations list
+
+**Status:** Open  
+**Severity:** MEDIUM
+
+**Symptom:** `GET /api/integrations` runs one query to fetch integrations, then executes two additional DB queries per integration — one for tool count, one for user credentials. With 20 integrations, that's 41 queries per page load.
+
+**Root cause - `routes/integrations.js` lines ~78-95:** Tool count and `UserIntegrationCredentials` are fetched in a loop.
+
+**Fix — use `include` with Sequelize to eager-load:**
+```js
+const integrations = await Integration.findAll({
+  where: whereClause,
+  include: [
+    { model: Tool, attributes: ['id'] },
+    { model: UserIntegrationCredentials,
+      where: { userId: req.user.id },
+      required: false }
+  ]
+});
+// Then derive counts from integration.Tools.length
+```

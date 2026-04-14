@@ -4,6 +4,7 @@ const Joi = require('joi');
 const User = require('../models/User');
 const config = require('../config/env');
 const logger = require('../services/logger');
+const { auth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -152,7 +153,7 @@ router.post('/change-password', async (req, res) => {
   }
 });
 
-router.post('/admin-reset', async (req, res) => {
+router.post('/admin-reset', auth, requireAdmin, async (req, res) => {
   try {
     const { email, newPassword } = req.body;
     

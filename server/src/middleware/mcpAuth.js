@@ -72,7 +72,7 @@ async function checkMcpAuth(req, res, next) {
     
     next();
   } catch (error) {
-    next();
+    return res.status(401).json({ error: 'MCP authentication error' });
   }
 }
 

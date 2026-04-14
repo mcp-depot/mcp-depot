@@ -1,6 +1,6 @@
 const express = require('express');
 const Joi = require('joi');
-const { auth } = require('../middleware/auth');
+const { auth, requireAdmin } = require('../middleware/auth');
 const SystemSetting = require('../models/SystemSetting');
 
 const router = express.Router();
@@ -18,7 +18,7 @@ const importDataSchema = Joi.object({
   externalMcpServers: Joi.array().items(Joi.object()).default([])
 });
 
-router.get('/', async (req, res) => {
+router.get('/', auth, async (req, res) => {
   try {
     const settings = await SystemSetting.findAll();
     const result = {};
@@ -31,7 +31,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/mcp', async (req, res) => {
+router.get('/mcp', auth, async (req, res) => {
   try {
     const setting = await SystemSetting.findByPk('mcp');
     res.json(setting?.value || { authMode: 'none' });
@@ -40,7 +40,7 @@ router.get('/mcp', async (req, res) => {
   }
 });
 
-router.get('/:key', async (req, res) => {
+router.get('/:key', auth, async (req, res) => {
   try {
     const setting = await SystemSetting.findByPk(req.params.key);
     if (!setting) {
@@ -52,7 +52,7 @@ router.get('/:key', async (req, res) => {
   }
 });
 
-router.put('/:key', auth, async (req, res) => {
+router.put('/:key', auth, requireAdmin, async (req, res) => {
   try {
     const { error, value } = updateSettingSchema.validate(req.body);
     if (error) {
@@ -92,7 +92,6 @@ router.post('/export', auth, async (req, res) => {
         args: s.args,
         env: s.env,
         authType: s.authType,
-        authHeader: s.authHeader,
         isActive: s.isActive
       }));
     }
@@ -133,7 +132,7 @@ router.post('/export', auth, async (req, res) => {
   }
 });
 
-router.post('/import', auth, async (req, res) => {
+router.post('/import', auth, requireAdmin, async (req, res) => {
   try {
     const { error, value } = importDataSchema.validate(req.body);
     if (error) {

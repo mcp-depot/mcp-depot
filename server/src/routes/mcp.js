@@ -532,7 +532,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
   }
 });
 
-router.get('/endpoints', async (req, res) => {
+router.get('/endpoints', checkMcpAuth, async (req, res) => {
   const baseUrl = req.protocol + '://' + req.get('host') + '/api/mcp';
   
   res.json({
@@ -911,122 +911,6 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ error: error.message });
-  }
-});
-
-router.get('/tools', optionalAuth, async (req, res) => {
-  const cached = getCachedTools();
-  if (cached) {
-    return res.json(cached);
-  }
-  
-  try {
-    const userId = req.user?.id || null;
-    const role = req.user?.role || 'user';
-    
-    const tools = await Tool.findAll({
-      where: { isActive: true },
-      attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema']
-    });
-
-    const localTools = tools.map(t => {
-      const params = [];
-      const pathMatch = t.endpoint.path.match(/\{([^}]+)\}/g);
-      if (pathMatch) {
-        pathMatch.forEach(p => {
-          const paramName = p.replace(/[{}]/g, '');
-          params.push({
-            name: paramName,
-            in: 'path',
-            required: true,
-            type: 'string',
-            description: `Path parameter: ${paramName}`
-          });
-        });
-      }
-
-      const queryParams = t.endpoint.params || {};
-      Object.entries(queryParams).forEach(([key, val]) => {
-        params.push({
-          name: key,
-          in: 'query',
-          required: val.required || false,
-          type: val.type || 'string',
-          description: val.description || `Parameter: ${key}`
-        });
-      });
-
-      const inputSchema = t.inputSchema || {};
-      const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
-      if (inputSchema.properties) {
-        Object.entries(inputSchema.properties)
-          .filter(([key]) => !OPENAPI_KEYWORDS.has(key))
-          .forEach(([key, val]) => {
-            const required = (inputSchema.required || []).includes(key);
-            params.push({
-              name: key,
-              in: 'body',
-              required: required,
-              type: val.type || 'string',
-              description: val.description || `Body parameter: ${key}`
-            });
-          });
-      }
-
-      const bodyTemplateVars = (JSON.stringify(t.endpoint.body || {})
-        .match(/\{(\w+)\}/g) || [])
-        .map(m => m.slice(1, -1));
-      const existingParamNames = new Set(params.map(p => p.name));
-      bodyTemplateVars.forEach(varName => {
-        if (!existingParamNames.has(varName)) {
-          params.push({
-            name: varName,
-            in: 'body',
-            required: true,
-            type: 'string',
-            description: `Body parameter: ${varName}`
-          });
-          existingParamNames.add(varName);
-        }
-      });
-
-      let mcpInputSchema = { type: 'object', properties: {} };
-      if (inputSchema.properties) {
-        mcpInputSchema.properties = { ...inputSchema.properties };
-        mcpInputSchema.required = [...(inputSchema.required || [])];
-      } else {
-        mcpInputSchema.required = [];
-      }
-      bodyTemplateVars.forEach(varName => {
-        if (!mcpInputSchema.properties[varName]) {
-          mcpInputSchema.properties[varName] = { type: 'string', description: `Body parameter: ${varName}` };
-          if (!mcpInputSchema.required.includes(varName)) mcpInputSchema.required.push(varName);
-        }
-      });
-
-      return {
-        id: t.id,
-        name: t.name,
-        description: t.description,
-        endpoint: t.endpoint,
-        params,
-        input_schema: mcpInputSchema,
-        inputSchema: t.inputSchema || {},
-        schema: mcpInputSchema,
-        schema_: mcpInputSchema,
-        parameters: mcpInputSchema
-      };
-    });
-
-    const externalTools = await fetchExternalMcpTools(userId, role);
-
-    const result = { tools: [...localTools, ...externalTools] };
-    setCachedTools(result);
-    
-    res.json(result);
-  } catch (error) {
-    logger.error({ error: error.message }, 'Tools fetch failed');
-    res.status(500).json({ error: 'Failed to fetch tools' });
   }
 });
 
