@@ -230,6 +230,17 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       }
     } catch (callError) {
       callSuccess = false;
+      
+      if (callError.message === 'CREDENTIALS_REQUIRED') {
+        return res.status(403).json({
+          error: 'Credentials required',
+          message: 'Please connect to this shared integration and add your credentials first.',
+          integrationId: integration.id,
+          integrationName: integration.name,
+          authType: integration.config.auth?.type
+        });
+      }
+      
       responseStatus = callError.response?.status || 500;
       throw callError;
     } finally {

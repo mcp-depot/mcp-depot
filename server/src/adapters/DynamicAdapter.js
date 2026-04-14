@@ -52,16 +52,27 @@ class DynamicAdapter {
             credentials: decrypted
           };
         } catch (e) {
-          // Fall back to integration credentials
+          // User cred exists but couldn't decrypt - return null to force re-auth
+          return null;
         }
       }
+      
+      // For shared integrations with userId, require user to provide their own credentials
+      // Do NOT fall back to integration credentials
+      return null;
     }
     
+    // For non-shared integrations (no userId), use integration credentials
     return this.auth;
   }
 
   async getAuthHeaders() {
     const resolvedAuth = await this.resolveCredentials();
+    
+    if (!resolvedAuth) {
+      throw new Error('CREDENTIALS_REQUIRED');
+    }
+    
     const { type, credentials } = resolvedAuth;
     
     if (!credentials) return {};
