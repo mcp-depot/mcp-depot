@@ -65,6 +65,7 @@ services:
       - SECRET_STORE_WORKSPACE_ID=${SECRET_STORE_WORKSPACE_ID}
       - SECRET_STORE_ENVIRONMENT=${SECRET_STORE_ENVIRONMENT:-dev}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@mcpconnect.io}
+      - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-false}
     depends_on:
       postgres:
         condition: service_healthy

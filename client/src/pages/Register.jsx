@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 
 function Register() {
   const [name, setName] = useState('');
@@ -8,8 +9,19 @@ function Register() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registrationDisabled, setRegistrationDisabled] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/auth/config')
+      .then(res => {
+        if (!res.data.allowRegistration) {
+          setRegistrationDisabled(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,6 +37,28 @@ function Register() {
       setLoading(false);
     }
   };
+
+  if (registrationDisabled) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+            <div style={{ width: '48px', height: '48px', background: 'var(--surface-hover)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', fontSize: '1rem', color: 'var(--text-dim)', fontWeight: '500' }}>MC</div>
+            <h2>MCPConnect</h2>
+            <p className="login-subtitle">Registration is disabled</p>
+          </div>
+          
+          <div className="error-message" style={{ textAlign: 'center' }}>
+            Account creation is not allowed. Please contact your administrator.
+          </div>
+          
+          <p style={{ textAlign: 'center', marginTop: '1.5rem', color: 'var(--text-light)', fontSize: '0.9rem' }}>
+            Already have an account? <Link to="/login" style={{ color: 'var(--primary)', fontWeight: 500 }}>Sign In</Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-page">

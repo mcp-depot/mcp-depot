@@ -8,6 +8,13 @@ const { auth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
+router.get('/config', (req, res) => {
+  res.json({
+    allowRegistration: process.env.ALLOW_REGISTRATION === 'true',
+    version: '1.0.0'
+  });
+});
+
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
@@ -42,7 +49,7 @@ function generateTokens(userId) {
 
 router.post('/register', async (req, res) => {
   try {
-    if (process.env.ALLOW_REGISTRATION === 'false') {
+    if (process.env.ALLOW_REGISTRATION !== 'true') {
       return res.status(403).json({ error: 'Registration is disabled. Contact your administrator.' });
     }
 
