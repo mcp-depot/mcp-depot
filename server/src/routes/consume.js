@@ -115,7 +115,23 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     const userId = req.user?.id || (req.apiKey?.userId) || null;
     const userCreds = await getUserCredentials(userId, integration.id);
     
-    // Validate credentials requirement
+    // Check if this is a shared integration where user is not the owner
+    const isSharedForUser = integration.visibility === 'shared' && 
+                           integration.userId !== userId && 
+                           req.user?.role !== 'admin';
+    
+    // For shared integrations, user MUST have their own credentials
+    if (requiresCredentials && isSharedForUser && !userCreds) {
+      return res.status(403).json({ 
+        error: 'Credentials required',
+        message: 'Please connect to this shared integration and add your credentials first.',
+        integrationId: integration.id,
+        integrationName: integration.name,
+        authType
+      });
+    }
+    
+    // Validate credentials requirement for non-shared integrations
     if (requiresCredentials && !hasIntegrationCredentials && !userCreds) {
       return res.status(403).json({ 
         error: 'Credentials required',
@@ -126,10 +142,19 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       });
     }
     
-    // Merge credentials: user creds override integration's creds if user is authenticated
+    // For shared integrations where user is not owner, only use user credentials
+    // For non-shared or owner, use integration credentials as fallback
     let config = { ...integration.config };
-    if (userCreds) {
-      // If user has personal credentials, use those instead of integration's
+    if (isSharedForUser) {
+      // Shared integration - MUST use user's own credentials
+      if (userCreds) {
+        config.auth = userCreds;
+      } else {
+        // Don't use integration credentials - force user to connect
+        config.auth = { type: 'none' };
+      }
+    } else if (userCreds) {
+      // Non-shared or owner - use user credentials if available
       config.auth = userCreds;
     }
 
