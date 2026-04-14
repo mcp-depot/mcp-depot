@@ -5,6 +5,13 @@ import api from '../services/api';
 import { getIntegrationIcon } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
 
+const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
+
+function hasHardcodedCredential(text) {
+  if (!text) return false;
+  return CREDENTIAL_PATTERN.test(text);
+}
+
 function Tools({ all: isAllTools }) {
   const params = useParams();
   const [searchParams] = useSearchParams();
@@ -762,6 +769,11 @@ function Tools({ all: isAllTools }) {
                       </span>
                     </label>
                     <textarea value={form.params} onChange={e => setForm({ ...form, params: e.target.value })} placeholder='{"maxResults": {"type": "number", "required": false}}' />
+                    {hasHardcodedCredential(form.params) && (
+                      <div style={{ color: '#dc3545', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                        ⚠ This field appears to contain a credential. Values in Default Params are visible to the AI. Use Integration auth settings to store credentials securely.
+                      </div>
+                    )}
                   </div>
                   <div className="form-group">
                     <label>Default Headers (JSON)</label>
@@ -808,6 +820,11 @@ function Tools({ all: isAllTools }) {
                         }} 
                         placeholder='{"transition": {"id": "{transitionId}"}}' 
                       />
+                      {hasHardcodedCredential(form.body) && (
+                        <div style={{ color: '#dc3545', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                          ⚠ This field appears to contain a credential. Values in the body template are visible to the AI. Use Integration auth settings to store credentials securely.
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
