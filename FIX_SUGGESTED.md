@@ -29,6 +29,13 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 16 | OAuth refresh did not persist new token to database | `1be2bba` |
 | 17 | Linear OAuth `authUrl` had wrong domain (`linear` instead of `linear.app`) | `1be2bba` |
 | 18 | Jira OAuth used wrong version; Notion OAuth missing Basic auth + JSON body | `1be2bba` |
+| 19 | `/admin-reset` had no auth middleware | latest |
+| 20 | `GET /system/`, `/system/:key` had no auth | latest |
+| 21 | `mcpAuth` catch block called `next()` — exceptions granted access | latest |
+| 22 | `GET /mcp/endpoints` had no auth | latest |
+| 23 | Duplicate `GET /mcp/tools` route with `optionalAuth` shadowing `checkMcpAuth` | latest |
+| 24 | `PUT /system/:key` + `POST /system/import` missing `requireAdmin` | latest |
+| 25 | Export leaked `authHeader` plaintext for external MCP servers | latest |
 
 ---
 
@@ -193,6 +200,41 @@ router.post('/import', auth, requireAdmin, async ...)
   // authHeader intentionally omitted — never export credentials
   isActive: s.isActive
 }
+```
+
+---
+
+## Issue 27 - Per-user credentials silently broken at tool execution time
+
+**Status:** Open  
+**Severity:** HIGH
+
+**Symptom:** A non-owner user connects to a shared integration via `PATCH /:id/credentials`. The UI shows "Connected". But when Claude calls a tool from that integration, the request goes out with a malformed auth config — resulting in either a 401 from the upstream API or a silent failure.
+
+**Root cause — two bugs in `routes/mcp.js` execute path (~lines 702 and 718):**
+
+```js
+// Bug 1: missing JSON.parse — decrypt returns a string, not an object
+userCreds = encryption.decrypt(userCredsRecord.credentials);
+// userCreds = '{"token":"abc123"}' ← raw JSON string
+
+// Bug 2: replaces the entire auth object with the string
+config.auth = userCreds;
+// adapter receives config.auth = '{"token":"abc123"}' instead of { type: 'bearer', credentials: {...} }
+```
+
+`DynamicAdapter` then gets `this.auth = "..."` (a string) where it expects `{ type, credentials }`. Auth header construction fails silently.
+
+Additionally, `AdapterFactory.create(integration.type, config)` is called with no `options`, so `DynamicAdapter.userId` is always null — `resolveCredentials()` exits early and is effectively dead code in this path.
+
+**Fix — two lines in `mcp.js`:**
+
+```js
+// Line ~702: parse the decrypted JSON
+userCreds = JSON.parse(encryption.decrypt(userCredsRecord.credentials));
+
+// Line ~718: merge credentials into auth, preserve type
+config.auth = { ...integration.config.auth, credentials: userCreds };
 ```
 
 ---

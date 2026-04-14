@@ -34,35 +34,32 @@ class DynamicAdapter {
       return this.auth;
     }
     
-    if (this.auth.credentials) {
-      const { UserIntegrationCredentials } = require('../models');
-      const userCred = await UserIntegrationCredentials.findOne({
-        where: {
-          userId: this.userId,
-          integrationId: this.integrationId,
-          isActive: true
-        }
-      });
-      
-      if (userCred?.credentials) {
-        try {
-          const decrypted = JSON.parse(encryption.decrypt(userCred.credentials));
-          return {
-            ...this.auth,
-            credentials: decrypted
-          };
-        } catch (e) {
-          // User cred exists but couldn't decrypt - return null to force re-auth
-          return null;
-        }
+    // Check if user has their own credentials
+    const { UserIntegrationCredentials } = require('../models');
+    const userCred = await UserIntegrationCredentials.findOne({
+      where: {
+        userId: this.userId,
+        integrationId: this.integrationId,
+        isActive: true
       }
-      
-      // For shared integrations with userId, require user to provide their own credentials
-      // Do NOT fall back to integration credentials
-      return null;
+    });
+    
+    if (userCred?.credentials) {
+      try {
+        const decrypted = JSON.parse(encryption.decrypt(userCred.credentials));
+        return {
+          ...this.auth,
+          credentials: decrypted
+        };
+      } catch (e) {
+        // User cred exists but couldn't decrypt
+        // Fall through to use integration credentials
+      }
     }
     
-    // For non-shared integrations (no userId), use integration credentials
+    // Use integration credentials (this handles both:
+    // - non-shared integrations owned by user
+    // - shared integrations where owner uses their own credentials)
     return this.auth;
   }
 
