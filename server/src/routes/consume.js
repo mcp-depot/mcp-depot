@@ -9,6 +9,7 @@ const { logToolCall } = require('../services/tool-logger');
 const logger = require('../services/logger');
 const encryption = require('../services/encryption');
 const secretStore = require('../services/secret-store');
+const { executeCompositeTool } = require('../services/compositeExecutor');
 
 const router = express.Router();
 
@@ -104,6 +105,12 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     
     if (!integration || !integration.isActive) {
       return res.status(400).json({ error: 'Integration is not active' });
+    }
+
+    if (tool.type === 'composite') {
+      const userId = req.user?.id || (req.apiKey?.userId) || null;
+      const result = await executeCompositeTool(tool, req.body.params || {}, userId);
+      return res.json(result);
     }
 
     // Check if credentials are required

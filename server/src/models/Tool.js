@@ -75,6 +75,16 @@ const Tool = sequelize.define('Tool', {
     type: DataTypes.JSONB,
     defaultValue: {},
     comment: 'Response transformation rules'
+  },
+  type: {
+    type: DataTypes.STRING(20),
+    defaultValue: 'simple',
+    comment: "Tool type: 'simple' or 'composite'"
+  },
+  steps: {
+    type: DataTypes.JSONB,
+    defaultValue: null,
+    comment: 'Composite tool steps array'
   }
 }, {
   tableName: 'tools'

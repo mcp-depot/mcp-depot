@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
+import { Zap } from 'lucide-react';
 
 const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
 
@@ -23,6 +24,7 @@ function Tools({ all: isAllTools }) {
   const [allToolsData, setAllToolsData] = useState([]);
   const [integration, setIntegration] = useState(null);
   const [tools, setTools] = useState([]);
+  const [compositeTools, setCompositeTools] = useState([]);
   const [externalTools, setExternalTools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -141,12 +143,26 @@ function Tools({ all: isAllTools }) {
         api.get(`/integrations/${id}/tools`)
       ]);
       setIntegration(intRes.data);
-      setTools(toolsRes.data);
+      setTools(toolsRes.data.filter(t => t.type !== 'composite'));
+      
+      const compositeRes = await api.get(`/integrations/composite`, {
+        params: { integrationId: id }
+      }).catch(() => ({ data: [] }));
+      setCompositeTools(compositeRes.data || []);
     } catch (err) {
       console.error('Failed to fetch data:', err);
       alert('Failed to load: ' + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCompositeTools = async () => {
+    try {
+      const toolsRes = await api.get(`/integrations/${id}/tools`);
+      setCompositeTools(toolsRes.data.filter(t => t.type === 'composite'));
+    } catch (err) {
+      console.error('Failed to fetch composite tools:', err);
     }
   };
 
@@ -679,6 +695,67 @@ function Tools({ all: isAllTools }) {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {tools.length > 0 && tools[0]?.type !== 'composite' && (
+          <div className="card" style={{ marginTop: '1.5rem' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Zap size={18} style={{ color: 'var(--primary)' }} />
+                Composite Tools ({compositeTools.length})
+              </h3>
+              <Link to={`/composite-tool/new?integrationId=${id}`} className="btn btn-primary">
+                + New Composite Tool
+              </Link>
+            </div>
+            {compositeTools.length === 0 ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)' }}>
+                <Zap size={32} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                <p>No composite tools yet</p>
+                <p style={{ fontSize: '0.85rem' }}>Chain multiple tools together for complex operations</p>
+              </div>
+            ) : (
+              <div className="tool-list">
+                {compositeTools.map(tool => (
+                  <div key={tool._id || tool.id} className="tool-item" style={{ display: 'flex', alignItems: 'center' }}>
+                    <Zap size={18} style={{ color: 'var(--primary)', marginRight: '0.75rem' }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem' }}>
+                        <strong>{tool.name}</strong>
+                        <span style={{ 
+                          marginLeft: '0.5rem', 
+                          padding: '2px 6px', 
+                          background: 'var(--primary)', 
+                          color: 'white', 
+                          borderRadius: '4px', 
+                          fontSize: '0.7rem' 
+                        }}>
+                          {tool.steps?.length || 0} steps
+                        </span>
+                      </div>
+                      <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem', marginTop: '0.25rem' }}>{tool.description}</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                      <Link to={`/composite-tool/${tool._id || tool.id}`} className="btn btn-icon">
+                        Edit
+                      </Link>
+                      <button className="btn btn-icon btn-danger" onClick={async () => {
+                        if (!confirm('Delete this composite tool?')) return;
+                        try {
+                          await api.delete(`/integrations/composite/${tool._id || tool.id}`);
+                          fetchCompositeTools();
+                        } catch (err) {
+                          alert('Failed to delete: ' + (err.response?.data?.error || err.message));
+                        }
+                      }}>
+                        Del
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

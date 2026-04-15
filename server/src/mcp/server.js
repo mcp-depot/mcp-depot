@@ -7,6 +7,7 @@ const { logToolCall } = require('../services/tool-logger');
 const AdapterFactory = require('../adapters');
 const encryption = require('../services/encryption');
 const logger = require('../services/logger');
+const { executeCompositeTool } = require('../services/compositeExecutor');
 
 const { randomUUID } = require('crypto');
 
@@ -116,6 +117,11 @@ class MCPConnectServer {
   }
 
   async executeTool(tool, params) {
+    if (tool.type === 'composite') {
+      const result = await executeCompositeTool(tool, params, tool.userId);
+      return result;
+    }
+
     const endpoint = tool.endpoint || {};
     const integration = tool.Integration;
     

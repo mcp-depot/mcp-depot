@@ -12,6 +12,7 @@ const WADLParser = require('../services/wadl-parser');
 const encryption = require('../services/encryption');
 const secretStore = require('../services/secret-store');
 const logger = require('../services/logger');
+const { executeComposite, executeCompositeTool } = require('../services/compositeExecutor');
 
 const router = express.Router();
 
@@ -154,6 +155,194 @@ router.get('/', auth, async (req, res) => {
   } catch (error) {
     logger.error({ err: error.message }, 'List integrations error');
     res.status(500).json({ error: 'Failed to list integrations' });
+  }
+});
+
+router.get('/composite', auth, async (req, res) => {
+  try {
+    const { integrationId } = req.query;
+    
+    const where = { type: 'composite' };
+    if (integrationId) {
+      where.integrationId = integrationId;
+    }
+    
+    const tools = await Tool.findAll({ where });
+    
+    res.json(tools.map(t => ({ ...t.toJSON(), _id: t.id })));
+  } catch (error) {
+    logger.error({ err: error.message }, 'Get composite tools error');
+    res.status(500).json({ error: 'Failed to get composite tools' });
+  }
+});
+
+router.post('/composite', auth, async (req, res) => {
+  try {
+    const { error, value } = compositeToolSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { integrationId } = req.body;
+    if (!integrationId) {
+      return res.status(400).json({ error: 'integrationId is required' });
+    }
+
+    const integration = await Integration.findByPk(integrationId);
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    const simpleTools = await Tool.findAll({
+      where: { integrationId, type: 'simple' }
+    });
+    const toolIds = simpleTools.map(t => t.id);
+    
+    for (const step of value.steps) {
+      if (!toolIds.includes(step.toolId)) {
+        return res.status(400).json({ 
+          error: `Tool ${step.toolId} is not a valid simple tool in this integration` 
+        });
+      }
+    }
+
+    const tool = await Tool.create({
+      userId: req.user.id,
+      integrationId,
+      name: value.name,
+      description: value.description,
+      endpoint: { path: '/composite', method: 'POST' },
+      inputSchema: value.inputSchema,
+      type: 'composite',
+      steps: value.steps
+    });
+
+    if (process.env.MCP_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
+    res.status(201).json(tool);
+  } catch (error) {
+    logger.error({ err: error.message }, 'Create composite tool error');
+    res.status(500).json({ error: 'Failed to create composite tool' });
+  }
+});
+
+router.get('/composite/:id', auth, async (req, res) => {
+  try {
+    const tool = await Tool.findByPk(req.params.id);
+    
+    if (!tool) {
+      return res.status(404).json({ error: 'Composite tool not found' });
+    }
+
+    if (tool.type !== 'composite') {
+      return res.status(400).json({ error: 'Tool is not a composite tool' });
+    }
+
+    const integration = await Integration.findByPk(tool.integrationId);
+    
+    res.json({
+      ...tool.toJSON(),
+      _id: tool.id,
+      integration: integration ? {
+        id: integration.id,
+        name: integration.name,
+        type: integration.type
+      } : null
+    });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Get composite tool error');
+    res.status(500).json({ error: 'Failed to get composite tool' });
+  }
+});
+
+router.put('/composite/:id', auth, async (req, res) => {
+  try {
+    const tool = await Tool.findByPk(req.params.id);
+    
+    if (!tool) {
+      return res.status(404).json({ error: 'Composite tool not found' });
+    }
+
+    if (tool.type !== 'composite') {
+      return res.status(400).json({ error: 'Tool is not a composite tool' });
+    }
+
+    const { error, value } = compositeToolSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    await tool.update({
+      name: value.name,
+      description: value.description,
+      inputSchema: value.inputSchema,
+      steps: value.steps
+    });
+
+    if (process.env.MCP_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
+    res.json(tool);
+  } catch (error) {
+    logger.error({ err: error.message }, 'Update composite tool error');
+    res.status(500).json({ error: 'Failed to update composite tool' });
+  }
+});
+
+router.delete('/composite/:id', auth, async (req, res) => {
+  try {
+    const tool = await Tool.findByPk(req.params.id);
+    
+    if (!tool) {
+      return res.status(404).json({ error: 'Composite tool not found' });
+    }
+
+    if (tool.type !== 'composite') {
+      return res.status(400).json({ error: 'Tool is not a composite tool' });
+    }
+
+    await tool.destroy();
+
+    if (process.env.MCP_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Delete composite tool error');
+    res.status(500).json({ error: 'Failed to delete composite tool' });
+  }
+});
+
+router.post('/composite/:id/test', auth, async (req, res) => {
+  try {
+    const tool = await Tool.findByPk(req.params.id);
+    
+    if (!tool) {
+      return res.status(404).json({ error: 'Composite tool not found' });
+    }
+
+    if (tool.type !== 'composite') {
+      return res.status(400).json({ error: 'Tool is not a composite tool' });
+    }
+
+    const { inputs } = req.body;
+    if (!inputs) {
+      return res.status(400).json({ error: 'inputs are required' });
+    }
+
+    const result = await executeComposite(tool, inputs, req.user.id);
+    
+    res.json(result);
+  } catch (error) {
+    logger.error({ err: error.message }, 'Test composite tool error');
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -1096,6 +1285,213 @@ router.get('/:id/users', auth, async (req, res) => {
     res.json({ sharedCount: userCreds.length, users });
   } catch (error) {
     logger.error({ err: error.message }, 'Get integration users error');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+const compositeToolSchema = Joi.object({
+  name: Joi.string().required(),
+  description: Joi.string().allow('').optional(),
+  inputSchema: Joi.object().default({}),
+  steps: Joi.array().items(Joi.object({
+    id: Joi.string().required(),
+    label: Joi.string().required(),
+    toolId: Joi.string().uuid().required(),
+    inputMappings: Joi.object().default({}),
+    extractors: Joi.array().items(Joi.object({
+      name: Joi.string().required(),
+      arrayPath: Joi.string().required(),
+      filterField: Joi.string().required(),
+      filterValue: Joi.string().required(),
+      selectField: Joi.string().required()
+    })).default([])
+  })).min(2).required()
+});
+
+router.get('/composite', auth, async (req, res) => {
+  try {
+    const { integrationId } = req.query;
+    
+    const where = { type: 'composite' };
+    if (integrationId) {
+      where.integrationId = integrationId;
+    }
+    
+    const tools = await Tool.findAll({ where });
+    
+    res.json(tools.map(t => ({ ...t.toJSON(), _id: t.id })));
+  } catch (error) {
+    logger.error({ err: error.message }, 'Get composite tools error');
+    res.status(500).json({ error: 'Failed to get composite tools' });
+  }
+});
+
+router.post('/composite', auth, async (req, res) => {
+  try {
+    const { error, value } = compositeToolSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { integrationId } = req.body;
+    if (!integrationId) {
+      return res.status(400).json({ error: 'integrationId is required' });
+    }
+
+    const integration = await Integration.findByPk(integrationId);
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    const simpleTools = await Tool.findAll({
+      where: { integrationId, type: 'simple' }
+    });
+    const toolIds = simpleTools.map(t => t.id);
+    
+    for (const step of value.steps) {
+      if (!toolIds.includes(step.toolId)) {
+        return res.status(400).json({ 
+          error: `Tool ${step.toolId} is not a valid simple tool in this integration` 
+        });
+      }
+    }
+
+    const tool = await Tool.create({
+      userId: req.user.id,
+      integrationId,
+      name: value.name,
+      description: value.description,
+      endpoint: { path: '/composite', method: 'POST' },
+      inputSchema: value.inputSchema,
+      type: 'composite',
+      steps: value.steps
+    });
+
+    if (process.env.MCP_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
+    res.status(201).json(tool);
+  } catch (error) {
+    logger.error({ err: error.message }, 'Create composite tool error');
+    res.status(500).json({ error: 'Failed to create composite tool' });
+  }
+});
+
+router.get('/composite/:id', auth, async (req, res) => {
+  try {
+    const tool = await Tool.findByPk(req.params.id);
+    
+    if (!tool) {
+      return res.status(404).json({ error: 'Composite tool not found' });
+    }
+
+    if (tool.type !== 'composite') {
+      return res.status(400).json({ error: 'Tool is not a composite tool' });
+    }
+
+    const integration = await Integration.findByPk(tool.integrationId);
+    
+    res.json({
+      ...tool.toJSON(),
+      _id: tool.id,
+      integration: integration ? {
+        id: integration.id,
+        name: integration.name,
+        type: integration.type
+      } : null
+    });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Get composite tool error');
+    res.status(500).json({ error: 'Failed to get composite tool' });
+  }
+});
+
+router.put('/composite/:id', auth, async (req, res) => {
+  try {
+    const tool = await Tool.findByPk(req.params.id);
+    
+    if (!tool) {
+      return res.status(404).json({ error: 'Composite tool not found' });
+    }
+
+    if (tool.type !== 'composite') {
+      return res.status(400).json({ error: 'Tool is not a composite tool' });
+    }
+
+    const { error, value } = compositeToolSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    await tool.update({
+      name: value.name,
+      description: value.description,
+      inputSchema: value.inputSchema,
+      steps: value.steps
+    });
+
+    if (process.env.MCP_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
+    res.json(tool);
+  } catch (error) {
+    logger.error({ err: error.message }, 'Update composite tool error');
+    res.status(500).json({ error: 'Failed to update composite tool' });
+  }
+});
+
+router.delete('/composite/:id', auth, async (req, res) => {
+  try {
+    const tool = await Tool.findByPk(req.params.id);
+    
+    if (!tool) {
+      return res.status(404).json({ error: 'Composite tool not found' });
+    }
+
+    if (tool.type !== 'composite') {
+      return res.status(400).json({ error: 'Tool is not a composite tool' });
+    }
+
+    await tool.destroy();
+
+    if (process.env.MCP_ENABLED === 'true') {
+      const { refreshToolsIfEnabled } = require('../mcp/server');
+      refreshToolsIfEnabled();
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Delete composite tool error');
+    res.status(500).json({ error: 'Failed to delete composite tool' });
+  }
+});
+
+router.post('/composite/:id/test', auth, async (req, res) => {
+  try {
+    const tool = await Tool.findByPk(req.params.id);
+    
+    if (!tool) {
+      return res.status(404).json({ error: 'Composite tool not found' });
+    }
+
+    if (tool.type !== 'composite') {
+      return res.status(400).json({ error: 'Tool is not a composite tool' });
+    }
+
+    const { inputs } = req.body;
+    if (!inputs) {
+      return res.status(400).json({ error: 'inputs are required' });
+    }
+
+    const result = await executeComposite(tool, inputs, req.user.id);
+    
+    res.json(result);
+  } catch (error) {
+    logger.error({ err: error.message }, 'Test composite tool error');
     res.status(500).json({ error: error.message });
   }
 });

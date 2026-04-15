@@ -11,6 +11,7 @@ import Workflows from './pages/Workflows';
 import Settings from './pages/Settings';
 import Monitoring from './pages/Monitoring';
 import PromptLibrary from './pages/PromptLibrary';
+import CompositeToolBuilder from './pages/CompositeToolBuilder';
 import Layout from './components/Layout';
 
 function PrivateRoute({ children }) {
@@ -55,6 +56,8 @@ function AppRoutes() {
       <Route path="/monitoring" element={<PrivateRoute><Layout><Monitoring /></Layout></PrivateRoute>} />
       <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
       <Route path="/prompts" element={<PrivateRoute><Layout><PromptLibrary /></Layout></PrivateRoute>} />
+      <Route path="/composite-tool/new" element={<PrivateRoute><Layout><CompositeToolBuilder /></Layout></PrivateRoute>} />
+      <Route path="/composite-tool/:id" element={<PrivateRoute><Layout><CompositeToolBuilder /></Layout></PrivateRoute>} />
     </Routes>
   );
 }
