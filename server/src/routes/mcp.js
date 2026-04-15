@@ -36,6 +36,29 @@ function safeJsonParse(value, defaultValue) {
   }
 }
 
+function substituteBodyTemplate(obj, params) {
+  if (typeof obj === 'string') {
+    const sole = obj.match(/^\{(\w+)\}$/);
+    if (sole && params[sole[1]] !== undefined) {
+      return params[sole[1]];
+    }
+    return obj.replace(/\{(\w+)\}/g, (match, key) =>
+      params[key] !== undefined ? String(params[key]) : match
+    );
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => substituteBodyTemplate(item, params));
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const result = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = substituteBodyTemplate(value, params);
+    }
+    return result;
+  }
+  return obj;
+}
+
 const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED === 'true';
 const TOOLS_CACHE_TTL = parseInt(process.env.TOOLS_CACHE_TTL) || 300000;
 
@@ -851,17 +874,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     }
 
     if (typeof bodyParams === 'object' && bodyParams !== null) {
-      let bodyStr = JSON.stringify(bodyParams);
-
-      bodyStr = bodyStr.replace(/"(\{(\w+)\})"/g, (match, placeholder, key) => {
-        return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : match;
-      });
-
-      bodyStr = bodyStr.replace(/\{(\w+)\}/g, (match, key) => {
-        return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : `"${match}"`;
-      });
-
-      bodyParams = JSON.parse(bodyStr);
+      bodyParams = substituteBodyTemplate(bodyParams, mergedParams);
     }
 
     let result;
