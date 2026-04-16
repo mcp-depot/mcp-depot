@@ -76,6 +76,7 @@ v1Router.use('/monitoring', monitoringRoutes);
 v1Router.use('/user-credentials', userCredentialsRoutes);
 v1Router.use('/external-mcp', externalMcpRoutes);
 v1Router.use('/prompt-library', promptLibraryRoutes);
+v1Router.use('/skills-library', promptLibraryRoutes);
 v1Router.use('/skills', skillsRoutes);
 v1Router.use('/system', systemRoutes);
 v1Router.use('/oauth', oauthRoutes);
