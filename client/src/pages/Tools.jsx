@@ -756,7 +756,6 @@ function Tools({ all: isAllTools }) {
               </div>
             )}
           </div>
-        )}
 
         {testResult && (
           <div className="card" style={{ marginTop: '1.5rem' }}>
