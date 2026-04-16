@@ -6,8 +6,7 @@ COPY package*.json ./
 
 RUN npm install --only=production
 
-RUN apk add --no-cache python3 py3-pip && \
-    pip3 install --break-system-packages uv
+RUN apk add --no-cache python3 py3-pip
 
 COPY . .
 
