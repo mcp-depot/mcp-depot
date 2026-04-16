@@ -314,6 +314,16 @@ function CompositeToolBuilder() {
       params[param] = testParams[param];
     }
 
+    // Handle body parameter
+    if (testParams.__body) {
+      try {
+        const parsedBody = JSON.parse(testParams.__body);
+        params.__body = parsedBody;
+      } catch {
+        params.__body = testParams.__body;
+      }
+    }
+
     setTesting(true);
     try {
       const token = localStorage.getItem('accessToken');
@@ -604,6 +614,27 @@ function CompositeToolBuilder() {
                             />
                           </div>
                         ))}
+                        
+                        {/* POST/PUT/PATCH body parameter */}
+                        {['POST', 'PUT', 'PATCH'].includes(selectedTool.endpoint?.method) && (
+                          <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                            <label style={{ fontSize: '0.85rem', color: 'var(--primary)' }}>
+                              Body <span style={{ fontWeight: 'normal' }}>(JSON)</span>
+                            </label>
+                            <textarea
+                              value={testParams.__body || ''}
+                              onChange={e => setTestParams(prev => ({ ...prev, __body: e.target.value }))}
+                              placeholder='{"key": "value"}'
+                              style={{ 
+                                fontSize: '0.85rem', 
+                                fontFamily: 'monospace',
+                                minHeight: '80px',
+                                resize: 'vertical'
+                              }}
+                            />
+                          </div>
+                        )}
+                        
                         <button
                           className="btn btn-secondary"
                           onClick={() => handleStepTest(selectedStepData)}
