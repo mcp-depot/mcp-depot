@@ -39,10 +39,12 @@ function CompositeToolBuilder() {
   const [saving,              setSaving]              = useState(false);
   const [testing,             setTesting]             = useState(false);
   const [testResult,          setTestResult]          = useState(null);
+  const [toolTestModal,       setToolTestModal]        = useState(false);
   const [toolTestResult,      setToolTestResult]      = useState(null);
   const [toolTestError,       setToolTestError]       = useState(null);
   const [toolTesting,         setToolTesting]         = useState(false);
   const [toolTestParams,      setToolTestParams]      = useState({});
+  const [toolToTest,          setToolToTest]           = useState(null);
   const [error,               setError]              = useState(null);
   const [selectedStep,        setSelectedStep]        = useState(null);
   const [selectedIntegration, setSelectedIntegration] = useState(integrationIdParam);
@@ -279,43 +281,53 @@ function CompositeToolBuilder() {
     }
   };
 
-  const handleToolTest = async (tool, existingParams) => {
-    const requiredParams = tool.inputSchema?.required || [];
-    const properties = tool.inputSchema?.properties || {};
-    const params = { ...existingParams };
+  const openToolTestModal = (tool) => {
+    const inputSchema = tool.inputSchema || {};
+    let properties = inputSchema.properties || {};
+    const required = inputSchema.required || [];
     
-    // Prompt for missing required params
-    for (const paramName of requiredParams) {
-      if (!params[paramName] || !params[paramName].trim()) {
-        // eslint-disable-next-line no-alert
-        const value = window.prompt(`Enter value for required parameter "${paramName}":`);
-        if (value === null) return; // User cancelled
-        params[paramName] = value;
-      }
+    // If no properties, check path params and query params
+    if (Object.keys(properties).length === 0) {
+      const pathMatch = tool.endpoint?.path?.match(/\{([^}]+)\}/g) || [];
+      const queryParams = tool.endpoint?.params || {};
+      
+      properties = { ...properties };
+      
+      pathMatch.forEach(p => {
+        const paramName = p.replace(/[{}]/g, '');
+        properties[paramName] = { type: 'string', description: `Path parameter: ${paramName}` };
+        if (!required.includes(paramName)) required.push(paramName);
+      });
+      
+      Object.entries(queryParams).forEach(([key, val]) => {
+        properties[key] = { type: val.type || 'string', description: val.description || key };
+        if (val.required && !required.includes(key)) required.push(key);
+      });
     }
     
-    // Also prompt for any other params that might be helpful
-    for (const [paramName, paramDef] of Object.entries(properties)) {
-      if (!params[paramName] && paramDef.type === 'string') {
-        // eslint-disable-next-line no-alert
-        const value = window.prompt(`Enter value for "${paramName}"${paramDef.description ? ` (${paramDef.description})` : ''}:`);
-        if (value === null) break; // User cancelled
-        params[paramName] = value;
-      }
-    }
-
-    setToolTesting(true);
+    const initialParams = {};
+    Object.keys(properties).forEach(key => {
+      initialParams[key] = '';
+    });
+    
+    setToolToTest(tool);
+    setToolTestParams(initialParams);
     setToolTestResult(null);
     setToolTestError(null);
-    setToolTestParams(params);
+    setToolTestModal(true);
+  };
+
+  const runToolTest = async () => {
+    if (!toolToTest) return;
     
+    setToolTesting(true);
     try {
       const token = localStorage.getItem('accessToken');
-      const toolId = tool.id || tool._id;
+      const toolId = toolToTest.id || toolToTest._id;
       const res = await fetch(`/api/consume/tools/${toolId}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ params })
+        body: JSON.stringify({ params: toolTestParams })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -563,80 +575,13 @@ function CompositeToolBuilder() {
                       </div>
                       <button
                         className="btn btn-secondary btn-sm"
-                        onClick={() => handleToolTest(selectedTool, toolTestParams)}
+                        onClick={() => openToolTestModal(selectedTool)}
                         disabled={toolTesting}
                         style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
                       >
-                        <Play size={12} /> {toolTesting ? 'Testing...' : 'Test Tool'}
+                        <Play size={12} /> Test Tool
                       </button>
                     </div>
-                    
-                    {/* Tool test params input */}
-                    {selectedTool.inputSchema?.properties && Object.keys(selectedTool.inputSchema.properties).length > 0 && (
-                      <details style={{ marginTop: '0.5rem' }}>
-                        <summary style={{ cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                          Test Parameters
-                        </summary>
-                        <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px' }}>
-                          {Object.entries(selectedTool.inputSchema.properties).map(([key, prop]) => (
-                            <div key={key} style={{ marginBottom: '0.5rem' }}>
-                              <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.15rem' }}>
-                                {key} <span style={{ color: 'var(--text-dim)' }}>({prop.type})</span>
-                              </label>
-                              <input
-                                type="text"
-                                placeholder={prop.description || key}
-                                value={toolTestParams[key] || ''}
-                                onChange={e => setToolTestParams(prev => ({ ...prev, [key]: e.target.value }))}
-                                style={{ width: '100%', padding: '0.35rem 0.5rem', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)' }}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-
-                    {/* Tool test result */}
-                    {(toolTestResult || toolTestError) && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <button 
-                          className="btn btn-ghost btn-sm" 
-                          onClick={() => { setToolTestResult(null); setToolTestError(null); }}
-                          style={{ float: 'right', fontSize: '0.75rem' }}
-                        >
-                          ✕ Close
-                        </button>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 500 }}>Test Result:</label>
-                        {toolTestError ? (
-                          <div style={{ 
-                            marginTop: '0.5rem', 
-                            padding: '0.75rem', 
-                            background: 'rgba(239, 68, 68, 0.1)', 
-                            borderRadius: '6px',
-                            fontSize: '0.8rem',
-                            color: 'var(--danger)',
-                            overflow: 'auto',
-                            maxHeight: '300px'
-                          }}>
-                            Error: {toolTestError}
-                          </div>
-                        ) : (
-                          <pre style={{ 
-                            marginTop: '0.5rem', 
-                            padding: '0.75rem', 
-                            background: 'var(--surface-hover)', 
-                            borderRadius: '6px',
-                            fontSize: '0.8rem',
-                            overflow: 'auto',
-                            maxHeight: '300px',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word'
-                          }}>
-                            {JSON.stringify(toolTestResult, null, 2)}
-                          </pre>
-                        )}
-                      </div>
-                    )}
                   </div>
 
                   {/* Input mappings */}
@@ -945,6 +890,83 @@ function CompositeToolBuilder() {
 
             <div className="cb-test-modal__footer">
               <button className="btn btn-secondary" onClick={() => setTestResult(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Test Tool Modal */}
+      {toolTestModal && toolToTest && (
+        <div className="modal-overlay" onClick={() => setToolTestModal(false)}>
+          <div className="modal" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Test: {toolToTest.name}</h2>
+              <button className="modal-close" onClick={() => setToolTestModal(false)}>&times;</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '4px' }}>
+                <span className={`tool-method ${toolToTest.endpoint?.method?.toLowerCase()}`}>{toolToTest.endpoint?.method}</span>
+                <span style={{ marginLeft: '0.5rem', color: 'var(--text)' }}>{toolToTest.endpoint?.path}</span>
+              </div>
+              {Object.keys(toolTestParams).length > 0 ? (
+                <div>
+                  <p style={{ marginBottom: '1rem', color: 'var(--text-light)' }}>
+                    Enter values for parameters:
+                  </p>
+                  {Object.keys(toolTestParams).map(param => {
+                    const inputSchema = toolToTest.inputSchema || {};
+                    const properties = inputSchema.properties || {};
+                    const required = inputSchema.required || [];
+                    const isRequired = required.includes(param);
+                    const paramInfo = properties[param] || {};
+                    
+                    return (
+                      <div key={param} className="form-group">
+                        <label>
+                          {param}
+                          {isRequired && <span style={{ color: 'var(--danger)' }}> *</span>}
+                          {paramInfo.description && <span style={{ color: 'var(--text-light)', fontSize: '0.8rem', marginLeft: '0.5rem' }}>{paramInfo.description}</span>}
+                        </label>
+                        <input
+                          type="text"
+                          value={toolTestParams[param]}
+                          onChange={e => setToolTestParams({ ...toolTestParams, [param]: e.target.value })}
+                          placeholder={`Enter ${param}`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-light)' }}>This tool doesn't require any parameters.</p>
+              )}
+
+              {(toolTestResult || toolTestError) && (
+                <div style={{ marginTop: '1rem' }}>
+                  {toolTestError ? (
+                    <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--danger)' }}>
+                      Error: {toolTestError}
+                    </div>
+                  ) : (
+                    <div>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 500 }}>Result:</label>
+                      <pre style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px', fontSize: '0.8rem', maxHeight: '300px', overflow: 'auto' }}>
+                        {JSON.stringify(toolTestResult, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setToolTestModal(false)}>Close</button>
+              <button 
+                className="btn btn-primary" 
+                onClick={runToolTest} 
+                disabled={toolTesting || Object.values(toolTestParams).some(v => !v)}
+              >
+                {toolTesting ? 'Running...' : 'Run Test'}
+              </button>
             </div>
           </div>
         </div>
