@@ -39,6 +39,10 @@ function CompositeToolBuilder() {
   const [saving,              setSaving]              = useState(false);
   const [testing,             setTesting]             = useState(false);
   const [testResult,          setTestResult]          = useState(null);
+  const [toolTestResult,      setToolTestResult]      = useState(null);
+  const [toolTestError,       setToolTestError]       = useState(null);
+  const [toolTesting,         setToolTesting]         = useState(false);
+  const [toolTestParams,      setToolTestParams]      = useState({});
   const [error,               setError]              = useState(null);
   const [selectedStep,        setSelectedStep]        = useState(null);
   const [selectedIntegration, setSelectedIntegration] = useState(integrationIdParam);
@@ -275,6 +279,30 @@ function CompositeToolBuilder() {
     }
   };
 
+  const handleToolTest = async (tool, params) => {
+    setToolTesting(true);
+    setToolTestResult(null);
+    setToolTestError(null);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const toolId = tool.id || tool._id;
+      const res = await fetch(`/api/consume/tools/${toolId}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ params })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || data.message || 'Test failed');
+      }
+      setToolTestResult(data);
+    } catch (err) {
+      setToolTestError(err.message);
+    } finally {
+      setToolTesting(false);
+    }
+  };
+
   const handleTest = async () => {
     const inputKeys = Object.keys(formData.inputSchema.properties || {});
     const inputs    = {};
@@ -494,6 +522,97 @@ function CompositeToolBuilder() {
 
               {selectedTool && (
                 <>
+                  {/* Tool info + test button */}
+                  <div className="form-group">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+                      <div>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                          {selectedTool.endpoint?.method} {selectedTool.endpoint?.path}
+                        </div>
+                        {selectedTool.description && (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginTop: '0.25rem' }}>
+                            {selectedTool.description}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleToolTest(selectedTool, toolTestParams)}
+                        disabled={toolTesting}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                      >
+                        <Play size={12} /> {toolTesting ? 'Testing...' : 'Test Tool'}
+                      </button>
+                    </div>
+                    
+                    {/* Tool test params input */}
+                    {selectedTool.inputSchema?.properties && Object.keys(selectedTool.inputSchema.properties).length > 0 && (
+                      <details style={{ marginTop: '0.5rem' }}>
+                        <summary style={{ cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                          Test Parameters
+                        </summary>
+                        <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px' }}>
+                          {Object.entries(selectedTool.inputSchema.properties).map(([key, prop]) => (
+                            <div key={key} style={{ marginBottom: '0.5rem' }}>
+                              <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.15rem' }}>
+                                {key} <span style={{ color: 'var(--text-dim)' }}>({prop.type})</span>
+                              </label>
+                              <input
+                                type="text"
+                                placeholder={prop.description || key}
+                                value={toolTestParams[key] || ''}
+                                onChange={e => setToolTestParams(prev => ({ ...prev, [key]: e.target.value }))}
+                                style={{ width: '100%', padding: '0.35rem 0.5rem', fontSize: '0.85rem', borderRadius: '4px', border: '1px solid var(--border)' }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Tool test result */}
+                    {(toolTestResult || toolTestError) && (
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <button 
+                          className="btn btn-ghost btn-sm" 
+                          onClick={() => { setToolTestResult(null); setToolTestError(null); }}
+                          style={{ float: 'right', fontSize: '0.75rem' }}
+                        >
+                          ✕ Close
+                        </button>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 500 }}>Test Result:</label>
+                        {toolTestError ? (
+                          <div style={{ 
+                            marginTop: '0.5rem', 
+                            padding: '0.75rem', 
+                            background: 'rgba(239, 68, 68, 0.1)', 
+                            borderRadius: '6px',
+                            fontSize: '0.8rem',
+                            color: 'var(--danger)',
+                            overflow: 'auto',
+                            maxHeight: '300px'
+                          }}>
+                            Error: {toolTestError}
+                          </div>
+                        ) : (
+                          <pre style={{ 
+                            marginTop: '0.5rem', 
+                            padding: '0.75rem', 
+                            background: 'var(--surface-hover)', 
+                            borderRadius: '6px',
+                            fontSize: '0.8rem',
+                            overflow: 'auto',
+                            maxHeight: '300px',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word'
+                          }}>
+                            {JSON.stringify(toolTestResult, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Input mappings */}
                   <div className="form-group">
                     <label>Input Mappings</label>
