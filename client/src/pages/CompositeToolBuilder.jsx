@@ -1,12 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Save, ChevronDown, ChevronRight, Zap, HelpCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Play, Save, ChevronRight, Zap } from 'lucide-react';
 
-function getMappingSource(mapping) {
-  if (!mapping) return 'input';
-  if (mapping.source === 'literal') return 'literal';
-  if (mapping.source === 'step') return 'previous';
-  return 'input';
+const SOURCE_TYPES = {
+  INPUT: 'input',
+  STEP: 'step',
+  EXPRESSION: 'expression',
+  LITERAL: 'literal'
+};
+
+/** Convert a mapping object → the combined option value used by the select */
+function getMappingSourceKey(mapping) {
+  if (!mapping || !mapping.source) return '';
+  if (mapping.source === SOURCE_TYPES.INPUT)      return `input:${mapping.key || ''}`;
+  if (mapping.source === SOURCE_TYPES.STEP)       return `step:${mapping.stepId || ''}::${mapping.extractName || ''}`;
+  if (mapping.source === SOURCE_TYPES.EXPRESSION) return 'expression';
+  if (mapping.source === SOURCE_TYPES.LITERAL)    return 'literal';
+  return '';
 }
 
 function CompositeToolBuilder() {
@@ -33,8 +43,8 @@ function CompositeToolBuilder() {
   const [selectedStep,        setSelectedStep]        = useState(null);
   const [selectedIntegration, setSelectedIntegration] = useState(integrationIdParam);
   const [integrations,        setIntegrations]        = useState([]);
-  const [showDocs,          setShowDocs]           = useState(false);
-  const [toolsExpanded,     setToolsExpanded]       = useState({});
+  const [newInputName,        setNewInputName]        = useState('');
+  const [showAddInput,        setShowAddInput]        = useState(false);
 
   const loadToolsForIntegration = async (intId) => {
     if (!intId) return;
@@ -93,22 +103,17 @@ function CompositeToolBuilder() {
     await loadToolsForIntegration(intId);
   };
 
-  const toggleToolsExpand = (toolId) => {
-    setToolsExpanded(prev => ({ ...prev, [toolId]: !prev[toolId] }));
-  };
+  /* ── Steps ───────────────────────────────────────────────────────────── */
 
-  const handleAddTool = (tool) => {
+  const handleAddStep = () => {
     const newStep = {
       id:            `step_${Date.now()}`,
-      label:         tool.name,
-      toolId:        tool.id || tool._id,
+      label:         `Step ${formData.steps.length + 1}`,
+      toolId:        '',
       inputMappings: {},
       extractors:    []
     };
-    setFormData(prev => ({ 
-      ...prev, 
-      steps: [...prev.steps, newStep]
-    }));
+    setFormData(prev => ({ ...prev, steps: [...prev.steps, newStep] }));
     setSelectedStep(newStep.id);
   };
 
@@ -117,493 +122,688 @@ function CompositeToolBuilder() {
     if (selectedStep === stepId) setSelectedStep(null);
   };
 
-  const handleStepMove = (stepId, direction) => {
-    setFormData(prev => {
-      const idx = prev.steps.findIndex(s => s.id === stepId);
-      if (idx < 0) return prev;
-      const newIdx = direction === 'up' ? idx - 1 : idx + 1;
-      if (newIdx < 0 || newIdx >= prev.steps.length) return prev;
-      const newSteps = [...prev.steps];
-      [newSteps[idx], newSteps[newIdx]] = [newSteps[newIdx], newSteps[idx]];
-      return { ...prev, steps: newSteps };
-    });
-  };
-
-  const handleMappingChange = (stepId, paramKey, type, value) => {
-    let newMapping;
-    if (type === 'input') {
-      newMapping = { source: 'input', key: value || paramKey };
-    } else if (type === 'literal') {
-      newMapping = { source: 'literal', value: value || '' };
-    } else {
-      newMapping = { source: 'input', key: paramKey };
-    }
-    
+  const handleStepChange = (stepId, field, value) => {
     setFormData(prev => ({
       ...prev,
-      steps: prev.steps.map(s => {
-        if (s.id !== stepId) return s;
-        return { 
-          ...s, 
-          inputMappings: { ...s.inputMappings, [paramKey]: newMapping }
-        };
-      })
+      steps: prev.steps.map(s => s.id === stepId ? { ...s, [field]: value } : s)
     }));
   };
 
-  const handleSave = async () => {
-    if (!formData.name.trim()) {
-      alert('Please enter a name for the composite tool');
-      return;
-    }
-    if (formData.steps.length === 0) {
-      alert('Please add at least one step');
-      return;
+  const handleToolSelect = (stepId, toolId) => {
+    const tool = availableTools.find(t => (t.id || t._id) === toolId);
+    if (!tool) return;
+    const inputMappings = {};
+    const params = tool.inputSchema?.properties || {};
+    Object.keys(params).forEach(key => {
+      inputMappings[key] = { source: SOURCE_TYPES.INPUT, key };
+    });
+    handleStepChange(stepId, 'toolId', toolId);
+    handleStepChange(stepId, 'inputMappings', inputMappings);
+  };
+
+  /* ── Mappings ────────────────────────────────────────────────────────── */
+
+  const handleMappingChange = (stepId, paramKey, source, value) => {
+    const step = formData.steps.find(s => s.id === stepId);
+    if (!step) return;
+
+    let mappingValue;
+    switch (source) {
+      case SOURCE_TYPES.INPUT:
+        mappingValue = { source: SOURCE_TYPES.INPUT, key: value };
+        break;
+      case SOURCE_TYPES.STEP: {
+        const [stepIdRef, extractName] = value.split('::');
+        mappingValue = { source: SOURCE_TYPES.STEP, stepId: stepIdRef, extractName: extractName || '' };
+        break;
+      }
+      case SOURCE_TYPES.EXPRESSION:
+        mappingValue = { source: SOURCE_TYPES.EXPRESSION, value };
+        break;
+      case SOURCE_TYPES.LITERAL:
+        mappingValue = { source: SOURCE_TYPES.LITERAL, value };
+        break;
+      default:
+        return;
     }
 
+    handleStepChange(stepId, 'inputMappings', { ...step.inputMappings, [paramKey]: mappingValue });
+  };
+
+  /** Called when the combined source selector changes */
+  const handleSourceSelect = (stepId, paramKey, val) => {
+    if (!val) return;
+    if (val.startsWith('input:'))  { handleMappingChange(stepId, paramKey, SOURCE_TYPES.INPUT,      val.slice(6)); return; }
+    if (val.startsWith('step:'))   { handleMappingChange(stepId, paramKey, SOURCE_TYPES.STEP,       val.slice(5)); return; }
+    if (val === 'expression')      { handleMappingChange(stepId, paramKey, SOURCE_TYPES.EXPRESSION, ''); return; }
+    if (val === 'literal')         { handleMappingChange(stepId, paramKey, SOURCE_TYPES.LITERAL,    ''); return; }
+  };
+
+  /* ── Extractors ──────────────────────────────────────────────────────── */
+
+  const handleAddExtractor = (stepId) => {
+    const step         = formData.steps.find(s => s.id === stepId);
+    const newExtractor = { name: '', arrayPath: '', filterField: 'name', filterValue: '', selectField: 'id' };
+    handleStepChange(stepId, 'extractors', [...(step.extractors || []), newExtractor]);
+  };
+
+  const handleExtractorChange = (stepId, index, field, value) => {
+    const step        = formData.steps.find(s => s.id === stepId);
+    if (!step) return;
+    const newExtractors  = [...(step.extractors || [])];
+    newExtractors[index] = { ...newExtractors[index], [field]: value };
+    handleStepChange(stepId, 'extractors', newExtractors);
+  };
+
+  const handleRemoveExtractor = (stepId, index) => {
+    const step       = formData.steps.find(s => s.id === stepId);
+    if (!step) return;
+    const newExtractors = [...(step.extractors || [])];
+    newExtractors.splice(index, 1);
+    handleStepChange(stepId, 'extractors', newExtractors);
+  };
+
+  /* ── Inputs (outer schema) ───────────────────────────────────────────── */
+
+  const handleInputAdd = () => {
+    const name = newInputName.trim();
+    if (!name) return;
+    setFormData(prev => ({
+      ...prev,
+      inputSchema: {
+        ...prev.inputSchema,
+        properties: { ...prev.inputSchema.properties, [name]: { type: 'string', description: '' } }
+      }
+    }));
+    setNewInputName('');
+    setShowAddInput(false);
+  };
+
+  const handleInputRemove = (name) => {
+    setFormData(prev => {
+      const newProps = { ...prev.inputSchema.properties };
+      delete newProps[name];
+      return {
+        ...prev,
+        inputSchema: {
+          ...prev.inputSchema,
+          properties: newProps,
+          required:   prev.inputSchema.required.filter(r => r !== name)
+        }
+      };
+    });
+  };
+
+  const toggleRequired = (name) => {
+    setFormData(prev => {
+      const isRequired = prev.inputSchema.required.includes(name);
+      return {
+        ...prev,
+        inputSchema: {
+          ...prev.inputSchema,
+          required: isRequired
+            ? prev.inputSchema.required.filter(r => r !== name)
+            : [...prev.inputSchema.required, name]
+        }
+      };
+    });
+  };
+
+  /* ── Save / Test ─────────────────────────────────────────────────────── */
+
+  const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
-      const token = localStorage.getItem('accessToken');
-      const url = isEditing 
-        ? `/api/integrations/composite/${id}`
-        : `/api/integrations/composite`;
+      const token  = localStorage.getItem('accessToken');
+      const url    = isEditing ? `/api/integrations/composite/${id}` : '/api/integrations/composite';
       const method = isEditing ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
+      const res    = await fetch(url, {
         method,
-        headers: { 
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: formData.name,
-          description: formData.description,
-          inputSchema: formData.inputSchema,
-          steps: formData.steps.map(s => ({
-            id: s.id,
-            label: s.label,
-            toolId: s.toolId,
-            inputMappings: s.inputMappings,
-            extractors: s.extractors || []
-          }))
-        })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ ...formData, integrationId: selectedIntegration || formData.integrationId })
       });
-
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Failed to save');
       }
-
       navigate(-1);
     } catch (err) {
       setError(err.message);
-      alert(err.message);
     } finally {
       setSaving(false);
     }
   };
 
+  const handleTest = async () => {
+    const inputKeys = Object.keys(formData.inputSchema.properties || {});
+    const inputs    = {};
+
+    for (const key of inputKeys) {
+      // eslint-disable-next-line no-alert
+      const value = window.prompt(`Value for "${key}":`);
+      if (value === null) return;
+      inputs[key] = value;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+    setError(null);
+
+    try {
+      const token  = localStorage.getItem('accessToken');
+      let toolId   = id;
+
+      if (!isEditing) {
+        const saveRes = await fetch('/api/integrations/composite', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body:    JSON.stringify({ ...formData, integrationId: selectedIntegration || formData.integrationId })
+        });
+        if (!saveRes.ok) throw new Error((await saveRes.json()).error || 'Failed to save before test');
+        const saved = await saveRes.json();
+        toolId      = saved.id;
+      }
+
+      const res    = await fetch(`/api/integrations/composite/${toolId}/test`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ inputs })
+      });
+      setTestResult(await res.json());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  /* ── Render helpers ──────────────────────────────────────────────────── */
+
   if (loading) {
-    return <div className="loading-overlay"><div className="spinner"></div></div>;
+    return (
+      <div className="loading-state">
+        <div className="loading-spinner" />
+        <span>Loading...</span>
+      </div>
+    );
   }
+
+  const activeIntegrationId   = selectedIntegration || formData.integrationId;
+  const selectedStepData      = formData.steps.find(s => s.id === selectedStep);
+  const selectedTool          = selectedStepData
+    ? availableTools.find(t => (t.id || t._id) === selectedStepData.toolId)
+    : null;
+  const previousSteps         = formData.steps.slice(0, formData.steps.findIndex(s => s.id === selectedStep));
 
   return (
     <div className="composite-builder">
-      {/* Header */}
-      <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        <button className="btn btn-ghost" onClick={() => navigate(-1)}>
-          <ArrowLeft size={18} /> Back
+
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div className="composite-builder__header">
+        <button className="btn-icon" onClick={() => navigate(-1)} title="Back">
+          <ArrowLeft size={18} />
         </button>
-        <div style={{ flex: 1 }}>
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>
-            {isEditing ? 'Edit Composite Tool' : 'Create Composite Tool'}
-          </h2>
+        <div className="composite-builder__title">
+          <Zap size={18} className="composite-builder__title-icon" />
+          <h2>{isEditing ? 'Edit Composite Tool' : 'New Composite Tool'}</h2>
         </div>
-        <button 
-          className="btn btn-secondary" 
-          onClick={() => setShowDocs(!showDocs)}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-        >
-          <HelpCircle size={16} /> Help
-        </button>
-        <button 
-          className="btn btn-primary" 
-          onClick={handleSave}
-          disabled={saving}
-        >
-          <Save size={16} /> {saving ? 'Saving...' : 'Save'}
-        </button>
+        <div className="composite-builder__actions">
+          <button
+            className="btn btn-secondary"
+            onClick={handleTest}
+            disabled={testing || formData.steps.length < 2}
+            title={formData.steps.length < 2 ? 'Add at least 2 steps to test' : 'Run the chain with test inputs'}
+          >
+            <Play size={14} />
+            {testing ? 'Testing…' : 'Test'}
+          </button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            <Save size={14} />
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       </div>
 
-      {/* Help Panel */}
-      {showDocs && (
-        <div style={{ padding: '1rem 1.5rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--border)' }}>
-          <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-            <h3 style={{ marginTop: 0 }}>How Composite Tools Work</h3>
-            <p>A composite tool chains multiple API calls together. When Claude calls this tool, it will:</p>
-            <ol style={{ lineHeight: 1.8 }}>
-              <li>Execute each step in order</li>
-              <li>Pass the result from one step to the next</li>
-              <li>Return the final result</li>
-            </ol>
-            
-            <h4>Creating a Composite Tool:</h4>
-            <ol style={{ lineHeight: 1.8 }}>
-              <li><strong>Name & Description:</strong> Give it a clear name and describe what it does</li>
-              <li><strong>Add Steps:</strong> Select tools from your integration to chain together</li>
-              <li><strong>Define Inputs:</strong> What parameters should Claude pass in?</li>
-            </ol>
+      {error && <div className="error-message">{error}</div>}
 
-            <h4>Input Mappings:</h4>
-            <p>Each tool parameter can come from:</p>
-            <ul style={{ lineHeight: 1.8 }}>
-              <li><strong>Claude Input:</strong> Parameter comes from what Claude passes in</li>
-              <li><strong>Previous Step:</strong> Use result from an earlier step</li>
-              <li><strong>Literal:</strong> Fixed value you specify</li>
-            </ul>
+      {/* ── 3-panel body ────────────────────────────────────────────────── */}
+      <div className="composite-builder__body">
 
-            <h4>Example: "Get Jira Issue with Comments"</h4>
-            <p>This composite tool could:</p>
-            <ol style={{ lineHeight: 1.8 }}>
-              <li>Step 1: Get issue details (takes issue key from Claude)</li>
-              <li>Step 2: Get comments (uses issue ID from step 1)</li>
-            </ol>
-            <p>Claude only needs to pass the issue key, and both API calls happen automatically.</p>
-          </div>
-        </div>
-      )}
+        {/* LEFT: basic info + steps */}
+        <aside className="composite-builder__sidebar">
 
-      {error && (
-        <div style={{ padding: '1rem 1.5rem', background: 'var(--danger)', color: 'white' }}>
-          {error}
-        </div>
-      )}
-
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Left Panel - Available Tools */}
-        <div style={{ width: '320px', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Integration</label>
-            <select 
-              value={selectedIntegration} 
-              onChange={e => handleIntegrationChange(e.target.value)}
-              style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)' }}
-            >
-              <option value="">Select integration...</option>
-              {integrations.map(int => (
-                <option key={int._id} value={int._id}>{int.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div style={{ flex: 1, overflow: 'auto', padding: '1rem' }}>
-            <div style={{ marginBottom: '1rem' }}>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
-                Click a tool to add it as a step
-              </p>
+          <section className="cb-section">
+            <h4 className="cb-section__title">Basic Info</h4>
+            <div className="form-group">
+              <label>Name</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g., Set Jira Status"
+              />
             </div>
-            
-            {availableTools.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
-                {selectedIntegration ? 'No tools available' : 'Select an integration first'}
+            <div className="form-group">
+              <label>Description</label>
+              <textarea
+                value={formData.description}
+                onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="What does this composite tool do?"
+                rows={2}
+              />
+            </div>
+            {!isEditing && (
+              <div className="form-group">
+                <label>Integration</label>
+                <select
+                  value={selectedIntegration}
+                  onChange={e => handleIntegrationChange(e.target.value)}
+                >
+                  <option value="">Select integration…</option>
+                  {integrations.map(int => (
+                    <option key={int._id || int.id} value={int._id || int.id}>{int.name}</option>
+                  ))}
+                </select>
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {availableTools.map(tool => (
-                  <div 
-                    key={tool._id || tool.id}
-                    style={{ 
-                      border: '1px solid var(--border)', 
-                      borderRadius: '8px',
-                      overflow: 'hidden'
-                    }}
+            )}
+          </section>
+
+          <section className="cb-section">
+            <h4 className="cb-section__title">
+              Steps
+              <span className="cb-badge">{formData.steps.length}</span>
+            </h4>
+
+            {formData.steps.length === 0 && (
+              <p className="cb-empty-hint">Add steps to chain API calls together</p>
+            )}
+
+            <div className="cb-steps-list">
+              {formData.steps.map((step, idx) => {
+                const stepTool = availableTools.find(t => (t.id || t._id) === step.toolId);
+                return (
+                  <div
+                    key={step.id}
+                    className={`cb-step-card ${selectedStep === step.id ? 'cb-step-card--active' : ''}`}
+                    onClick={() => setSelectedStep(step.id)}
                   >
-                    <div 
-                      style={{ 
-                        padding: '0.75rem', 
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        background: formData.steps.some(s => s.toolId === (tool._id || tool.id)) 
-                          ? 'var(--primary)' 
-                          : 'var(--surface)'
-                      }}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 500, color: formData.steps.some(s => s.toolId === (tool._id || tool.id)) ? 'white' : 'var(--text)' }}>
-                          {tool.name}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: formData.steps.some(s => s.toolId === (tool._id || tool.id)) ? 'rgba(255,255,255,0.8)' : 'var(--text-secondary)' }}>
-                          {tool.endpoint?.method} {tool.endpoint?.path}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.25rem' }}>
-                        <button 
-                          className="btn btn-sm"
-                          onClick={(e) => { e.stopPropagation(); toggleToolsExpand(tool._id || tool.id); }}
-                          style={{ 
-                            background: formData.steps.some(s => s.toolId === (tool._id || tool.id)) ? 'rgba(255,255,255,0.2)' : 'var(--surface-hover)',
-                            color: formData.steps.some(s => s.toolId === (tool._id || tool.id)) ? 'white' : 'var(--text)'
-                          }}
-                        >
-                          {toolsExpanded[tool._id || tool.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </button>
-                        <button 
-                          className="btn btn-sm"
-                          onClick={(e) => { e.stopPropagation(); handleAddTool(tool); }}
-                          style={{ 
-                            background: formData.steps.some(s => s.toolId === (tool._id || tool.id)) ? 'rgba(255,255,255,0.2)' : 'var(--primary)',
-                            color: 'white'
-                          }}
-                        >
-                          <Plus size={14} />
-                        </button>
-                      </div>
+                    <span className="cb-step-card__num">{idx + 1}</span>
+                    <div className="cb-step-card__body">
+                      <input
+                        className="cb-step-card__label"
+                        type="text"
+                        value={step.label}
+                        onChange={e => handleStepChange(step.id, 'label', e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                      />
+                      <span className="cb-step-card__tool">
+                        {stepTool ? stepTool.name : <em>No tool selected</em>}
+                      </span>
                     </div>
-                    
-                    {toolsExpanded[tool._id || tool.id] && (
-                      <div style={{ padding: '0.75rem', background: 'var(--background)', borderTop: '1px solid var(--border)' }}>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 0.5rem 0' }}>
-                          {tool.description || 'No description'}
-                        </p>
-                        {tool.inputSchema?.properties && Object.keys(tool.inputSchema.properties).length > 0 && (
-                          <div>
-                            <p style={{ fontSize: '0.75rem', fontWeight: 500, margin: '0 0 0.25rem 0' }}>Parameters:</p>
-                            {Object.entries(tool.inputSchema.properties).map(([key, val]) => (
-                              <div key={key} style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>
-                                <code>{key}</code>: {val.type || 'string'} {val.description ? `- ${val.description}` : ''}
+                    <button
+                      className="btn-icon btn-danger cb-step-card__del"
+                      title="Remove step"
+                      onClick={e => { e.stopPropagation(); handleRemoveStep(step.id); }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              className="btn btn-secondary btn-block"
+              onClick={handleAddStep}
+              disabled={!activeIntegrationId}
+              title={!activeIntegrationId ? 'Select an integration first' : undefined}
+            >
+              <Plus size={14} /> Add Step
+            </button>
+          </section>
+        </aside>
+
+        {/* CENTRE: step detail */}
+        <main className="composite-builder__main">
+          {selectedStepData ? (
+            <div className="cb-step-detail">
+              <h4 className="cb-section__title cb-step-detail__heading">
+                Configure: {selectedStepData.label}
+              </h4>
+
+              {/* Tool selector */}
+              <div className="form-group">
+                <label>Tool to call</label>
+                {availableTools.length === 0 ? (
+                  <p className="cb-hint-text">No tools found for this integration</p>
+                ) : (
+                  <select
+                    value={selectedStepData.toolId}
+                    onChange={e => handleToolSelect(selectedStep, e.target.value)}
+                  >
+                    <option value="">Choose a tool…</option>
+                    {availableTools.map(tool => (
+                      <option key={tool.id || tool._id} value={tool.id || tool._id}>
+                        {tool.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {selectedTool && (
+                <>
+                  {/* Input mappings */}
+                  <div className="form-group">
+                    <label>Input Mappings</label>
+                    <p className="cb-hint-text">Map each parameter to a source value</p>
+                    {Object.keys(selectedTool.inputSchema?.properties || {}).length === 0 ? (
+                      <p className="cb-hint-text">This tool has no parameters</p>
+                    ) : (
+                      <div className="cb-mapping-list">
+                        {Object.entries(selectedTool.inputSchema?.properties || {}).map(([key]) => {
+                          const mapping       = selectedStepData.inputMappings?.[key] || {};
+                          const sourceKey     = getMappingSourceKey(mapping);
+                          const needsValue    = mapping.source === SOURCE_TYPES.EXPRESSION
+                                             || mapping.source === SOURCE_TYPES.LITERAL;
+
+                          return (
+                            <div key={key} className="cb-mapping-row">
+                              <span className="cb-mapping-row__param" title={key}>{key}</span>
+                              <div className="cb-mapping-row__controls">
+                                <select
+                                  className="cb-mapping-row__source"
+                                  value={sourceKey}
+                                  onChange={e => handleSourceSelect(selectedStep, key, e.target.value)}
+                                >
+                                  <option value="">— select source —</option>
+                                  {Object.keys(formData.inputSchema.properties || {}).length > 0 && (
+                                    <optgroup label="Claude Inputs">
+                                      {Object.keys(formData.inputSchema.properties).map(inp => (
+                                        <option key={inp} value={`input:${inp}`}>{inp}</option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                  {previousSteps.map(s => (
+                                    <optgroup key={s.id} label={`Step: ${s.label}`}>
+                                      <option value={`step:${s.id}::`}>{s.label} (full response)</option>
+                                      {(s.extractors || []).map(ex => ex.name && (
+                                        <option key={ex.name} value={`step:${s.id}::${ex.name}`}>
+                                          {s.label} → {ex.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ))}
+                                  <optgroup label="Manual">
+                                      <option value="expression">Expression  {"{{inputs.x}}"}</option>
+                                    <option value="literal">Literal value</option>
+                                  </optgroup>
+                                </select>
+
+                                {needsValue && (
+                                  <input
+                                    className="cb-mapping-row__value"
+                                    type="text"
+                                    placeholder={
+                                      mapping.source === SOURCE_TYPES.EXPRESSION
+                                        ? '{{inputs.x}} or {{steps.step_1.extract.name}}'
+                                        : 'Fixed value'
+                                    }
+                                    value={mapping.value || ''}
+                                    onChange={e => handleMappingChange(
+                                      selectedStep, key, mapping.source, e.target.value
+                                    )}
+                                  />
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Right Panel - Steps & Config */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          {/* Basic Info */}
-          <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Tool Name *</label>
-                <input 
-                  type="text"
-                  value={formData.name}
-                  onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="e.g., Get Jira Issue with Comments"
-                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Description</label>
-                <input 
-                  type="text"
-                  value={formData.description}
-                  onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="What does this tool do?"
-                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)' }}
-                />
-              </div>
+                  {/* Extractors */}
+                  <div className="form-group">
+                    <div className="cb-section-row">
+                      <label>Response Extractors</label>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => handleAddExtractor(selectedStep)}
+                      >
+                        <Plus size={12} /> Add
+                      </button>
+                    </div>
+                    <p className="cb-hint-text">
+                      Extract a value from an array in this step's response so later steps can reference it
+                    </p>
+                    {(selectedStepData.extractors || []).length === 0 ? (
+                      <p className="cb-empty-hint">No extractors — add one if this step returns an array</p>
+                    ) : (
+                      <div className="cb-extractor-list">
+                        {(selectedStepData.extractors || []).map((ext, idx) => (
+                          <div key={idx} className="cb-extractor-card">
+                            <div className="cb-extractor-card__header">
+                              <input
+                                type="text"
+                                className="cb-extractor-card__name"
+                                placeholder="Name  (e.g. transitionId)"
+                                value={ext.name}
+                                onChange={e => handleExtractorChange(selectedStep, idx, 'name', e.target.value)}
+                              />
+                              <button
+                                className="btn-icon btn-danger"
+                                onClick={() => handleRemoveExtractor(selectedStep, idx)}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                            <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                              <label>Array path in response</label>
+                              <input
+                                type="text"
+                                placeholder="e.g.  transitions"
+                                value={ext.arrayPath}
+                                onChange={e => handleExtractorChange(selectedStep, idx, 'arrayPath', e.target.value)}
+                              />
+                            </div>
+                            <div className="cb-extractor-filter">
+                              <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                                <label>Filter field</label>
+                                <input
+                                  type="text"
+                                  placeholder="name"
+                                  value={ext.filterField}
+                                  onChange={e => handleExtractorChange(selectedStep, idx, 'filterField', e.target.value)}
+                                />
+                              </div>
+                              <span className="cb-extractor-filter__eq">=</span>
+                              <div className="form-group" style={{ flex: 2, marginBottom: 0 }}>
+                                <label>Filter value</label>
+                                <input
+                                  type="text"
+                                  placeholder="In Progress  or  {{inputs.targetStatus}}"
+                                  value={ext.filterValue}
+                                  onChange={e => handleExtractorChange(selectedStep, idx, 'filterValue', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <div className="form-group" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+                              <label>Extract field</label>
+                              <input
+                                type="text"
+                                placeholder="id"
+                                value={ext.selectField}
+                                onChange={e => handleExtractorChange(selectedStep, idx, 'selectField', e.target.value)}
+                              />
+                            </div>
+                            {ext.name && (
+                              <p className="cb-extractor-card__ref">
+                                Reference in later steps: <code>{'{{'}steps.{selectedStepData.id}.extract.{ext.name}{'}}'}</code>
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="cb-no-step">
+              <ChevronRight size={40} />
+              <p>Select a step on the left to configure it</p>
+              {formData.steps.length === 0 && (
+                <p className="cb-no-step__sub">Start by adding a step below the steps list</p>
+              )}
+            </div>
+          )}
+        </main>
 
-          {/* Steps List */}
-          <div style={{ flex: 1, overflow: 'auto', padding: '1.5rem' }}>
-            <h3 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Zap size={18} style={{ color: 'var(--primary)' }} />
-              Steps ({formData.steps.length})
-            </h3>
+        {/* RIGHT: Claude inputs */}
+        <aside className="composite-builder__right">
+          <section className="cb-section">
+            <h4 className="cb-section__title">Claude Inputs</h4>
+            <p className="cb-hint-text">
+              These are the parameters Claude provides when calling this tool.
+              Reference them in mappings as <code>{'{{inputs.name}}'}</code>
+            </p>
 
-            {formData.steps.length === 0 ? (
-              <div style={{ 
-                textAlign: 'center', 
-                padding: '3rem', 
-                background: 'var(--surface-hover)', 
-                borderRadius: '8px',
-                border: '2px dashed var(--border)'
-              }}>
-                <Zap size={48} style={{ color: 'var(--text-dim)', marginBottom: '1rem' }} />
-                <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-                  Click tools on the left to add steps
-                </p>
+            <div className="cb-input-list">
+              {Object.entries(formData.inputSchema.properties || {}).map(([name, schema]) => (
+                <div key={name} className="cb-input-item">
+                  <div className="cb-input-item__info">
+                    <span className="cb-input-item__name">{name}</span>
+                    <span className="cb-input-item__type">{schema.type}</span>
+                  </div>
+                  <div className="cb-input-item__actions">
+                    <button
+                      className={`cb-input-item__req ${formData.inputSchema.required.includes(name) ? 'cb-input-item__req--on' : ''}`}
+                      title="Toggle required"
+                      onClick={() => toggleRequired(name)}
+                    >
+                      {formData.inputSchema.required.includes(name) ? '★' : '☆'}
+                    </button>
+                    <button className="btn-icon btn-danger" onClick={() => handleInputRemove(name)}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {showAddInput ? (
+              <div className="cb-add-input-form">
+                <input
+                  type="text"
+                  placeholder="Input name  (e.g. issueId)"
+                  value={newInputName}
+                  onChange={e => setNewInputName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleInputAdd(); if (e.key === 'Escape') setShowAddInput(false); }}
+                  autoFocus
+                />
+                <div className="cb-add-input-form__btns">
+                  <button className="btn btn-primary btn-sm" onClick={handleInputAdd} disabled={!newInputName.trim()}>
+                    Add
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setShowAddInput(false); setNewInputName(''); }}>
+                    Cancel
+                  </button>
+                </div>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {formData.steps.map((step, index) => {
-                  const tool = availableTools.find(t => (t._id || t.id) === step.toolId);
-                  return (
-                    <div 
-                      key={step.id}
-                      style={{ 
-                        border: selectedStep === step.id ? '2px solid var(--primary)' : '1px solid var(--border)',
-                        borderRadius: '8px',
-                        overflow: 'hidden'
-                      }}
-                    >
-                      <div 
-                        style={{ 
-                          padding: '1rem',
-                          background: 'var(--surface)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '1rem',
-                          cursor: 'pointer'
-                        }}
-                        onClick={() => setSelectedStep(step.id)}
-                      >
-                        <div style={{ 
-                          width: '32px', 
-                          height: '32px', 
-                          borderRadius: '50%', 
-                          background: 'var(--primary)',
-                          color: 'white',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 600,
-                          fontSize: '0.85rem',
-                          flexShrink: 0
-                        }}>
-                          {index + 1}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 500 }}>{step.label}</div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                            {tool?.endpoint?.method} {tool?.endpoint?.path}
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.25rem' }}>
-                          <button 
-                            className="btn btn-sm btn-ghost"
-                            onClick={(e) => { e.stopPropagation(); handleStepMove(step.id, 'up'); }}
-                            disabled={index === 0}
-                          >
-                            ▲
-                          </button>
-                          <button 
-                            className="btn btn-sm btn-ghost"
-                            onClick={(e) => { e.stopPropagation(); handleStepMove(step.id, 'down'); }}
-                            disabled={index === formData.steps.length - 1}
-                          >
-                            ▼
-                          </button>
-                          <button 
-                            className="btn btn-sm btn-danger"
-                            onClick={(e) => { e.stopPropagation(); handleRemoveStep(step.id); }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
+              <button className="btn btn-secondary btn-block" onClick={() => setShowAddInput(true)}>
+                <Plus size={14} /> Add Input
+              </button>
+            )}
+          </section>
 
-                      {selectedStep === step.id && tool && (
-                        <div style={{ padding: '1rem', background: 'var(--background)', borderTop: '1px solid var(--border)' }}>
-                          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Step Label</label>
-                          <input 
-                            type="text"
-                            value={step.label}
-                            onChange={e => setFormData(prev => ({
-                              ...prev,
-                              steps: prev.steps.map(s => s.id === step.id ? { ...s, label: e.target.value } : s)
-                            }))}
-                            style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}
-                          />
+          {/* Quick reference */}
+          <section className="cb-section">
+            <h4 className="cb-section__title">Template Reference</h4>
+            <div className="cb-reference">
+              <div className="cb-reference__row">
+                <code>{'{{inputs.name}}'}</code>
+                <span>Claude input</span>
+              </div>
+              <div className="cb-reference__row">
+                <code>{'{{steps.step_1.response.field}}'}</code>
+                <span>Step response field</span>
+              </div>
+              <div className="cb-reference__row">
+                <code>{'{{steps.step_1.extract.name}}'}</code>
+                <span>Named extraction</span>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
 
-                          {tool.inputSchema?.properties && Object.keys(tool.inputSchema.properties).length > 0 && (
-                            <div>
-                              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
-                                Parameter Mappings
-                              </label>
-                              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem 0' }}>
-                                Choose where each parameter comes from
-                              </p>
-                              
-                              {Object.entries(tool.inputSchema.properties).map(([paramKey, paramDef]) => (
-                                <div key={paramKey} style={{ marginBottom: '0.75rem' }}>
-                                  <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.25rem' }}>
-                                    <code>{paramKey}</code> 
-                                    <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                                      {' '}({paramDef.type})
-                                    </span>
-                                    {paramDef.description && (
-                                      <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                                        {' '}- {paramDef.description}
-                                      </span>
-                                    )}
-                                  </label>
-                                  <select
-                                    value={getMappingSource(step.inputMappings?.[paramKey])}
-                                    onChange={e => handleMappingChange(step.id, paramKey, e.target.value)}
-                                    style={{ width: '100%', padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
-                                  >
-                                    <option value="input">Claude Input (recommended)</option>
-                                    <option value="literal">Fixed Value</option>
-                                    {formData.steps.slice(0, index).length > 0 && (
-                                      <option value="previous">Previous Step Result</option>
-                                    )}
-                                  </select>
-                                  
-                                  {getMappingSource(step.inputMappings?.[paramKey]) === 'literal' && (
-                                    <input 
-                                      type="text"
-                                      placeholder="Enter fixed value"
-                                      value={step.inputMappings?.[paramKey]?.value || ''}
-                                      onChange={e => handleMappingChange(step.id, paramKey, 'literal', e.target.value)}
-                                      style={{ 
-                                        width: '100%', 
-                                        padding: '0.4rem', 
-                                        borderRadius: '4px', 
-                                        border: '1px solid var(--border)',
-                                        marginTop: '0.25rem',
-                                        fontSize: '0.85rem'
-                                      }}
-                                    />
-                                  )}
-                                  
-                                  {getMappingSource(step.inputMappings?.[paramKey]) === 'input' && (
-                                    <input 
-                                      type="text"
-                                      placeholder="Input parameter name (e.g., issueKey)"
-                                      value={step.inputMappings?.[paramKey]?.key || ''}
-                                      onChange={e => handleMappingChange(step.id, paramKey, 'input', e.target.value)}
-                                      style={{ 
-                                        width: '100%', 
-                                        padding: '0.4rem', 
-                                        borderRadius: '4px', 
-                                        border: '1px solid var(--border)',
-                                        marginTop: '0.25rem',
-                                        fontSize: '0.85rem'
-                                      }}
-                                    />
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          
-                          {(!tool.inputSchema?.properties || Object.keys(tool.inputSchema.properties).length === 0) && (
-                            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
-                              This tool has no parameters - it will be called with no inputs.
-                            </p>
-                          )}
-                        </div>
-                      )}
+      {/* ── Test results modal ───────────────────────────────────────────── */}
+      {testResult && (
+        <div className="cb-test-overlay" onClick={() => setTestResult(null)}>
+          <div className="cb-test-modal" onClick={e => e.stopPropagation()}>
+            <div className="cb-test-modal__header">
+              <h3>Test Results</h3>
+              <span className="cb-test-modal__duration">
+                {testResult.totalDurationMs}ms total
+              </span>
+            </div>
+
+            {testResult.error ? (
+              <div className="cb-test-error">
+                <strong>Failed:</strong> {testResult.error}
+                {testResult.failedStepLabel && (
+                  <p>Step: <em>{testResult.failedStepLabel}</em></p>
+                )}
+              </div>
+            ) : (
+              <div className="cb-trace-list">
+                {(testResult.trace || testResult.steps || []).map((step, idx) => (
+                  <div key={idx} className={`cb-trace-step ${step.success === false ? 'cb-trace-step--error' : 'cb-trace-step--ok'}`}>
+                    <div className="cb-trace-step__head">
+                      <span className="cb-trace-step__num">{idx + 1}</span>
+                      <strong>{step.label}</strong>
+                      <span className="cb-trace-step__ms">{step.durationMs}ms</span>
                     </div>
-                  );
-                })}
+                    {step.error && <p className="cb-trace-step__err">{step.error}</p>}
+                    {step.resolvedInputs && (
+                      <details>
+                        <summary>Resolved inputs</summary>
+                        <pre>{JSON.stringify(step.resolvedInputs, null, 2)}</pre>
+                      </details>
+                    )}
+                    {step.extractions && Object.keys(step.extractions).length > 0 && (
+                      <details>
+                        <summary>Extractions</summary>
+                        <pre>{JSON.stringify(step.extractions, null, 2)}</pre>
+                      </details>
+                    )}
+                    {step.response && (
+                      <details>
+                        <summary>Response</summary>
+                        <pre>{JSON.stringify(step.response, null, 2)}</pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
+                {testResult.result && (
+                  <details className="cb-trace-final">
+                    <summary>Final result</summary>
+                    <pre>{JSON.stringify(testResult.result, null, 2)}</pre>
+                  </details>
+                )}
               </div>
             )}
+
+            <div className="cb-test-modal__footer">
+              <button className="btn btn-secondary" onClick={() => setTestResult(null)}>Close</button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
