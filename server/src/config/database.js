@@ -94,23 +94,25 @@ const createDefaultTool = async () => {
   const Integration = require('../models/Integration');
   const Tool = require('../models/Tool');
   
-  const demoUser = await User.findOne({ where: { email: 'demo@mcpconnect.io' } });
-  
-  if (!demoUser) {
-    logger.info('Demo user not created yet');
-    return;
-  }
-  
-  const mcpconnectIntegration = await Integration.findOne({
-    where: {
-      userId: demoUser.id,
-      name: 'MCPConnect'
-    }
+  let mcpconnectIntegration = await Integration.findOne({
+    where: { name: 'MCPConnect' }
   });
   
+  let userId;
+  
   if (!mcpconnectIntegration) {
-    const integration = await Integration.create({
-      userId: demoUser.id,
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcpconnect.io';
+    const adminUser = await User.findOne({ where: { email: adminEmail } });
+    
+    if (!adminUser) {
+      logger.info('Admin user not created yet');
+      return;
+    }
+    
+    userId = adminUser.id;
+    
+    mcpconnectIntegration = await Integration.create({
+      userId: adminUser.id,
       type: 'custom',
       name: 'MCPConnect',
       description: 'Built-in MCPConnect API',
@@ -122,8 +124,8 @@ const createDefaultTool = async () => {
     });
     
     await Tool.create({
-      userId: demoUser.id,
-      integrationId: integration.id,
+      userId: adminUser.id,
+      integrationId: mcpconnectIntegration.id,
       name: 'hello',
       description: 'Returns a hello world message from MCPConnect',
       endpoint: {
@@ -136,8 +138,8 @@ const createDefaultTool = async () => {
     });
     
     await Tool.create({
-      userId: demoUser.id,
-      integrationId: integration.id,
+      userId: adminUser.id,
+      integrationId: mcpconnectIntegration.id,
       name: 'list-tools',
       description: 'List all available MCPConnect tools',
       endpoint: {
@@ -150,8 +152,8 @@ const createDefaultTool = async () => {
     });
     
     await Tool.create({
-      userId: demoUser.id,
-      integrationId: integration.id,
+      userId: adminUser.id,
+      integrationId: mcpconnectIntegration.id,
       name: 'fetch-url',
       description: 'Fetch content from any URL and return as text. Supports HTML, JSON, XML, plain text. Use for: reading docs, fetching APIs, scraping web pages.',
       endpoint: {
@@ -180,12 +182,12 @@ const createDefaultTool = async () => {
     });
 
     await Tool.create({
-      userId: demoUser.id,
-      integrationId: integration.id,
+      userId: adminUser.id,
+      integrationId: mcpconnectIntegration.id,
       name: 'list-skills',
       description: 'List all available skills that AI assistants can invoke',
       endpoint: {
-        path: '/api/v1/skills',
+        path: '/api/mcp/skills',
         method: 'GET',
         params: {},
         headers: {}
@@ -193,15 +195,15 @@ const createDefaultTool = async () => {
       isActive: true
     });
     
-    logger.info('Default MCPConnect tools created for demo user!\n');
+    logger.info('Default MCPConnect tools created!\n');
   } else {
-    // Rename any existing "list-prompts" tool to "list-skills"
+    userId = mcpconnectIntegration.userId;
+    
     await Tool.update(
       { name: 'list-skills', description: 'List all available skills that AI assistants can invoke' },
       { where: { name: 'list-prompts' } }
     );
 
-    // Create MCPConnect default tools if they don't exist
     const toolsToCreate = [
       {
         name: 'fetch-url',
@@ -255,7 +257,7 @@ const createDefaultTool = async () => {
       await Tool.findOrCreate({
         where: { name: toolDef.name },
         defaults: {
-          userId: demoUser.id,
+          userId,
           integrationId: mcpconnectIntegration.id,
           ...toolDef,
           isActive: true
@@ -433,10 +435,7 @@ const connectDB = async (retries = 5, delay = 3000) => {
     }
     
     await createDefaultUser();
-    
-    if (process.env.SEED_DEMO_DATA === 'true') {
-      await createDefaultTool();
-    }
+    await createDefaultTool();
   } catch (error) {
     logger.fatal({ err: error.message }, 'Database setup error');
     process.exit(1);

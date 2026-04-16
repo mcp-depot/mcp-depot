@@ -48,7 +48,6 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - SEED_DEMO_DATA=true
       - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcpconnect
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
