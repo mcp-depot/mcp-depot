@@ -44,6 +44,272 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 
 ## Open Issues
 
+### Issue 33 — `get-skill` MCP tool missing — any AI can list skills but cannot install them
+
+**Files:**
+- `server/src/routes/mcp.js` (~line 583)
+- `server/src/config/database.js` (~line 239)
+
+**What is broken:**
+
+`list-skills` lists available skills but only returns a 100-char `promptPreview` — the full content is intentionally stripped. There is no `get-skill` tool, so any AI (Claude, Cursor, Windsurf, ChatGPT, etc.) that connects via MCP can discover skills but has no way to retrieve the content needed to install one locally.
+
+**Why it is broken:**
+
+`GET /api/mcp/skills` was designed as a discovery endpoint only (line 598):
+```js
+promptPreview: skill.prompt ? skill.prompt.substring(0, 100) + '...' : ''
+```
+No follow-up endpoint exists to fetch the full skill by name.
+
+**The fix — two changes:**
+
+---
+
+**Change 1: Add `GET /api/mcp/skills/:name` to `server/src/routes/mcp.js`**
+
+Add after the existing `GET /skills` route (~line 606):
+
+```js
+router.get('/skills/:name', async (req, res) => {
+  try {
+    const { PromptLibrary } = loadModels();
+    const skill = await PromptLibrary.findOne({
+      where: { name: req.params.name },
+      attributes: ['id', 'name', 'description', 'prompt', 'outputFormat', 'inputs']
+    });
+
+    if (!skill) {
+      return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
+    }
+
+    res.json({
+      name:        skill.name,
+      description: skill.description,
+      content:     skill.prompt,   // full SKILL.md text
+      install: {
+        fileName:     'SKILL.md',
+        directory:    skill.name,  // create a sub-directory with this name
+        location:     'your global user-specific skills directory',
+        instructions: `Save the content field as a file named SKILL.md inside a sub-directory called "${skill.name}" in your global user-specific skills directory. Once saved the skill will be available as /${skill.name}.`
+      }
+    });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Error fetching skill');
+    res.status(500).json({ error: 'Failed to fetch skill' });
+  }
+});
+```
+
+---
+
+**Change 2: Register `get-skill` as an MCP tool in `server/src/config/database.js`**
+
+Add after the `list-skills` tool creation block (~line 248):
+
+```js
+await Tool.create({
+  userId:        demoUser.id,
+  integrationId: mcpconnectIntegration.id,
+  name:          'get-skill',
+  description:   'Get the full content of a skill by name so it can be installed locally. ' +
+                 'Works with any AI assistant. Returns the file content and exact install path.',
+  endpoint: {
+    path:   '/api/mcp/skills/{name}',   // {name} is a path param
+    method: 'GET',
+    params: {},
+    headers: {}
+  },
+  isActive: true
+});
+```
+
+Also add an upsert guard alongside the existing one so it is created when missing (same pattern as the `list-skills` upsert check already in the file).
+
+---
+
+**How it works for any AI tool:**
+
+```
+User (in Claude / Cursor / Windsurf / ChatGPT):
+  "What skills are available?"
+
+AI calls list-skills
+  → returns: develop, pr-review
+
+User: "Install the develop skill"
+
+AI calls get-skill  (name = "develop")
+  → returns:
+    {
+      name: "develop",
+      content: "---\nname: develop\n...<full SKILL.md>",
+      install: {
+        fileName:     "SKILL.md",
+        directory:    "develop",
+        location:     "your global user-specific skills directory",
+        instructions: "Save the content field as a file named SKILL.md inside
+                       a sub-directory called 'develop' in your global
+                       user-specific skills directory. Once saved the skill
+                       will be available as /develop."
+      }
+    }
+
+AI reads the instructions field, resolves its own skills directory,
+and writes the file. Skill is now available as /develop.
+```
+
+The `instructions` field in the response is written in plain language so any AI assistant can follow it without needing to know anything about Claude Code's directory structure upfront.
+
+**Note:** Claude Code skills (`SKILL.md`) are Claude Code-specific. The `get-skill` tool is accessible from any MCP client; the installed skill only works in Claude Code.
+
+---
+
+### Issue 29 — Composite tool builder: step parameters empty / not shown
+
+**Files:**
+- `client/src/pages/CompositeToolBuilder.jsx` lines 132-141, 501-562
+
+**What is broken:**
+
+When a user selects a tool for a step, the input mappings panel shows "This tool has no parameters" for almost every tool, even tools that clearly have inputs. The parameter rows are empty, so the user cannot map inputs to anything.
+
+**Why it is broken:**
+
+Both `handleToolSelect` (which pre-fills mappings on tool select) and the mapping render use `tool.endpoint?.params` to discover parameters:
+
+```js
+// handleToolSelect – line 136
+const params = tool.endpoint?.params || {};
+
+// mapping render – line 501
+{Object.keys(selectedTool.endpoint?.params || {}).length === 0 ? (
+  ...
+{Object.entries(selectedTool.endpoint?.params || {}).map(([key]) => (
+```
+
+`endpoint.params` stores only **query string parameters**. Path parameters and body parameters are not in there. The correct source for all tool inputs is `tool.inputSchema.properties` - this is populated for every tool (manually created, OpenAPI-imported, or body-param tools) and is what the MCP server sends to Claude.
+
+**The fix:**
+
+Replace `endpoint?.params` → `inputSchema?.properties` in both places.
+
+```js
+// handleToolSelect (line 136):
+const params = tool.inputSchema?.properties || {};
+
+// mapping render (lines 501, 505):
+{Object.keys(selectedTool.inputSchema?.properties || {}).length === 0 ? (
+  <p className="cb-hint-text">This tool has no parameters</p>
+) : (
+  <div className="cb-mapping-list">
+    {Object.entries(selectedTool.inputSchema?.properties || {}).map(([key]) => (
+```
+
+---
+
+### Issue 30 — Composite tool builder: missing `btn-block` and `btn-sm` CSS classes
+
+**File:** `client/src/index.css`
+
+**What is broken:**
+
+Two buttons in the composite builder have no width/size styling:
+- "Add Step" button (uses `btn btn-secondary btn-block`) renders as auto-width, not full-width
+- "Add Input" button (uses `btn btn-secondary btn-block`) same problem
+- Extractor "Add" and input form "Add/Cancel" buttons (use `btn btn-secondary btn-sm`) render at default size instead of compact
+
+**Why it is broken:**
+
+The CSS defines `.btn-small` but the JSX uses `.btn-block` and `.btn-sm` - these class names don't exist. The duplicated `.btn-small` definition at lines 530 and 547 also suggests a copy-paste artifact.
+
+**The fix:**
+
+Add after the existing `.btn-small` rules:
+
+```css
+.btn-block {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.btn-sm {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  gap: 0.25rem;
+}
+```
+
+---
+
+### Issue 31 — Composite tool builder: height wrong for sidebar layout
+
+**File:** `client/src/index.css` line 1323
+
+**What is broken:**
+
+The composite builder takes 57px less height than it should, leaving a blank strip at the bottom.
+
+**Why it is broken:**
+
+```css
+.composite-builder {
+  height: calc(100vh - 57px); /* subtract navbar */
+}
+```
+
+The app uses a **sidebar** layout (no top navbar). The 57px figure was the height of a top navbar that does not exist here. The builder sits inside `.app-main` which starts at the very top of the viewport.
+
+**The fix:**
+
+```css
+.composite-builder {
+  height: 100vh;
+}
+```
+
+---
+
+### Issue 32 — Composite tools section hidden when integration has no simple tools
+
+**File:** `client/src/pages/Tools.jsx` line 700
+
+**What is broken:**
+
+On a fresh integration that has no simple tools yet, the "Composite Tools" section and the "+ New Composite Tool" button are completely invisible. The user has no way to create a composite tool on that integration.
+
+**Why it is broken:**
+
+```js
+{tools.length > 0 && tools[0]?.type !== 'composite' && (
+  <div className="card">  {/* Composite tools card */}
+```
+
+`tools` is already filtered to non-composite tools (line 146), but the condition `tools.length > 0` means the card only renders when there is at least one simple tool. On a new integration there are none, so the section never mounts.
+
+**The fix:**
+
+Remove the `tools.length > 0 &&` guard. The composite section should always be visible when viewing an integration's tools page:
+
+```js
+{tools[0]?.type !== 'composite' && (
+  <div className="card">
+```
+
+Or, since `tools` is already filtered to non-composite, the `type !== 'composite'` check is always true anyway. The simplest fix is just:
+
+```js
+<div className="card" style={{ marginTop: '1.5rem' }}>
+  {/* Composite Tools */}
+```
+
+(Remove the condition entirely - the card always makes sense on the tools page.)
+
+---
+
 ### Issue 28 — Body template substitution corrupts values containing `{word}` patterns
 
 **File:** `server/src/routes/mcp.js` ~line 853

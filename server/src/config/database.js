@@ -252,6 +252,24 @@ const createDefaultTool = async () => {
         { name: 'list-skills', description: 'List all available skills that AI assistants can invoke' },
         { where: { name: 'list-prompts' } }
       );
+
+      // Add get-skill tool if not exists
+      await Tool.findOrCreate({
+        where: { name: 'get-skill' },
+        defaults: {
+          userId: demoUser.id,
+          integrationId: mcpconnectIntegration.id,
+          name: 'get-skill',
+          description: 'Get the full content of a skill by name so it can be installed locally. Works with any AI assistant. Returns the file content and exact install path.',
+          endpoint: {
+            path: '/api/mcp/skills/{name}',
+            method: 'GET',
+            params: {},
+            headers: {}
+          },
+          isActive: true
+        }
+      });
       
       logger.info('Additional MCPConnect tools added!\n');
     }

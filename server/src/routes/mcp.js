@@ -605,6 +605,34 @@ router.get('/skills', async (req, res) => {
   }
 });
 
+router.get('/skills/:name', async (req, res) => {
+  try {
+    const { PromptLibrary } = loadModels();
+    const skill = await PromptLibrary.findOne({
+      where: { name: req.params.name }
+    });
+
+    if (!skill) {
+      return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
+    }
+
+    res.json({
+      name:        skill.name,
+      description: skill.description,
+      content:     skill.prompt,
+      install: {
+        fileName:    'SKILL.md',
+        directory:   skill.name,
+        location:    'your global user-specific skills directory',
+        instructions: `Save the content field as a file named SKILL.md inside a sub-directory called "${skill.name}" in your global user-specific skills directory. Once saved the skill will be available as /${skill.name}.`
+      }
+    });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Error fetching skill');
+    res.status(500).json({ error: 'Failed to fetch skill' });
+  }
+});
+
 router.post('/skills/invoke/:id', async (req, res) => {
   try {
     const { PromptLibrary } = loadModels();

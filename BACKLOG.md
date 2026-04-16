@@ -29,6 +29,7 @@
 | 18 | Tool Health Monitoring | ❌ | ❌ | Medium | 🔥🔥 | Scheduled pings, health badges, alerting, circuit breaker |
 | 19 | Outbound Webhook Notifications | ❌ | ❌ | Small | 🔥🔥 | Notify Slack/webhook on tool success or failure |
 | 20 | Granular Access Control | ❌ | ❌ | Small | 🔥🔥🔥 | Read-only mode + per-tool enable per endpoint |
+| 21 | Claude Code Skill Registry | ❌ | ❌ | Small | 🔥🔥🔥 | Share SKILL.md files via MCP; install locally with one Claude command |
 | UI | Dashboard sparklines | 🔶 | ❌ | Low | 🔥🔥🔥 | Component exists, disabled pending feedback |
 | UI | Command palette Cmd+K | ❌ | ❌ | Low | 🔥🔥🔥 | Quick navigation via cmdk |
 
@@ -69,7 +70,8 @@
 | Enterprise / compliance | **Feature 16** (Audit Log) - hard requirement for any team deployment |
 | Prevent Claude from breaking things | **Feature 20** (Granular Access Control) - read-only mode, low effort, high value |
 | Move into workflow engine territory | **Feature 14** (Webhook Triggers) - biggest functional expansion |
-| Quick wins (1-2 days each) | **Feature 16**, **Feature 17**, **Feature 19**, **Feature 20** - all Small effort |
+| Quick wins (1-2 days each) | **Feature 16**, **Feature 17**, **Feature 19**, **Feature 20**, **Feature 21** - all Small effort |
+| Share Claude Code workflows | **Feature 21** (Skill Registry) - unique to Toolshed; no hosted competitor has this |
 
 ---
 
@@ -987,6 +989,231 @@ Edit Endpoint: Coding Agent
 ```
 
 **Effort:** Small - DB column + filter in mcp.js + UI toggles. Layer A alone (~1 day) is immediately useful. Layer B adds per-tool granularity on top of Feature 13.
+
+---
+
+## Feature 21 — Claude Code Skill Registry
+
+**Why:** Toolshed already stores and exposes prompt skills as MCP tools. With small additions it becomes a shareable registry of Claude Code slash commands (`/commit`, `/review-pr`, etc.) stored as SKILL.md files. Anyone connecting to Toolshed via MCP can ask Claude to list available skills and install any of them locally in one step — no file sharing, no copy-paste.
+
+**What already works (no changes needed):**
+- `PromptLibrary` table stores skill name, description, prompt body, and `isShared`
+- MCP server registers each skill as `skill_<name>` and invokes it when called
+- `GET /api/skills` lists all skills
+
+**What is missing:**
+
+1. Two extra columns on `prompt_library` for SKILL.md metadata
+2. A new MCP tool `get_skill_file` that returns raw installable SKILL.md content
+3. UI: import from SKILL.md file + "Copy SKILL.md" button
+4. UI: "Claude Code" type flag so the Skills page can show a dedicated section
+
+---
+
+### Step 1 — DB migration: add SKILL.md metadata columns
+
+```sql
+ALTER TABLE prompt_library
+  ADD COLUMN argument_hint  VARCHAR(200),
+  ADD COLUMN allowed_tools  VARCHAR(500),
+  ADD COLUMN skill_type     VARCHAR(20) NOT NULL DEFAULT 'prompt';
+  -- skill_type: 'prompt' = existing behaviour, 'claude_code' = SKILL.md registry entry
+```
+
+Update `server/src/models/PromptLibrary.js`:
+
+```js
+argumentHint: {
+  type: DataTypes.STRING(200),
+  field: 'argument_hint'
+},
+allowedTools: {
+  type: DataTypes.STRING(500),
+  field: 'allowed_tools'
+},
+skillType: {
+  type: DataTypes.STRING(20),
+  defaultValue: 'prompt',
+  field: 'skill_type'
+}
+```
+
+---
+
+### Step 2 — New MCP tool: `get_skill_file`
+
+In `server/src/mcp/server.js`, alongside `registerSkill()`, register one extra static tool:
+
+```js
+registerSkillRegistryTools() {
+  // Tool 1: list all claude_code type skills
+  this.toolsMap.set('list_claude_code_skills', {
+    type: 'builtin',
+    handler: async () => {
+      const { PromptLibrary } = loadModels();
+      const skills = await PromptLibrary.findAll({
+        where: { skillType: 'claude_code' },
+        attributes: ['name', 'description', 'argumentHint', 'allowedTools']
+      });
+      return skills.map(s => ({
+        name:          s.name,
+        description:   s.description,
+        argumentHint:  s.argumentHint || '',
+        allowedTools:  s.allowedTools || '',
+        installCommand: `Ask Claude to install skill "${s.name}" — it will call get_skill_file and write the file for you`
+      }));
+    }
+  });
+
+  // Tool 2: get the raw SKILL.md content for a named skill
+  this.toolsMap.set('get_skill_file', {
+    type: 'builtin',
+    handler: async ({ name }) => {
+      const { PromptLibrary } = loadModels();
+      const skill = await PromptLibrary.findOne({
+        where: { name, skillType: 'claude_code' }
+      });
+      if (!skill) return { error: `Skill "${name}" not found` };
+
+      // Build the SKILL.md content
+      const lines = ['---'];
+      lines.push(`name: ${skill.name}`);
+      if (skill.description)   lines.push(`description: ${skill.description}`);
+      if (skill.argumentHint)  lines.push(`argument-hint: ${skill.argumentHint}`);
+      if (skill.allowedTools)  lines.push(`allowed-tools: ${skill.allowedTools}`);
+      lines.push('---');
+      lines.push('');
+      lines.push(skill.prompt);
+
+      return {
+        name:    skill.name,
+        content: lines.join('\n'),
+        installPath: `~/.claude/skills/${skill.name}/SKILL.md`,
+        instructions: `Write the content to ${`~/.claude/skills/${skill.name}/SKILL.md`} to install this skill. Create the directory first if it does not exist.`
+      };
+    }
+  });
+}
+```
+
+Register these tools in `initialize()` and `refreshTools()` alongside the existing tool/skill registration.
+
+Also add the schema declaration for MCP tool listing:
+
+```js
+// In the tools list returned to Claude:
+{
+  name: 'list_claude_code_skills',
+  description: 'List all Claude Code slash command skills available in this Toolshed instance',
+  inputSchema: { type: 'object', properties: {} }
+},
+{
+  name: 'get_skill_file',
+  description: 'Get the SKILL.md file content for a named Claude Code skill. Returns the content and the path to write it to for local installation.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'The skill name (e.g. "commit", "review-pr")' }
+    },
+    required: ['name']
+  }
+}
+```
+
+---
+
+### Step 3 — New route: `POST /api/skills/import-skillmd`
+
+Accepts a raw SKILL.md string, parses frontmatter, and creates a `PromptLibrary` record:
+
+```js
+router.post('/import-skillmd', auth, async (req, res) => {
+  const { content } = req.body;  // raw SKILL.md text
+  if (!content) return res.status(400).json({ error: 'content is required' });
+
+  // Parse frontmatter
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!fmMatch) return res.status(400).json({ error: 'Invalid SKILL.md format — missing frontmatter' });
+
+  const fm   = {};
+  fmMatch[1].split('\n').forEach(line => {
+    const [k, ...v] = line.split(':');
+    if (k) fm[k.trim()] = v.join(':').trim();
+  });
+  const body = fmMatch[2].trim();
+
+  if (!fm.name) return res.status(400).json({ error: 'SKILL.md must have a name in frontmatter' });
+
+  const { PromptLibrary } = loadModels();
+  const skill = await PromptLibrary.create({
+    userId:       req.user.id,
+    name:         fm.name,
+    description:  fm.description || '',
+    argumentHint: fm['argument-hint'] || '',
+    allowedTools: fm['allowed-tools'] || '',
+    prompt:       body,
+    outputFormat: 'text',
+    isShared:     true,
+    skillType:    'claude_code'
+  });
+  res.status(201).json(skill);
+});
+```
+
+---
+
+### Step 4 — UI changes in `client/src/pages/Skills.jsx`
+
+**Add a "Claude Code Skills" tab** alongside the existing prompt templates tab:
+
+```
+Skills
+  [Prompt Templates]  [Claude Code Skills]
+                                ↑ new tab
+```
+
+**Claude Code Skills tab:**
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Claude Code Skills              [+ Import SKILL.md] │
+├──────────────────────────────────────────────────────┤
+│  /commit                                             │
+│  Create a commit message and commit staged changes   │
+│  argument-hint: [-m "message"]        [Copy] [Del]   │
+├──────────────────────────────────────────────────────┤
+│  /review-pr                                          │
+│  Review a pull request from Bitbucket                │
+│  argument-hint: [PR number]           [Copy] [Del]   │
+└──────────────────────────────────────────────────────┘
+```
+
+**"Import SKILL.md" modal** - a textarea where you paste the SKILL.md content, then click Import. Calls `POST /api/skills/import-skillmd`.
+
+**"Copy SKILL.md" button** - copies the reconstructed SKILL.md content to clipboard. Same content that `get_skill_file` returns.
+
+---
+
+### How it works end-to-end
+
+**Adding your skills (one-time setup):**
+1. Go to Skills → Claude Code Skills → Import SKILL.md
+2. Paste the content of each `~/.claude/skills/<name>/SKILL.md`
+3. Done - they're now in Toolshed and exposed via MCP
+
+**Installing a skill (any user with MCP access):**
+```
+User: "What Claude Code skills are available?"
+Claude: calls list_claude_code_skills → returns commit, review-pr, digest, ...
+
+User: "Install the commit skill locally"
+Claude: calls get_skill_file(name="commit")
+        → gets content + installPath
+        → writes ~/.claude/skills/commit/SKILL.md
+        → "Done! /commit is now available in Claude Code."
+```
+
+**Effort:** Small - 1 migration + ~80 lines server + ~150 lines UI. Builds entirely on existing infrastructure.
 
 ---
 
