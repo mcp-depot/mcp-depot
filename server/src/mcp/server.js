@@ -45,30 +45,35 @@ class MCPConnectServer {
   registerTool(tool) {
     const toolName = this.sanitizeToolName(tool.name);
     const endpoint = tool.endpoint || {};
-    const params = endpoint.params || {};
-    
-    const schema = {};
-    const required = [];
 
-    for (const [key, param] of Object.entries(params)) {
-      if (OPENAPI_KEYWORDS.has(key) || !VALID_SCHEMA_KEY.test(key)) continue;
-      schema[key] = {
-        type: param.type || 'string',
-        description: param.description || key
-      };
-      if (param.required) {
-        required.push(key);
+    let schema = {};
+    let required = [];
+
+    if (tool.type === 'composite' && tool.inputSchema) {
+      schema = this.buildSchemaFromInputSchema(tool.inputSchema);
+      required = tool.inputSchema.required || [];
+    } else {
+      const params = endpoint.params || {};
+      for (const [key, param] of Object.entries(params)) {
+        if (OPENAPI_KEYWORDS.has(key) || !VALID_SCHEMA_KEY.test(key)) continue;
+        schema[key] = {
+          type: param.type || 'string',
+          description: param.description || key
+        };
+        if (param.required) {
+          required.push(key);
+        }
       }
-    }
 
-    const bodyTemplateVars = (JSON.stringify(endpoint.body || {})
-      .match(/\{(\w+)\}/g) || [])
-      .map(m => m.slice(1, -1));
-    for (const varName of bodyTemplateVars) {
-      if (OPENAPI_KEYWORDS.has(varName) || !VALID_SCHEMA_KEY.test(varName)) continue;
-      if (!schema[varName]) {
-        schema[varName] = { type: 'string', description: `Body parameter: ${varName}` };
-        required.push(varName);
+      const bodyTemplateVars = (JSON.stringify(endpoint.body || {})
+        .match(/\{(\w+)\}/g) || [])
+        .map(m => m.slice(1, -1));
+      for (const varName of bodyTemplateVars) {
+        if (OPENAPI_KEYWORDS.has(varName) || !VALID_SCHEMA_KEY.test(varName)) continue;
+        if (!schema[varName]) {
+          schema[varName] = { type: 'string', description: `Body parameter: ${varName}` };
+          required.push(varName);
+        }
       }
     }
 
@@ -243,6 +248,21 @@ class MCPConnectServer {
         });
       }
     }
+  }
+
+  buildSchemaFromInputSchema(inputSchema) {
+    const schema = {};
+    const properties = inputSchema.properties || {};
+
+    for (const [key, prop] of Object.entries(properties)) {
+      if (OPENAPI_KEYWORDS.has(key) || !VALID_SCHEMA_KEY.test(key)) continue;
+      schema[key] = {
+        type: prop.type || 'string',
+        description: prop.description || key
+      };
+    }
+
+    return schema;
   }
 
   sanitizeToolName(name) {

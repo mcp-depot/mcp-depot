@@ -133,7 +133,7 @@ function CompositeToolBuilder() {
     const tool = availableTools.find(t => (t.id || t._id) === toolId);
     if (!tool) return;
     const inputMappings = {};
-    const params = tool.endpoint?.params || {};
+    const params = tool.inputSchema?.properties || {};
     Object.keys(params).forEach(key => {
       inputMappings[key] = { source: SOURCE_TYPES.INPUT, key };
     });
@@ -498,11 +498,11 @@ function CompositeToolBuilder() {
                   <div className="form-group">
                     <label>Input Mappings</label>
                     <p className="cb-hint-text">Map each parameter to a source value</p>
-                    {Object.keys(selectedTool.endpoint?.params || {}).length === 0 ? (
+                    {Object.keys(selectedTool.inputSchema?.properties || {}).length === 0 ? (
                       <p className="cb-hint-text">This tool has no parameters</p>
                     ) : (
                       <div className="cb-mapping-list">
-                        {Object.entries(selectedTool.endpoint?.params || {}).map(([key]) => {
+                        {Object.entries(selectedTool.inputSchema?.properties || {}).map(([key]) => {
                           const mapping       = selectedStepData.inputMappings?.[key] || {};
                           const sourceKey     = getMappingSourceKey(mapping);
                           const needsValue    = mapping.source === SOURCE_TYPES.EXPRESSION

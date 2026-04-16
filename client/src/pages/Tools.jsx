@@ -698,8 +698,7 @@ function Tools({ all: isAllTools }) {
           </div>
         )}
 
-        {tools.length > 0 && tools[0]?.type !== 'composite' && (
-          <div className="card" style={{ marginTop: '1.5rem' }}>
+        <div className="card" style={{ marginTop: '1.5rem' }}>
             <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Zap size={18} style={{ color: 'var(--primary)' }} />

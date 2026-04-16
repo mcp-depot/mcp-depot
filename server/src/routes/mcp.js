@@ -423,10 +423,34 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
     
     const tools = await Tool.findAll({
       where: { isActive: true },
-      attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema']
+      attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type']
     });
 
     const localTools = tools.map(t => {
+      if (t.type === 'composite') {
+        const inputSchema = t.inputSchema || {};
+        const mcpInputSchema = {
+          type: 'object',
+          properties: inputSchema.properties || {},
+          required: inputSchema.required || []
+        };
+        return {
+          id: t.id,
+          name: t.name,
+          title: t.name,
+          description: t.description,
+          endpoint: t.endpoint,
+          params: [],
+          input_schema: mcpInputSchema,
+          inputSchema: mcpInputSchema,
+          schema: mcpInputSchema,
+          schema_: mcpInputSchema,
+          parameters: mcpInputSchema,
+          source: 'local',
+          toolType: 'composite'
+        };
+      }
+
       const params = [];
       const pathMatch = t.endpoint.path.match(/\{([^}]+)\}/g);
       if (pathMatch) {
@@ -539,7 +563,8 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
         schema: mcpInputSchema,
         schema_: mcpInputSchema,
         parameters: mcpInputSchema,
-        source: 'local'
+        source: 'local',
+        toolType: 'simple'
       };
     });
     
@@ -692,6 +717,23 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     
     if (!tool) {
       return res.status(404).json({ error: 'Tool not found' });
+    }
+
+    if (tool.type === 'composite') {
+      const { executeCompositeTool } = require('../services/compositeExecutor');
+      const userId = req.user?.id || req.apiKey?.userId;
+      try {
+        const result = await executeCompositeTool(tool, params || body || {}, userId);
+        return res.json({
+          success: true,
+          tool: tool.name,
+          toolId: tool.id,
+          source: 'local',
+          result
+        });
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
+      }
     }
     
     const userId = req.user?.id || req.apiKey?.userId;
