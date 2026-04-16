@@ -239,7 +239,7 @@ const createDefaultTool = async () => {
         name: 'list-skills',
         description: 'List all available skills that AI assistants can invoke',
         endpoint: {
-          path: '/api/v1/skills',
+          path: '/api/mcp/skills',
           method: 'GET',
           params: {},
           headers: {}
