@@ -44,7 +44,7 @@ function Sidebar() {
     { section: 'Tools', items: [
       { path: '/tools', icon: Wrench, label: 'Tools' },
       // { path: '/workflows', icon: FileText, label: 'Workflows' },
-      { path: '/prompts', icon: FileText, label: 'Prompts' },
+      { path: '/skills', icon: FileText, label: 'Skills' },
     ]},
     { section: 'Operations', items: [
       { path: '/monitoring', icon: Activity, label: 'Monitoring' },

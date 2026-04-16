@@ -25,7 +25,7 @@ function Navbar() {
         <Link to="/" className={isActive('/')}>Dashboard</Link>
         <Link to="/integrations" className={isActive('/integrations')}>Integrations</Link>
         <Link to="/tools" className={isActive('/tools')}>Tools</Link>
-        <Link to="/prompts" className={isActive('/prompts')}>Prompts</Link>
+        <Link to="/skills" className={isActive('/skills')}>Skills</Link>
         <Link to="/monitoring" className={isActive('/monitoring')}>Monitoring</Link>
         <Link to="/settings" className={isActive('/settings')}>Settings</Link>
         <label className="toggle" style={{ marginLeft: '0.5rem', marginRight: '0.5rem' }}>

@@ -21,7 +21,7 @@ class MCPConnectServer {
   }
 
   async initialize() {
-    const { Tool, Integration } = loadModels();
+    const { Tool, Integration, PromptLibrary } = loadModels();
     
     const tools = await Tool.findAll({
       where: { isActive: true },
@@ -39,7 +39,12 @@ class MCPConnectServer {
       this.registerTool(tool);
     }
 
-    logger.info({ toolCount: tools.length }, 'MCP Server initialized');
+    const skills = await PromptLibrary.findAll();
+    for (const skill of skills) {
+      this.registerSkill(skill);
+    }
+
+    logger.info({ toolCount: tools.length, skillCount: skills.length }, 'MCP Server initialized');
   }
 
   registerTool(tool) {
@@ -269,6 +274,94 @@ class MCPConnectServer {
     return name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 64);
   }
 
+  registerSkill(skill) {
+    const skillName = 'skill_' + this.sanitizeToolName(skill.name);
+    const schema = {};
+    const required = [];
+
+    const inputs = skill.inputs || [];
+    for (const input of inputs) {
+      if (!VALID_SCHEMA_KEY.test(input.name)) continue;
+      schema[input.name] = {
+        type: input.type || 'string',
+        description: input.label || input.name
+      };
+      if (input.required) {
+        required.push(input.name);
+      }
+    }
+
+    this.toolsMap.set(skillName, { skill, type: 'skill' });
+
+    this.server.tool(
+      skillName,
+      {
+        description: skill.description || `Skill: ${skill.name}`,
+        inputSchema: {
+          type: 'object',
+          properties: schema,
+          required: required.length > 0 ? required : undefined
+        }
+      },
+      async (params) => {
+        try {
+          const renderedPrompt = this.renderSkillPrompt(skill, params);
+          
+          let result;
+          if (skill.outputFormat === 'json') {
+            try {
+              result = JSON.parse(renderedPrompt);
+            } catch {
+              result = { output: renderedPrompt };
+            }
+          } else if (skill.outputFormat === 'markdown') {
+            result = { format: 'markdown', content: renderedPrompt };
+          } else {
+            result = renderedPrompt;
+          }
+
+          return {
+            content: [{
+              type: 'text',
+              text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Error: ${error.message}`
+            }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    logger.debug({ skill: skillName }, 'Skill registered');
+  }
+
+  renderSkillPrompt(skill, inputValues) {
+    let rendered = skill.prompt || '';
+    
+    Object.entries(inputValues || {}).forEach(([key, value]) => {
+      const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+      rendered = rendered.replace(placeholder, value !== undefined && value !== null ? String(value) : '');
+      
+      const conditionalStart = new RegExp(`\\{\\{#${key}\\}([\\s\\S]*?)\\{\\{/${key}\\}\\}`, 'g');
+      rendered = rendered.replace(conditionalStart, (match, content) => {
+        return (value && String(value).trim()) ? content : '';
+      });
+      
+      const conditionalInverse = new RegExp(`\\{\\{\\^{${key}\\}\\}([\\s\\S]*?)\\{\\{/${key}\\}\\}`, 'g');
+      rendered = rendered.replace(conditionalInverse, (match, content) => {
+        return (!value || !String(value).trim()) ? content : '';
+      });
+    });
+    
+    return rendered;
+  }
+
   async startStdio() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -291,7 +384,7 @@ class MCPConnectServer {
   async refreshTools() {
     this.toolsMap.clear();
     
-    const { Tool, Integration } = loadModels();
+    const { Tool, Integration, PromptLibrary } = loadModels();
     const tools = await Tool.findAll({
       where: { isActive: true },
       include: [{ model: Integration, where: { isActive: true } }]
@@ -300,10 +393,15 @@ class MCPConnectServer {
     for (const tool of tools) {
       this.registerTool(tool);
     }
+
+    const skills = await PromptLibrary.findAll();
+    for (const skill of skills) {
+      this.registerSkill(skill);
+    }
     
     await this.server.sendToolListChanged();
     
-    logger.info({ toolCount: tools.length }, 'Tools refreshed');
+    logger.info({ toolCount: tools.length, skillCount: skills.length }, 'Tools refreshed');
   }
 }
 

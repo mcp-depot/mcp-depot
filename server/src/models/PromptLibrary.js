@@ -26,6 +26,14 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT,
       allowNull: false
     },
+    outputFormat: {
+      type: DataTypes.ENUM('text', 'json', 'markdown'),
+      defaultValue: 'text'
+    },
+    isShared: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false
+    },
     isDefault: {
       type: DataTypes.BOOLEAN,
       defaultValue: false

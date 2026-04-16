@@ -10,7 +10,7 @@ import Tools from './pages/Tools';
 import Workflows from './pages/Workflows';
 import Settings from './pages/Settings';
 import Monitoring from './pages/Monitoring';
-import PromptLibrary from './pages/PromptLibrary';
+import Skills from './pages/Skills';
 import CompositeToolBuilder from './pages/CompositeToolBuilder';
 import Layout from './components/Layout';
 
@@ -55,7 +55,7 @@ function AppRoutes() {
       {/* <Route path="/workflows" element={<PrivateRoute><Layout><Workflows /></Layout></PrivateRoute>} /> */}
       <Route path="/monitoring" element={<PrivateRoute><Layout><Monitoring /></Layout></PrivateRoute>} />
       <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
-      <Route path="/prompts" element={<PrivateRoute><Layout><PromptLibrary /></Layout></PrivateRoute>} />
+      <Route path="/skills" element={<PrivateRoute><Layout><Skills /></Layout></PrivateRoute>} />
       <Route path="/composite-tool/new" element={<PrivateRoute><Layout><CompositeToolBuilder /></Layout></PrivateRoute>} />
       <Route path="/composite-tool/:id" element={<PrivateRoute><Layout><CompositeToolBuilder /></Layout></PrivateRoute>} />
     </Routes>

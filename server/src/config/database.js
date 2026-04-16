@@ -182,10 +182,10 @@ const createDefaultTool = async () => {
     await Tool.create({
       userId: demoUser.id,
       integrationId: integration.id,
-      name: 'list-prompts',
-      description: 'List all available prompt templates from Prompt Library',
+      name: 'list-skills',
+      description: 'List all available skills that AI assistants can invoke',
       endpoint: {
-        path: '/api/prompt-library',
+        path: '/api/v1/skills',
         method: 'GET',
         params: {},
         headers: {}
@@ -236,10 +236,10 @@ const createDefaultTool = async () => {
       await Tool.create({
         userId: demoUser.id,
         integrationId: mcpconnectIntegration.id,
-        name: 'list-prompts',
-        description: 'List all available prompt templates from Prompt Library',
+        name: 'list-skills',
+        description: 'List all available skills that AI assistants can invoke',
         endpoint: {
-          path: '/api/prompt-library',
+          path: '/api/v1/skills',
           method: 'GET',
           params: {},
           headers: {}

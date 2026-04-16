@@ -19,6 +19,7 @@ const monitoringRoutes = require('./routes/monitoring');
 const userCredentialsRoutes = require('./routes/user-credentials');
 const { router: externalMcpRoutes, setClearToolsCache: setExternalMcpClearCache } = require('./routes/external-mcp');
 const promptLibraryRoutes = require('./routes/prompt-library');
+const skillsRoutes = require('./routes/skills');
 const systemRoutes = require('./routes/system');
 const oauthRoutes = require('./routes/oauth');
 
@@ -75,6 +76,7 @@ v1Router.use('/monitoring', monitoringRoutes);
 v1Router.use('/user-credentials', userCredentialsRoutes);
 v1Router.use('/external-mcp', externalMcpRoutes);
 v1Router.use('/prompt-library', promptLibraryRoutes);
+v1Router.use('/skills', skillsRoutes);
 v1Router.use('/system', systemRoutes);
 v1Router.use('/oauth', oauthRoutes);
 

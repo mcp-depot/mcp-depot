@@ -49,7 +49,7 @@ function Dashboard() {
         const mcpServers = mcpRes.data || [];
         const activeMcp = mcpServers.filter(s => s.isActive).length;
 
-        const promptsRes = await api.get('/prompt-library').catch(() => ({ data: [] }));
+        const promptsRes = await api.get('/skills').catch(() => ({ data: [] }));
         const prompts = promptsRes.data || [];
         
         setStats({
@@ -145,9 +145,9 @@ function Dashboard() {
                     <div className="quick-action-icon"><Plus size={16} /></div>
                     <div className="quick-action-label">Add Integration</div>
                   </Link>
-                  <Link to="/prompts" className="quick-action">
+                  <Link to="/skills" className="quick-action">
                     <div className="quick-action-icon"><FileText size={16} /></div>
-                    <div className="quick-action-label">Create Prompt</div>
+                    <div className="quick-action-label">Create Skill</div>
                   </Link>
                   <Link to="/settings" className="quick-action">
                     <div className="quick-action-icon"><Settings size={16} /></div>
