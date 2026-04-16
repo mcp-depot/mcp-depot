@@ -195,17 +195,15 @@ const createDefaultTool = async () => {
     
     logger.info('Default MCPConnect tools created for demo user!\n');
   } else {
-    const existingTool = await Tool.findOne({
-      where: {
-        integrationId: mcpconnectIntegration.id,
-        name: 'fetch-url'
-      }
-    });
-    
-    if (!existingTool) {
-      await Tool.create({
-        userId: demoUser.id,
-        integrationId: mcpconnectIntegration.id,
+    // Rename any existing "list-prompts" tool to "list-skills"
+    await Tool.update(
+      { name: 'list-skills', description: 'List all available skills that AI assistants can invoke' },
+      { where: { name: 'list-prompts' } }
+    );
+
+    // Create MCPConnect default tools if they don't exist
+    const toolsToCreate = [
+      {
         name: 'fetch-url',
         description: 'Fetch content from any URL and return as text. Supports HTML, JSON, XML, plain text. Use for: reading docs, fetching APIs, scraping web pages.',
         endpoint: {
@@ -229,13 +227,9 @@ const createDefaultTool = async () => {
             }
           },
           headers: {}
-        },
-        isActive: true
-      });
-
-      await Tool.create({
-        userId: demoUser.id,
-        integrationId: mcpconnectIntegration.id,
+        }
+      },
+      {
         name: 'list-skills',
         description: 'List all available skills that AI assistants can invoke',
         endpoint: {
@@ -243,36 +237,33 @@ const createDefaultTool = async () => {
           method: 'GET',
           params: {},
           headers: {}
-        },
-        isActive: true
-      });
+        }
+      },
+      {
+        name: 'get-skill',
+        description: 'Get the full content of a skill by name so it can be installed locally. Works with any AI assistant. Returns the file content and exact install path.',
+        endpoint: {
+          path: '/api/mcp/skills/{name}',
+          method: 'GET',
+          params: {},
+          headers: {}
+        }
+      }
+    ];
 
-      // Rename any existing "list-prompts" tool to "list-skills"
-      await Tool.update(
-        { name: 'list-skills', description: 'List all available skills that AI assistants can invoke' },
-        { where: { name: 'list-prompts' } }
-      );
-
-      // Add get-skill tool if not exists
+    for (const toolDef of toolsToCreate) {
       await Tool.findOrCreate({
-        where: { name: 'get-skill' },
+        where: { name: toolDef.name },
         defaults: {
           userId: demoUser.id,
           integrationId: mcpconnectIntegration.id,
-          name: 'get-skill',
-          description: 'Get the full content of a skill by name so it can be installed locally. Works with any AI assistant. Returns the file content and exact install path.',
-          endpoint: {
-            path: '/api/mcp/skills/{name}',
-            method: 'GET',
-            params: {},
-            headers: {}
-          },
+          ...toolDef,
           isActive: true
         }
       });
-      
-      logger.info('Additional MCPConnect tools added!\n');
     }
+
+    logger.info('Additional MCPConnect tools added!\n');
   }
 };
 
