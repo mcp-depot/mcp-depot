@@ -580,6 +580,89 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
   }
 });
 
+router.get('/skills', async (req, res) => {
+  try {
+    const { PromptLibrary } = loadModels();
+    const skills = await PromptLibrary.findAll({
+      attributes: ['id', 'name', 'description', 'inputs', 'prompt', 'outputFormat', 'isShared', 'isDefault', 'userId']
+    });
+    
+    const formattedSkills = skills.map(skill => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+      inputs: skill.inputs || [],
+      outputFormat: skill.outputFormat || 'text',
+      isShared: skill.isShared || false,
+      isDefault: skill.isDefault || false,
+      promptPreview: skill.prompt ? skill.prompt.substring(0, 100) + (skill.prompt.length > 100 ? '...' : '') : ''
+    }));
+
+    res.json({ skills: formattedSkills });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Error fetching skills');
+    res.status(500).json({ error: 'Failed to fetch skills' });
+  }
+});
+
+router.post('/skills/invoke/:id', async (req, res) => {
+  try {
+    const { PromptLibrary } = loadModels();
+    const skill = await PromptLibrary.findByPk(req.params.id);
+    
+    if (!skill) {
+      return res.status(404).json({ error: 'Skill not found' });
+    }
+    
+    const { inputs = {} } = req.body;
+    const renderedPrompt = renderSkillPrompt(skill.prompt, inputs);
+    
+    let result;
+    if (skill.outputFormat === 'json') {
+      try {
+        result = JSON.parse(renderedPrompt);
+      } catch {
+        result = { output: renderedPrompt };
+      }
+    } else if (skill.outputFormat === 'markdown') {
+      result = { format: 'markdown', content: renderedPrompt };
+    } else {
+      result = { format: 'text', content: renderedPrompt };
+    }
+    
+    res.json({
+      skillId: skill.id,
+      skillName: skill.name,
+      rendered: renderedPrompt,
+      result
+    });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Error invoking skill');
+    res.status(500).json({ error: 'Failed to invoke skill' });
+  }
+});
+
+function renderSkillPrompt(prompt, inputValues) {
+  let rendered = prompt || '';
+  
+  Object.entries(inputValues || {}).forEach(([key, value]) => {
+    const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+    rendered = rendered.replace(placeholder, value !== undefined && value !== null ? String(value) : '');
+    
+    const conditionalStart = new RegExp(`\\{\\{#${key}\\}([\\s\\S]*?)\\{\\{/${key}\\}\\}`, 'g');
+    rendered = rendered.replace(conditionalStart, (match, content) => {
+      return (value && String(value).trim()) ? content : '';
+    });
+    
+    const conditionalInverse = new RegExp(`\\{\\{\\^{${key}\\}\\}([\\s\\S]*?)\\{\\{/${key}\\}\\}`, 'g');
+    rendered = rendered.replace(conditionalInverse, (match, content) => {
+      return (!value || !String(value).trim()) ? content : '';
+    });
+  });
+  
+  return rendered;
+}
+
 router.get('/endpoints', checkMcpAuth, async (req, res) => {
   const baseUrl = req.protocol + '://' + req.get('host') + '/api/mcp';
   
