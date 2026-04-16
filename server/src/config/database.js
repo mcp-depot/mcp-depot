@@ -246,6 +246,12 @@ const createDefaultTool = async () => {
         },
         isActive: true
       });
+
+      // Rename any existing "list-prompts" tool to "list-skills"
+      await Tool.update(
+        { name: 'list-skills', description: 'List all available skills that AI assistants can invoke' },
+        { where: { name: 'list-prompts' } }
+      );
       
       logger.info('Additional MCPConnect tools added!\n');
     }
