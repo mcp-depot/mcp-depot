@@ -1293,6 +1293,7 @@ const compositeToolSchema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().allow('').optional(),
   inputSchema: Joi.object().default({}),
+  integrationId: Joi.string().uuid().optional(),
   steps: Joi.array().items(Joi.object({
     id: Joi.string().required(),
     label: Joi.string().required(),
@@ -1305,7 +1306,7 @@ const compositeToolSchema = Joi.object({
       filterValue: Joi.string().required(),
       selectField: Joi.string().required()
     })).default([])
-  })).min(2).required()
+  })).min(1).required()
 });
 
 router.get('/composite', auth, async (req, res) => {
