@@ -267,6 +267,39 @@ function CompositeToolBuilder() {
     const stepTool = availableTools.find(t => (t.id || t._id) === step.toolId);
     if (!stepTool) return;
 
+    // Extract path params from URL
+    const pathParams = [];
+    const pathMatch = stepTool.endpoint?.path?.match(/\{([^}]+)\}/g) || [];
+    pathMatch.forEach(p => pathParams.push(p.replace(/[{}]/g, '')));
+
+    // Check for missing required params and prompt if needed
+    const missingParams = [];
+    
+    // Check path params
+    for (const param of pathParams) {
+      if (!testParams[param] || !testParams[param].trim()) {
+        missingParams.push(param);
+      }
+    }
+    
+    // Check body/query params
+    const paramDefs = stepTool.inputSchema?.properties || {};
+    for (const [key, def] of Object.entries(paramDefs)) {
+      if (!testParams[key] || !testParams[key].trim()) {
+        missingParams.push(key);
+      }
+    }
+
+    // If there are missing params, prompt for them
+    if (missingParams.length > 0) {
+      for (const param of missingParams) {
+        // eslint-disable-next-line no-alert
+        const value = window.prompt(`Enter value for "${param}":`);
+        if (value === null) return; // User cancelled
+        setTestParams(prev => ({ ...prev, [param]: value }));
+      }
+    }
+
     const params = {};
     for (const [key, mapping] of Object.entries(step.inputMappings || {})) {
       if (mapping.source === SOURCE_TYPES.INPUT) {
@@ -274,6 +307,11 @@ function CompositeToolBuilder() {
       } else if (mapping.source === SOURCE_TYPES.LITERAL) {
         params[key] = mapping.value;
       }
+    }
+
+    // Add path params to the params object
+    for (const param of pathParams) {
+      params[param] = testParams[param];
     }
 
     setTesting(true);
@@ -532,6 +570,28 @@ function CompositeToolBuilder() {
                         borderRadius: '8px',
                         marginBottom: '0.5rem'
                       }}>
+                        {/* Extract path params from URL */}
+                        {(() => {
+                          const pathParams = [];
+                          const pathMatch = selectedTool.endpoint?.path?.match(/\{([^}]+)\}/g) || [];
+                          pathMatch.forEach(p => pathParams.push(p.replace(/[{}]/g, '')));
+                          
+                          return pathParams.map(key => (
+                            <div key={key} className="form-group" style={{ marginBottom: '0.5rem' }}>
+                              <label style={{ fontSize: '0.85rem', color: 'var(--warning)' }}>
+                                {key} <span style={{ fontWeight: 'normal' }}>(path param)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={testParams[key] || ''}
+                                onChange={e => setTestParams(prev => ({ ...prev, [key]: e.target.value }))}
+                                placeholder={`Enter ${key}`}
+                                style={{ fontSize: '0.85rem' }}
+                              />
+                            </div>
+                          ));
+                        })()}
+                        
                         {Object.entries(selectedTool.inputSchema?.properties || {}).map(([key, paramDef]) => (
                           <div key={key} className="form-group" style={{ marginBottom: '0.5rem' }}>
                             <label style={{ fontSize: '0.85rem' }}>{key}</label>
