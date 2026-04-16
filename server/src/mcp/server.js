@@ -39,12 +39,7 @@ class MCPConnectServer {
       this.registerTool(tool);
     }
 
-    const skills = await PromptLibrary.findAll();
-    for (const skill of skills) {
-      this.registerSkill(skill);
-    }
-
-    logger.info({ toolCount: tools.length, skillCount: skills.length }, 'MCP Server initialized');
+    logger.info({ toolCount: tools.length }, 'MCP Server initialized');
   }
 
   registerTool(tool) {

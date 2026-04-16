@@ -3,74 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
-const defaultTemplates = [
-  {
-    id: 'full-cycle',
-    name: 'Full Development Cycle',
-    description: 'JIRA → Confluence → Jenkins → JIRA with auto-retry',
-    inputs: [
-      { name: 'jiraTicket', label: 'JIRA Ticket ID', type: 'string', required: true, placeholder: 'PROJ-123' },
-      { name: 'confluenceSpace', label: 'Confluence Space Key', type: 'string', required: false, placeholder: 'e.g., DEV' },
-      { name: 'confluenceTitle', label: 'Confluence Page Title', type: 'string', required: false, placeholder: 'Implementation Notes' },
-      { name: 'jenkinsJob', label: 'Jenkins Job Name', type: 'string', required: false, placeholder: 'PR-build' },
-      { name: 'finalStatus', label: 'Final Status', type: 'string', required: false }
-    ],
-    outputFormat: 'text',
-    prompt: `Using MCPConnect tools, please:
-1. Fetch JIRA ticket {{jiraTicket}} and show me the description
-2. {{#confluenceTitle}}Fetch Confluence page "{{confluenceTitle}}" from space "{{confluenceSpace}}"{{/confluenceTitle}}{{^confluenceTitle}}Skip Confluence (no page title provided){{/confluenceTitle}}
-3. Start working on the implementation for {{jiraTicket}}
-4. After I implement the changes, trigger Jenkins job "{{jenkinsJob}}"
-5. Wait for the build to complete
-6. If build is SUCCESS: Post "✅ Build successful!" comment and transition to {{finalStatus}}
-7. If build is FAILURE: Get build logs, post "❌ Build failed" comment, and wait for me to fix and push again
-8. Repeat steps 4-7 until build is successful (max 5 attempts)`
-  },
-  {
-    id: 'jira-only',
-    name: 'JIRA Only',
-    description: 'Fetch, comment, and transition JIRA ticket',
-    inputs: [
-      { name: 'jiraTicket', label: 'JIRA Ticket ID', type: 'string', required: true, placeholder: 'PROJ-123' },
-      { name: 'comment', label: 'Comment', type: 'string', required: false, placeholder: 'Starting implementation' },
-      { name: 'status', label: 'Status', type: 'string', required: false }
-    ],
-    outputFormat: 'text',
-    prompt: `Using MCPConnect JIRA tools, please:
-1. Fetch JIRA ticket {{jiraTicket}}
-2. {{#comment}}Add comment "{{comment}}"{{/comment}}
-3. Transition to {{status}}`
-  },
-  {
-    id: 'jenkins-only',
-    name: 'Jenkins Only',
-    description: 'Trigger job and wait for result',
-    inputs: [
-      { name: 'jobName', label: 'Job Name', type: 'string', required: true, placeholder: 'PR-build' }
-    ],
-    outputFormat: 'text',
-    prompt: `Using MCPConnect Jenkins tools, please:
-1. Trigger Jenkins job "{{jobName}}"
-2. Poll for build status every 10 seconds
-3. Report the final result (SUCCESS/FAILURE)
-4. If FAILED, get the console output and report the error`
-  },
-  {
-    id: 'github-commit',
-    name: 'GitHub Commit & Push',
-    description: 'Stage, commit and push changes',
-    inputs: [
-      { name: 'message', label: 'Commit Message', type: 'string', required: true, placeholder: 'Fix bug' }
-    ],
-    outputFormat: 'text',
-    prompt: `Using MCPConnect GitHub tools, please:
-1. Show me the current git status
-2. Stage all changes
-3. Create a commit with message "{{message}}"
-4. Push to remote`
-  }
-];
-
 function Skills() {
   const { user } = useAuth();
   const [customSkills, setCustomSkills] = useState([]);
@@ -152,7 +84,7 @@ function Skills() {
   };
 
   const generatePrompt = (templateId, values) => {
-    const template = defaultTemplates.find(t => t.id === templateId) || customSkills.find(t => t.id === templateId);
+    const template = customSkills.find(t => t.id === templateId);
     if (!template) return '';
     
     let prompt = template.prompt;
@@ -186,7 +118,7 @@ function Skills() {
     }
   };
 
-  const allSkills = [...defaultTemplates, ...customSkills.map(s => ({ ...s, isCustom: true }))];
+  const allSkills = customSkills.map(s => ({ ...s, isCustom: true }));
 
   return (
     <div>
