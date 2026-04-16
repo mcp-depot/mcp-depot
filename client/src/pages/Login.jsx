@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { Network } from 'lucide-react';
 import api from '../services/api';
 
 function Login() {
@@ -41,7 +42,18 @@ function Login() {
     <div className="login-page">
       <div className="login-card">
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <img src="/logo.png" alt="MCPConnect Logo" width="56" height="56" style={{ borderRadius: '12px', marginBottom: '1rem' }} />
+          <div style={{ 
+            width: '56px', 
+            height: '56px', 
+            borderRadius: '12px', 
+            marginBottom: '1rem',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+          }}>
+            <Network size={28} color="white" />
+          </div>
           <h2>MCPConnect</h2>
           <p className="login-subtitle">Sign in to your account</p>
         </div>
