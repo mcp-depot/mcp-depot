@@ -279,10 +279,36 @@ function CompositeToolBuilder() {
     }
   };
 
-  const handleToolTest = async (tool, params) => {
+  const handleToolTest = async (tool, existingParams) => {
+    const requiredParams = tool.inputSchema?.required || [];
+    const properties = tool.inputSchema?.properties || {};
+    const params = { ...existingParams };
+    
+    // Prompt for missing required params
+    for (const paramName of requiredParams) {
+      if (!params[paramName] || !params[paramName].trim()) {
+        // eslint-disable-next-line no-alert
+        const value = window.prompt(`Enter value for required parameter "${paramName}":`);
+        if (value === null) return; // User cancelled
+        params[paramName] = value;
+      }
+    }
+    
+    // Also prompt for any other params that might be helpful
+    for (const [paramName, paramDef] of Object.entries(properties)) {
+      if (!params[paramName] && paramDef.type === 'string') {
+        // eslint-disable-next-line no-alert
+        const value = window.prompt(`Enter value for "${paramName}"${paramDef.description ? ` (${paramDef.description})` : ''}:`);
+        if (value === null) break; // User cancelled
+        params[paramName] = value;
+      }
+    }
+
     setToolTesting(true);
     setToolTestResult(null);
     setToolTestError(null);
+    setToolTestParams(params);
+    
     try {
       const token = localStorage.getItem('accessToken');
       const toolId = tool.id || tool._id;
