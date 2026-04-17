@@ -8,11 +8,36 @@ const AdapterFactory = require('../adapters');
 const encryption = require('../services/encryption');
 const logger = require('../services/logger');
 const { executeCompositeTool } = require('../services/compositeExecutor');
+const { z } = require('zod/v3');
 
 const { randomUUID } = require('crypto');
 
 const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
 const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
+
+function buildZodSchema(schema, required = []) {
+  const shape = {};
+  for (const [key, prop] of Object.entries(schema)) {
+    if (OPENAPI_KEYWORDS.has(key) || !VALID_SCHEMA_KEY.test(key)) continue;
+    let zType;
+    switch (prop.type) {
+      case 'number':
+      case 'integer':
+        zType = z.number();
+        break;
+      case 'boolean':
+        zType = z.boolean();
+        break;
+      default:
+        zType = z.string();
+    }
+    if (!required.includes(key)) {
+      zType = zType.optional();
+    }
+    shape[key] = zType;
+  }
+  return shape;
+}
 
 class MCPConnectServer {
   constructor() {
@@ -25,7 +50,7 @@ class MCPConnectServer {
     
     const tools = await Tool.findAll({
       where: { isActive: true },
-      include: [{ model: Integration, where: { isActive: true } }]
+      include: [{ model: Integration, as: 'integration', where: { isActive: true } }]
     });
 
     if (!this.server) {
@@ -84,15 +109,13 @@ class MCPConnectServer {
 
     this.toolsMap.set(toolName, { tool, adapter });
 
+    const inputSchema = z.object(buildZodSchema(schema, required));
+
     this.server.tool(
       toolName,
       {
         description: tool.description || toolName,
-        inputSchema: {
-          type: 'object',
-          properties: schema,
-          required: required.length > 0 ? required : undefined
-        }
+        inputSchema
       },
       async (params) => {
         const startTime = Date.now();
@@ -432,3 +455,4 @@ function setMcpEnabled(enabled) {
 module.exports = mcpServerInstance;
 module.exports.refreshToolsIfEnabled = refreshToolsIfEnabled;
 module.exports.getMcpClients = getMcpClients;
+module.exports.setMcpEnabled = setMcpEnabled;
