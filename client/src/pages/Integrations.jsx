@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon, getIntegrationColor } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Upload } from 'lucide-react';
 
 function Integrations() {
   const { user } = useAuth();
@@ -19,6 +19,19 @@ function Integrations() {
   const [selectedForImport, setSelectedForImport] = useState([]);
   const [importData, setImportData] = useState(null);
   const [editingId, setEditingId] = useState(null);
+
+  // Postman Import State
+  const [showPostmanImport, setShowPostmanImport] = useState(false);
+  const [postmanStep, setPostmanStep] = useState(1);
+  const [postmanCollection, setPostmanCollection] = useState(null);
+  const [postmanEnvironment, setPostmanEnvironment] = useState(null);
+  const [postmanConfig, setPostmanConfig] = useState({
+    baseUrl: '', authType: 'none', token: '', username: '', password: ''
+  });
+  const [postmanVariables, setPostmanVariables] = useState({});
+  const [postmanRequests, setPostmanRequests] = useState([]);
+  const [postmanSelected, setPostmanSelected] = useState(new Set());
+  const [postmanImporting, setPostmanImporting] = useState(false);
 
   const [discoverForm, setDiscoverForm] = useState({ baseUrl: '', openApiPath: '', authType: 'none', token: '' });
   const [discovering, setDiscovering] = useState(false);
@@ -371,6 +384,160 @@ function Integrations() {
     }
   };
 
+  // Postman Import Handlers
+  const parsePostmanCollection = async (file) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      // Extract base URL from collection info or variable
+      let baseUrl = '';
+      let variables = {};
+      
+      // Look for baseUrl in collection variable
+      if (data.variable) {
+        for (const v of data.variable) {
+          if (v.key === 'baseUrl' || v.key === 'url' || v.key === 'host') {
+            baseUrl = v.value || '';
+          } else {
+            variables[v.key] = v.value || '';
+          }
+        }
+      }
+      
+      // Also check info.server (Postman v2+ format)
+      if (data.info?.server && typeof data.info.server === 'string') {
+        baseUrl = data.info.server;
+      }
+      
+      setPostmanCollection(data);
+      setPostmanConfig({ ...postmanConfig, baseUrl });
+      setPostmanVariables(variables);
+      
+      // Extract requests from collection
+      const requests = [];
+      const extractRequests = (item, path = '') => {
+        if (item.request) {
+          const method = item.request.method || 'GET';
+          const url = item.request.url?.raw || item.request.url || '';
+          requests.push({
+            name: item.name,
+            method,
+            url,
+            path: path + item.name,
+            description: item.request.description || ''
+          });
+        }
+        if (item.item) {
+          for (const child of item.item) {
+            extractRequests(child, path + (item.name ? item.name + ' > ' : ''));
+          }
+        }
+      };
+      
+      if (data.item) {
+        for (const item of data.item) {
+          extractRequests(item);
+        }
+      }
+      
+      setPostmanRequests(requests);
+      setPostmanSelected(new Set(requests.map((_, i) => i)));
+      setPostmanStep(2);
+    } catch (err) {
+      alert('Invalid Postman collection file');
+    }
+  };
+
+  const parsePostmanEnvironment = async (file) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      const variables = { ...postmanVariables };
+      if (data.values) {
+        for (const v of data.values) {
+          variables[v.key] = v.value;
+        }
+      }
+      setPostmanVariables(variables);
+    } catch (err) {
+      alert('Invalid environment file');
+    }
+  };
+
+  const resetPostmanImport = () => {
+    setShowPostmanImport(false);
+    setPostmanStep(1);
+    setPostmanCollection(null);
+    setPostmanEnvironment(null);
+    setPostmanConfig({ baseUrl: '', authType: 'none', token: '', username: '', password: '' });
+    setPostmanVariables({});
+    setPostmanRequests([]);
+    setPostmanSelected(new Set());
+  };
+
+  const handlePostmanImport = async () => {
+    if (postmanSelected.size === 0) {
+      alert('Select at least one request');
+      return;
+    }
+    
+    setPostmanImporting(true);
+    try {
+      const tools = postmanRequests
+        .filter((_, i) => postmanSelected.has(i))
+        .map(req => ({
+          name: req.name.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() || 'unnamed',
+          description: req.description || `${req.method} ${req.path}`,
+          method: req.method,
+          path: req.url,
+          params: extractParamsFromUrl(req.url)
+        }));
+      
+      await api.post('/integrations/postman-import', {
+        name: postmanConfig.baseUrl.replace(/^https?:\/\//, '').split('/')[0] || 'Postman Import',
+        baseUrl: postmanConfig.baseUrl,
+        auth: postmanConfig.authType !== 'none' ? {
+          type: postmanConfig.authType,
+          credentials: postmanConfig.authType === 'basic' 
+            ? { username: postmanConfig.username, token: postmanConfig.password }
+            : { token: postmanConfig.token }
+        } : null,
+        tools
+      });
+      
+      resetPostmanImport();
+      fetchIntegrations();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Import failed');
+    } finally {
+      setPostmanImporting(false);
+    }
+  };
+
+  const extractParamsFromUrl = (url) => {
+    const params = {};
+    const match = url.match(/\{(\w+)\}/g);
+    if (match) {
+      match.forEach(p => {
+        const name = p.replace(/[{}]/g, '');
+        params[name] = { type: 'string', required: false, description: 'Path parameter' };
+      });
+    }
+    return params;
+  };
+
+  const togglePostmanRequest = (idx) => {
+    const selected = new Set(postmanSelected);
+    if (selected.has(idx)) {
+      selected.delete(idx);
+    } else {
+      selected.add(idx);
+    }
+    setPostmanSelected(selected);
+  };
+
   return (
     <div>
       <div className="container">
@@ -391,6 +558,9 @@ function Integrations() {
               </button>
               <button className="btn btn-secondary" onClick={() => { setShowDiscoverModal(true); }}>
                 Discover API
+              </button>
+              <button className="btn btn-secondary" onClick={() => setShowPostmanImport(true)}>
+                Import Postman
               </button>
               <button className="btn btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
                 + Add Integration
@@ -910,6 +1080,199 @@ function Integrations() {
                 <button className="btn btn-secondary" onClick={() => handleExport(false)} disabled={selectedForExport.length === 0}>
                   Export {selectedForExport.length} without Tools
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Postman Import Modal */}
+        {showPostmanImport && (
+          <div className="modal-overlay" onClick={resetPostmanImport}>
+            <div className="modal" style={{ maxWidth: '800px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Import Postman Collection</h2>
+                <button className="modal-close" onClick={resetPostmanImport}>&times;</button>
+              </div>
+              
+              {/* Steps indicator */}
+              <div style={{ display: 'flex', gap: '1rem', padding: '1rem', borderBottom: '1px solid var(--border)', justifyContent: 'center' }}>
+                {[1, 2, 3].map(step => (
+                  <div key={step} style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '0.5rem',
+                    color: postmanStep >= step ? 'var(--primary)' : 'var(--text-dim)'
+                  }}>
+                    <div style={{ 
+                      width: '24px', 
+                      height: '24px', 
+                      borderRadius: '50%', 
+                      background: postmanStep >= step ? 'var(--primary)' : 'var(--surface-hover)',
+                      color: postmanStep >= step ? '#fff' : 'var(--text-dim)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.8rem',
+                      fontWeight: 600
+                    }}>{step}</div>
+                    <span>{step === 1 ? 'Upload' : step === 2 ? 'Configure' : step === 3 ? 'Select' : 'Import'}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="modal-body" style={{ minHeight: '300px' }}>
+                {/* Step 1: Upload */}
+                {postmanStep === 1 && (
+                  <div style={{ textAlign: 'center', padding: '2rem' }}>
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <label className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <Upload size={16} />
+                        Choose Postman Collection
+                        <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && parsePostmanCollection(e.target.files[0])} style={{ display: 'none' }} />
+                      </label>
+                    </div>
+                    <div style={{ color: 'var(--text-dim)', marginBottom: '1rem' }}>or</div>
+                    <div>
+                      <label className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <Upload size={16} />
+                        Choose Environment (optional)
+                        <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && parsePostmanEnvironment(e.target.files[0])} style={{ display: 'none' }} />
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 2: Configure */}
+                {postmanStep === 2 && (
+                  <div style={{ padding: '1rem' }}>
+                    <div className="form-group">
+                      <label>Base URL</label>
+                      <input 
+                        type="url" 
+                        value={postmanConfig.baseUrl} 
+                        onChange={(e) => setPostmanConfig({ ...postmanConfig, baseUrl: e.target.value })} 
+                        placeholder="https://api.example.com"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Authentication</label>
+                      <StyledSelect
+                        options={[
+                          { value: 'none', label: 'None' },
+                          { value: 'basic', label: 'Basic Auth' },
+                          { value: 'bearer', label: 'Bearer Token' },
+                          { value: 'token', label: 'Token (Token xyz)' },
+                          { value: 'custom', label: 'Custom' },
+                          { value: 'apiKey', label: 'API Key' }
+                        ]}
+                        value={{ value: postmanConfig.authType, label: postmanConfig.authType === 'none' ? 'None' : postmanConfig.authType }}
+                        onChange={(opt) => setPostmanConfig({ ...postmanConfig, authType: opt?.value || 'none' })}
+                        isSearchable={false}
+                      />
+                    </div>
+                    {postmanConfig.authType === 'basic' && (
+                      <>
+                        <div className="form-row">
+                          <div className="form-group">
+                            <label>Username</label>
+                            <input type="text" value={postmanConfig.username} onChange={(e) => setPostmanConfig({ ...postmanConfig, username: e.target.value })} />
+                          </div>
+                          <div className="form-group">
+                            <label>Password/Token</label>
+                            <input type="password" value={postmanConfig.password} onChange={(e) => setPostmanConfig({ ...postmanConfig, password: e.target.value })} />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    {['bearer', 'token', 'custom'].includes(postmanConfig.authType) && (
+                      <div className="form-group">
+                        <label>Token</label>
+                        <input 
+                          type={postmanConfig.authType === 'bearer' ? 'password' : 'text'} 
+                          value={postmanConfig.token} 
+                          onChange={(e) => setPostmanConfig({ ...postmanConfig, token: e.target.value })} 
+                          placeholder={postmanConfig.authType === 'token' ? 'e.g., wlu_xxx' : postmanConfig.authType === 'custom' ? 'e.g., Token wlu_xxx' : 'Enter token'}
+                        />
+                      </div>
+                    )}
+                    {postmanConfig.authType === 'apiKey' && (
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label>Key Name</label>
+                          <input type="text" value={postmanConfig.username} onChange={(e) => setPostmanConfig({ ...postmanConfig, username: e.target.value })} placeholder="X-API-Key" />
+                        </div>
+                        <div className="form-group">
+                          <label>Key Value</label>
+                          <input type="password" value={postmanConfig.password} onChange={(e) => setPostmanConfig({ ...postmanConfig, password: e.target.value })} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 3: Select Requests */}
+                {postmanStep === 3 && (
+                  <div>
+                    <div style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{postmanRequests.length} requests found</span>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button className="btn btn-small btn-secondary" onClick={() => setPostmanSelected(new Set(postmanRequests.map((_, i) => i)))}>Select All</button>
+                        <button className="btn btn-small btn-secondary" onClick={() => setPostmanSelected(new Set())}>Select None</button>
+                      </div>
+                    </div>
+                    <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '4px' }}>
+                      {postmanRequests.map((req, idx) => (
+                        <div key={idx} style={{ 
+                          padding: '0.5rem', 
+                          borderBottom: '1px solid var(--border-light)', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '0.5rem',
+                          background: postmanSelected.has(idx) ? 'var(--surface-hover)' : 'transparent'
+                        }}>
+                          <input 
+                            type="checkbox" 
+                            checked={postmanSelected.has(idx)}
+                            onChange={() => togglePostmanRequest(idx)}
+                          />
+                          <span style={{ 
+                            fontFamily: 'monospace', 
+                            fontSize: '0.8rem',
+                            minWidth: '60px',
+                            color: req.method === 'GET' ? 'var(--success)' : req.method === 'POST' ? 'var(--warning)' : req.method === 'DELETE' ? 'var(--danger)' : 'var(--primary)'
+                          }}>{req.method}</span>
+                          <span style={{ fontSize: '0.85rem', flex: 1 }}>{req.name}</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{req.url}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <button className="btn btn-secondary" onClick={resetPostmanImport}>Cancel</button>
+                {postmanStep > 1 && (
+                  <button className="btn btn-secondary" onClick={() => setPostmanStep(postmanStep - 1)}>Back</button>
+                )}
+                {postmanStep < 3 && (
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={() => setPostmanStep(postmanStep + 1)}
+                    disabled={postmanStep === 1 && !postmanCollection}
+                  >
+                    Next
+                  </button>
+                )}
+                {postmanStep === 3 && (
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={handlePostmanImport}
+                    disabled={postmanSelected.size === 0 || postmanImporting}
+                  >
+                    {postmanImporting ? 'Importing...' : `Import ${postmanSelected.size} Tools`}
+                  </button>
+                )}
               </div>
             </div>
           </div>

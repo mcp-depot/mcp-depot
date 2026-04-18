@@ -1497,4 +1497,74 @@ router.post('/composite/:id/test', auth, async (req, res) => {
   }
 });
 
+// Postman Collection Import
+router.post('/postman-import', auth, async (req, res) => {
+  try {
+    const { name, baseUrl, auth, tools } = req.body;
+    
+    if (!baseUrl) {
+      return res.status(400).json({ error: 'Base URL is required' });
+    }
+    
+    if (!tools || !Array.isArray(tools) || tools.length === 0) {
+      return res.status(400).json({ error: 'At least one tool is required' });
+    }
+    
+    // Create the integration
+    const integration = await Integration.create({
+      userId: req.user.id,
+      type: 'custom',
+      name: name || 'Postman Import',
+      description: `Imported from Postman collection - ${tools.length} tools`,
+      config: {
+        baseUrl,
+        auth: auth || { type: 'none' },
+        headers: {},
+        timeout: 30000
+      },
+      isActive: true
+    });
+    
+    // Create tools from Postman requests
+    const createdTools = [];
+    for (const toolDef of tools) {
+      const tool = await Tool.create({
+        userId: req.user.id,
+        integrationId: integration.id,
+        name: toolDef.name,
+        description: toolDef.description || toolDef.name,
+        endpoint: {
+          path: toolDef.path || toolDef.url || '/',
+          method: toolDef.method || 'GET',
+          params: toolDef.params || {},
+          headers: {},
+          body: toolDef.body || null
+        },
+        isActive: true
+      });
+      createdTools.push(tool);
+    }
+    
+    await audit.log({
+      userId: req.user.id,
+      action: 'postman_import',
+      integrationId: integration.id,
+      details: { toolCount: tools.length }
+    });
+    
+    res.status(201).json({
+      integration: {
+        _id: integration.id,
+        name: integration.name,
+        type: integration.type,
+        baseUrl: integration.config.baseUrl
+      },
+      tools: createdTools.map(t => ({ _id: t.id, name: t.name, method: t.endpoint.method, path: t.endpoint.path }))
+    });
+  } catch (error) {
+    logger.error({ err: error.message }, 'Postman import error');
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
