@@ -91,6 +91,17 @@ class DynamicAdapter {
         if (!token) return {};
         return { 'Authorization': `Bearer ${token}` };
 
+      case 'token':
+        const tokenValue = encryption.decrypt(credentials.token) || credentials.token;
+        if (!tokenValue) return {};
+        const prefix = credentials.prefix || 'Token';
+        return { 'Authorization': `${prefix} ${tokenValue}` };
+
+      case 'custom':
+        const customAuth = credentials.value || credentials.token || '';
+        if (!customAuth) return {};
+        return { 'Authorization': customAuth };
+
       case 'apiKey':
         const key = encryption.decrypt(credentials.key) || credentials.key;
         const value = encryption.decrypt(credentials.value) || credentials.value;
