@@ -30,6 +30,7 @@
 | 19 | Outbound Webhook Notifications | ❌ | ❌ | Small | 🔥🔥 | Notify Slack/webhook on tool success or failure |
 | 20 | Granular Access Control | ❌ | ❌ | Small | 🔥🔥🔥 | Read-only mode + per-tool enable per endpoint |
 | 21 | Claude Code Skill Registry | ❌ | ❌ | Small | 🔥🔥🔥 | Share SKILL.md files via MCP; install locally with one Claude command |
+| 22 | Popular Services Registry | ❌ | ❌ | Small | 🔥🔥🔥 | Curated AI-optimised endpoint lists for Jira, GitHub, Jenkins etc. — select, configure, import |
 | UI | Dashboard sparklines | 🔶 | ❌ | Low | 🔥🔥🔥 | Component exists, disabled pending feedback |
 | UI | Command palette Cmd+K | ❌ | ❌ | Low | 🔥🔥🔥 | Quick navigation via cmdk |
 
@@ -75,38 +76,480 @@
 
 ---
 
-## Feature 1 — Tool Marketplace
+## Feature 1 — Tools Marketplace
 
-**Why:** Tool definitions are just JSON. Nobody has built a community registry for MCP tools yet. Toolshed is already the right shape for it. Network effect: more users → more packs → more users.
+**Why:** Two separate problems solved in one place:
+1. Users want ready-made tool bundles for popular services without building from scratch
+2. Users with internal or custom APIs want a better experience than "Add Integration → Discover API" buried in the Integrations page
 
-**What it looks like:**
+Nobody has built a community registry for MCP tools yet. Toolshed is the right shape for it. Network effect: more users → more packs → more users.
+
+---
+
+### UI Design — Two tabs, one page
+
+**Entry point:** New "Marketplace" item in the sidebar (between Integrations and Tools).
+
 ```
-Marketplace → Browse "Jira Pack" → Preview (12 tools) → Install → Done
+┌─────────────────────────────────────────────────────┐
+│  Tools Marketplace                                   │
+│  ┌──────────────┐  ┌──────────────┐                 │
+│  │  Browse       │  │  Discover    │                 │
+│  └──────────────┘  └──────────────┘                 │
+└─────────────────────────────────────────────────────┘
 ```
 
-**Pack format** (reuses existing export JSON):
+---
+
+### Tab 1: Browse (Curated Packs)
+
+Pre-built, tested bundles for popular services. User picks a pack, fills in credentials, tools are created in their Integrations automatically.
+
+```
+Marketplace → Browse → "Jira Pack" → Preview 12 tools → Install
+         → fill in base URL + token → Done
+```
+
+**What a pack looks like (reuses existing export JSON format):**
 ```json
 {
   "name": "Jira Pack",
   "slug": "jira",
-  "description": "Create issues, search, transition status",
+  "description": "Create issues, search, transition status, add comments",
   "author": "toolshed",
   "version": "1.0.0",
   "tags": ["project-management", "atlassian"],
-  "integration": { "type": "custom", "authType": "bearer", "baseUrl": "https://your-domain.atlassian.net" },
+  "integration": {
+    "type": "custom",
+    "authType": "bearer",
+    "baseUrl": "https://your-domain.atlassian.net"
+  },
   "tools": [ ...existing tool definition format... ]
 }
 ```
 
-**Phase 1:** Community registry as a GitHub repo. Toolshed UI fetches packs from raw GitHub URLs.
-**Phase 2:** Hosted registry with ratings, install counts, verified packs.
+**Starter packs to ship with the app:**
+- Jira (create issue, get issue, add comment, transition status, search)
+- Confluence (get page, search, create page)
+- GitHub (list PRs, create PR, get file, list repos)
+- Bitbucket (list PRs, create PR, get diff, add comment)
+- Jenkins (trigger build, get status, get console log)
+- Linear (create issue, update status, list issues)
+- Notion (create page, search, get page)
+- Slack (send message, list channels)
 
-**New endpoints:**
+**Pack registry phases:**
+- **Phase 1:** Packs are JSON files shipped inside the app repo. Community contributes via GitHub PRs.
+- **Phase 2:** Hosted registry — app fetches from a central URL, new packs appear without app updates. Ratings, install counts, verified packs.
+
+---
+
+### Tab 2: Discover (Custom API Discovery)
+
+User points at any API, adds auth, and the app fetches the OpenAPI spec and presents all available endpoints to select from.
+
+> **Note:** The discovery engine already exists — `client/src/pages/Integrations.jsx` has the "Discover API" modal with full OpenAPI parsing. This tab is about giving that feature a dedicated home with a better UX, rather than rebuilding it.
+
+**Flow:**
 ```
-GET  /marketplace/packs
-GET  /marketplace/packs/:slug
-POST /marketplace/packs/:slug/install
+Marketplace → Discover
+  → Enter base URL (e.g. https://api.mycompany.com)
+  → Select auth type + credentials
+  → Click "Explore API"
+  → App fetches /openapi.json or /swagger.json (auto-detect)
+  → Presents all endpoints grouped by tag:
+      ┌─────────────────────────────────────────────────┐
+      │  GET    /api/users/{id}       Get user by ID    │  ☐
+      │  POST   /api/users            Create user       │  ☑
+      │  GET    /api/orders           List orders       │  ☑
+      │  DELETE /api/orders/{id}      Cancel order      │  ☐
+      └─────────────────────────────────────────────────┘
+  → User selects endpoints → "Create X Tools"
+  → Integration + selected tools created in one step
 ```
+
+**Improvements over current "Discover API" modal:**
+- Full-page view with better filtering (search endpoints, filter by method, filter by tag)
+- Group endpoints by OpenAPI tag (logical sections)
+- Show request/response schema inline so user knows what they're getting
+- Allow auth to be saved as a new Integration in the same step
+
+**Limitation — OpenAPI only:**
+The discovery engine only works when the target API exposes an OpenAPI/Swagger spec (`/openapi.json`, `/swagger.json`, `/api-docs`). APIs without a spec cannot be auto-discovered. The fallback for those is the existing manual tool creation flow. This is an inherent limitation of the approach and should be communicated clearly in the UI ("Your API must expose an OpenAPI spec for auto-discovery. No spec? Add tools manually instead.").
+
+**Future improvement (large effort):** For APIs without specs, an optional LLM step (Feature 8) could attempt to infer endpoints from documentation URLs or HAR files — but that is a separate feature, not part of the Marketplace.
+
+---
+
+### Tab 3: Import (Postman Collection)
+
+User imports a Postman collection JSON file. The app parses it, resolves variables, and generates an Integration + tools.
+
+**The core challenge — Postman variables:**
+
+Postman collections use `{{variableName}}` placeholders throughout. These are not all the same kind of thing and must be handled differently at import time:
+
+| Variable category | Examples | How to handle |
+|---|---|---|
+| Base URL / host | `{{baseUrl}}`, `{{host}}` | → Integration base URL field |
+| Auth credentials | `{{apiToken}}`, `{{bearerToken}}`, `{{apiKey}}`, `{{password}}` | → Integration auth config (stored encrypted) |
+| Default parameters | `{{projectKey}}`, `{{workspaceId}}`, `{{orgId}}` | → Tool default parameter values |
+| Runtime inputs | `{{issueId}}`, `{{userId}}`, `{{query}}` | → MCP tool parameters — NOT asked at import, Claude fills at call time |
+
+The classifier distinguishes runtime inputs from config variables by looking at where in the request they appear: variables in URL path segments (`/issues/{{issueId}}`) are always runtime; variables in the base URL or auth headers are always config.
+
+**Import flow — 3 steps:**
+
+```
+Step 1: Upload files
+  ┌─────────────────────────────────────────────────┐
+  │  Postman Collection (.json)    [Choose file]    │
+  │  Postman Environment (.json)   [Choose file]    │
+  │                          (optional but helpful) │
+  └─────────────────────────────────────────────────┘
+  → If environment file provided, variables are pre-filled in Step 2
+
+Step 2: Configure variables
+  ┌─────────────────────────────────────────────────┐
+  │  BASE URL                                       │
+  │    baseUrl:     [ https://mycompany.atlassian.net ] │
+  │                                                 │
+  │  AUTHENTICATION                                 │
+  │    apiToken:    [ ••••••••••••••• ]             │
+  │                                                 │
+  │  DEFAULT PARAMETERS                             │
+  │    projectKey:  [ MYPROJECT ]                   │
+  │                                                 │
+  │  RUNTIME INPUTS (Claude fills at call time)     │
+  │    issueId, commentId, userId  ← listed only,  │
+  │                                   no input field│
+  └─────────────────────────────────────────────────┘
+
+Step 3: Select endpoints
+  ┌─────────────────────────────────────────────────┐
+  │  ☑  GET   /rest/api/3/issue/{issueId}           │
+  │  ☑  POST  /rest/api/3/issue                     │
+  │  ☐  GET   /rest/api/3/project                   │
+  │  ☑  POST  /rest/api/3/issue/{issueId}/comment   │
+  └─────────────────────────────────────────────────┘
+  → "Create 3 Tools"  →  Integration + tools created
+```
+
+**Variable auto-classification logic:**
+```js
+function classifyVariable(name, appearances) {
+  const nameLower = name.toLowerCase();
+  // Auth: name contains auth-related keywords
+  if (/token|key|secret|password|auth|bearer|credential/.test(nameLower))
+    return 'auth';
+  // Base URL: appears in the host/baseUrl of requests
+  if (/url|host|base|domain|endpoint/.test(nameLower) || appearances.inHost)
+    return 'baseUrl';
+  // Runtime: appears only in URL path segments (e.g. /issues/{{issueId}})
+  if (appearances.onlyInPath)
+    return 'runtime';
+  // Everything else: default param
+  return 'defaultParam';
+}
+```
+
+**Postman environment file format (for reference):**
+```json
+{
+  "name": "My Jira Environment",
+  "values": [
+    { "key": "baseUrl",    "value": "https://mycompany.atlassian.net" },
+    { "key": "apiToken",   "value": "ATATT3xFf..." },
+    { "key": "projectKey", "value": "PROJ" }
+  ]
+}
+```
+
+---
+
+### Backend
+
+No new server infrastructure needed for Phase 1. Pack bundles are static JSON fetched client-side (or bundled in the app). The install endpoint reuses existing import logic.
+
+**New routes for Phase 2 (hosted registry):**
+```
+GET  /api/marketplace/packs              list all packs
+GET  /api/marketplace/packs/:slug        get pack detail + tools preview
+POST /api/marketplace/packs/:slug/install  create integration + tools from pack
+```
+
+---
+
+### Effort estimate
+- **Tab 1 (Browse):** Medium — new Marketplace page + pack JSON format + install flow + 8 starter packs
+- **Tab 2 (Discover):** Small-Medium — UX rework of existing Discover API modal into full page
+- **Tab 3 (Postman import):** Medium — Postman JSON parser + variable classifier + 3-step import wizard
+- **Phase 2 registry:** Large — requires hosted infrastructure outside the app
+
+---
+
+## Feature 22 — Popular Services Registry (Cloud + Self-Hosted)
+
+**Why:** Most users want to connect the same tools — Jira, GitHub, Confluence, Jenkins, Bitbucket, SonarQube. Today they have to know the base URL, auth type, and endpoint paths themselves. The registry removes all that friction: the app already knows the common endpoints for each service, pre-selected and named for Claude to understand.
+
+Critically, this covers **both cloud-hosted and self-hosted variants**. Many engineering teams run self-hosted Jenkins, Jira Data Center, GitLab, SonarQube, or Nexus on their own infrastructure. For self-hosted services the API endpoints are identical — only the base URL differs, and the user provides that.
+
+Unlike OpenAPI discovery (requires a live spec) or Postman import (requires a file), this needs nothing from the user except their instance URL and credentials.
+
+---
+
+### Cloud vs Self-Hosted distinction
+
+| Type | Base URL | What user provides |
+|---|---|---|
+| **Cloud** | Fixed (e.g. `https://api.github.com`) | Credentials only |
+| **Self-hosted** | User's own instance | Instance URL + credentials |
+| **Dual (cloud + self-hosted)** | Depends on which variant | Variant picker → then URL + credentials |
+
+Some services exist in both variants with **different API versions** — these need separate registry entries:
+
+| Service | Cloud variant | Self-hosted variant |
+|---|---|---|
+| Jira | `atlassian.net` · REST API v3 | Your domain · REST API v2 |
+| Confluence | `atlassian.net` · REST API v2 | Your domain · REST API v1 |
+| Bitbucket | `api.bitbucket.org` | Your domain · different path prefix |
+| GitHub | `api.github.com` | GitHub Enterprise · same paths, different base |
+| GitLab | `gitlab.com` | Self-hosted · same API, different base |
+
+---
+
+### Flow
+
+Entry point: "Add Integration" modal gets a new top section:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Start from a popular service:                          │
+│                                                         │
+│  ── Cloud ──────────────────────────────────────        │
+│  [GitHub]  [Linear]  [Notion]  [Slack]  [Trello]       │
+│                                                         │
+│  ── Self-Hosted ────────────────────────────────        │
+│  [Jenkins]  [SonarQube]  [Nexus]  [Grafana]            │
+│  [Harbor]  [Gitea]  [Artifactory]                      │
+│                                                         │
+│  ── Cloud + Self-Hosted ────────────────────────        │
+│  [Jira]  [Confluence]  [Bitbucket]  [GitLab]           │
+│  [GitHub Enterprise]                                    │
+│                                                         │
+│  ── or configure from scratch ──                        │
+└─────────────────────────────────────────────────────────┘
+```
+
+**For dual services (e.g. Jira) — variant picker shown first:**
+```
+  Jira
+  ○ Jira Cloud       (atlassian.net — REST API v3)
+  ● Jira Server / Data Center  (your domain — REST API v2)
+```
+
+User selects variant → 3-step flow:
+
+```
+Step 1: Connect
+
+  Cloud service (GitHub):
+    Integration name:  [ GitHub ]
+    Base URL:          [ https://api.github.com ]  ← fixed, not editable
+    Auth type:         [ Bearer Token ]  ← pre-selected
+    Token:             [ ••••••••••••• ]
+
+  Self-hosted service (Jenkins):
+    Integration name:  [ Jenkins ]
+    Your Jenkins URL:  [ https://jenkins.mycompany.com ]  ← user fills this
+    Auth type:         [ API Token ]  ← pre-selected
+    Username:          [ imran ]
+    API Token:         [ ••••••••••••• ]
+
+  Dual service - self-hosted (Jira Server):
+    Integration name:  [ Jira ]
+    Your Jira URL:     [ https://jira.mycompany.com ]  ← user fills this
+    Auth type:         [ Bearer Token ]  ← pre-selected
+    Token:             [ ••••••••••••• ]
+
+Step 2: Select tools
+  ┌─────────────────────────────────────────────────────┐
+  │  ☑  GET  Get Issue            /{issueId}            │
+  │  ☑  POST Add Comment          /{issueId}/comment    │
+  │  ☑  POST Transition Issue     /{issueId}/transitions│
+  │  ☑  GET  List Transitions     /{issueId}/transitions│
+  │  ☐  POST Create Issue                               │
+  │  ☐  GET  Search Issues (JQL)                        │
+  │  ☐  PUT  Update Issue         /{issueId}            │
+  └─────────────────────────────────────────────────────┘
+  Sensible defaults pre-ticked. User unticks what they don't need.
+
+Step 3: Done
+  Integration created + X tools registered.
+  "Start using these tools in Claude →"
+```
+
+---
+
+### Registry format
+
+A single static JSON file shipped with the app (`client/src/data/services-registry.json`).
+Community contributes new services and endpoints via GitHub PRs.
+
+Key fields:
+- `hosted: "cloud"` — base URL is fixed, not editable
+- `hosted: "self"` — user must provide their instance URL
+- `hosted: "both"` — show variant picker; each variant is a separate entry with its own API paths
+
+```json
+{
+  "github": {
+    "name": "GitHub",
+    "description": "Code hosting, pull requests, issues",
+    "icon": "github",
+    "hosted": "cloud",
+    "tags": ["git", "code-review"],
+    "connection": {
+      "baseUrl": "https://api.github.com",
+      "baseUrlEditable": false,
+      "authType": "bearer",
+      "authLabel": "Personal Access Token"
+    },
+    "tools": [
+      { "name": "list-pull-requests",  "method": "GET",  "path": "/repos/{owner}/{repo}/pulls",               "defaultSelected": true  },
+      { "name": "get-pull-request",    "method": "GET",  "path": "/repos/{owner}/{repo}/pulls/{pull_number}", "defaultSelected": true  },
+      { "name": "create-pull-request", "method": "POST", "path": "/repos/{owner}/{repo}/pulls",               "defaultSelected": false },
+      { "name": "get-file",            "method": "GET",  "path": "/repos/{owner}/{repo}/contents/{path}",     "defaultSelected": true  },
+      { "name": "list-issues",         "method": "GET",  "path": "/repos/{owner}/{repo}/issues",              "defaultSelected": false }
+    ]
+  },
+
+  "jenkins": {
+    "name": "Jenkins",
+    "description": "CI/CD automation server",
+    "icon": "jenkins",
+    "hosted": "self",
+    "tags": ["ci-cd", "devops"],
+    "connection": {
+      "baseUrlPattern": "https://jenkins.{your-domain}.com",
+      "baseUrlHint": "Enter your Jenkins instance URL",
+      "baseUrlEditable": true,
+      "authType": "basic",
+      "authLabel": "Username + API Token"
+    },
+    "tools": [
+      { "name": "get-build-status",   "method": "GET",  "path": "/job/{jobName}/lastBuild/api/json",          "defaultSelected": true  },
+      { "name": "get-console-log",    "method": "GET",  "path": "/job/{jobName}/lastBuild/consoleText",       "defaultSelected": true  },
+      { "name": "trigger-build",      "method": "POST", "path": "/job/{jobName}/build",                       "defaultSelected": true  },
+      { "name": "get-build-artifact", "method": "GET",  "path": "/job/{jobName}/lastBuild/artifact/{path}",  "defaultSelected": false }
+    ]
+  },
+
+  "jira-cloud": {
+    "name": "Jira Cloud",
+    "description": "Jira on Atlassian Cloud (atlassian.net)",
+    "icon": "jira",
+    "hosted": "cloud",
+    "variantOf": "jira",
+    "tags": ["project-management", "atlassian"],
+    "connection": {
+      "baseUrlPattern": "https://{your-domain}.atlassian.net",
+      "baseUrlHint": "Replace {your-domain} with your Atlassian subdomain",
+      "baseUrlEditable": true,
+      "authType": "bearer",
+      "authLabel": "API Token"
+    },
+    "tools": [
+      { "name": "get-issue",        "method": "GET",  "path": "/rest/api/3/issue/{issueId}",             "defaultSelected": true  },
+      { "name": "add-comment",      "method": "POST", "path": "/rest/api/3/issue/{issueId}/comment",     "defaultSelected": true  },
+      { "name": "transition-issue", "method": "POST", "path": "/rest/api/3/issue/{issueId}/transitions", "defaultSelected": true  },
+      { "name": "get-transitions",  "method": "GET",  "path": "/rest/api/3/issue/{issueId}/transitions", "defaultSelected": true  },
+      { "name": "search-issues",    "method": "GET",  "path": "/rest/api/3/issue/search",                "defaultSelected": false },
+      { "name": "create-issue",     "method": "POST", "path": "/rest/api/3/issue",                       "defaultSelected": false }
+    ]
+  },
+
+  "jira-server": {
+    "name": "Jira Server / Data Center",
+    "description": "Self-hosted Jira (REST API v2)",
+    "icon": "jira",
+    "hosted": "self",
+    "variantOf": "jira",
+    "tags": ["project-management", "atlassian"],
+    "connection": {
+      "baseUrlPattern": "https://jira.{your-domain}.com",
+      "baseUrlHint": "Enter your Jira Server instance URL",
+      "baseUrlEditable": true,
+      "authType": "bearer",
+      "authLabel": "Personal Access Token"
+    },
+    "tools": [
+      { "name": "get-issue",        "method": "GET",  "path": "/rest/api/2/issue/{issueId}",             "defaultSelected": true  },
+      { "name": "add-comment",      "method": "POST", "path": "/rest/api/2/issue/{issueId}/comment",     "defaultSelected": true  },
+      { "name": "transition-issue", "method": "POST", "path": "/rest/api/2/issue/{issueId}/transitions", "defaultSelected": true  },
+      { "name": "get-transitions",  "method": "GET",  "path": "/rest/api/2/issue/{issueId}/transitions", "defaultSelected": true  },
+      { "name": "search-issues",    "method": "GET",  "path": "/rest/api/2/issue/search",                "defaultSelected": false }
+    ]
+  },
+
+  "sonarqube": {
+    "name": "SonarQube",
+    "description": "Code quality and security analysis",
+    "icon": "sonarqube",
+    "hosted": "self",
+    "tags": ["code-quality", "devops"],
+    "connection": {
+      "baseUrlPattern": "https://sonar.{your-domain}.com",
+      "baseUrlHint": "Enter your SonarQube instance URL",
+      "baseUrlEditable": true,
+      "authType": "bearer",
+      "authLabel": "User Token"
+    },
+    "tools": [
+      { "name": "get-project-status", "method": "GET", "path": "/api/qualitygates/project_status?projectKey={projectKey}", "defaultSelected": true  },
+      { "name": "get-issues",         "method": "GET", "path": "/api/issues/search?componentKeys={projectKey}",            "defaultSelected": true  },
+      { "name": "get-measures",       "method": "GET", "path": "/api/measures/component?component={projectKey}",           "defaultSelected": false }
+    ]
+  }
+}
+```
+
+---
+
+### Full services list for v1
+
+**Cloud only:**
+- GitHub, Linear, Notion, Slack, Trello, PagerDuty, Datadog
+
+**Self-hosted only:**
+- Jenkins, SonarQube, Nexus Repository, Artifactory, Grafana, Harbor (container registry), Gitea, Forgejo
+
+**Cloud + Self-hosted (separate registry entries per variant):**
+- Jira (Cloud v3 / Server v2)
+- Confluence (Cloud v2 / Server v1)
+- Bitbucket (Cloud / Data Center)
+- GitLab (Cloud / Self-hosted)
+- GitHub Enterprise (same API as GitHub, different base URL)
+
+---
+
+### Why this is better than the alternatives
+
+| | Services Registry | OpenAPI Discover | Postman Import |
+|---|---|---|---|
+| Requires file/URL from user | No | Yes (spec URL) | Yes (collection file) |
+| Works for self-hosted instances | Yes | Yes (if spec exposed) | Yes |
+| Works offline | Yes | No | Yes |
+| Curated for AI use | Yes - names/descriptions optimised for Claude | No - raw spec names | No - raw collection names |
+| Only the useful endpoints | Yes - 8-12 per service | No - all 200+ | Depends on collection |
+| Auth pre-configured | Yes | Partial | Via environment file |
+| Handles cloud vs self-hosted API differences | Yes - separate variants | No | No |
+| Community can extend | Yes - GitHub PRs to registry JSON | N/A | N/A |
+
+---
+
+### Effort estimate
+**Small-Medium** — static JSON registry file + variant picker UI + Connect step added to existing Add Integration modal. No new backend routes. The bulk of the work is authoring and testing registry entries for each service variant.
 
 ---
 

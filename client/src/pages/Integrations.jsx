@@ -477,6 +477,22 @@ function Integrations() {
     setPostmanSelected(new Set());
   };
 
+  const substituteVariables = (text) => {
+    if (!text) return text;
+    let result = text;
+    for (const [key, value] of Object.entries(postmanVariables)) {
+      if (value) {
+        result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+      }
+    }
+    // Also substitute the baseUrl for {{baseUrl}} style variables
+    if (postmanConfig.baseUrl) {
+      result = result.replace(/\{\{baseUrl\}\}/g, postmanConfig.baseUrl);
+      result = result.replace(/\{\{url\}\}/g, postmanConfig.baseUrl);
+    }
+    return result;
+  };
+
   const handlePostmanImport = async () => {
     if (postmanSelected.size === 0) {
       alert('Select at least one request');
@@ -487,13 +503,16 @@ function Integrations() {
     try {
       const tools = postmanRequests
         .filter((_, i) => postmanSelected.has(i))
-        .map(req => ({
-          name: req.name.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() || 'unnamed',
-          description: req.description || `${req.method} ${req.path}`,
-          method: req.method,
-          path: req.url,
-          params: extractParamsFromUrl(req.url)
-        }));
+        .map(req => {
+          const resolvedUrl = substituteVariables(req.url);
+          return {
+            name: req.name.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase() || 'unnamed',
+            description: req.description || `${req.method} ${req.path}`,
+            method: req.method,
+            path: resolvedUrl,
+            params: extractParamsFromUrl(resolvedUrl)
+          };
+        });
       
       await api.post('/integrations/postman-import', {
         name: postmanConfig.baseUrl.replace(/^https?:\/\//, '').split('/')[0] || 'Postman Import',
@@ -1145,8 +1164,26 @@ function Integrations() {
                 {/* Step 2: Configure */}
                 {postmanStep === 2 && (
                   <div style={{ padding: '1rem' }}>
+                    {Object.keys(postmanVariables).length > 0 && (
+                      <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: '4px' }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>
+                          Variables (from collection/environment)
+                        </div>
+                        {Object.entries(postmanVariables).map(([key, value]) => (
+                          <div key={key} className="form-group">
+                            <label>{key}</label>
+                            <input 
+                              type="text" 
+                              value={value} 
+                              onChange={(e) => setPostmanVariables({ ...postmanVariables, [key]: e.target.value })} 
+                              placeholder={`Value for ${key}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="form-group">
-                      <label>Base URL</label>
+                      <label>Base URL {Object.keys(postmanVariables).includes('baseUrl') && <span style={{ color: 'var(--text-dim)' }}> (overrides {{baseUrl}} variable)</span>}</label>
                       <input 
                         type="url" 
                         value={postmanConfig.baseUrl} 
