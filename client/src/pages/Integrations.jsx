@@ -394,13 +394,16 @@ function Integrations() {
       let baseUrl = '';
       let variables = {};
       
-      // Look for baseUrl in collection variable
+      // Postman v2.1 format: { variable: [{ key: "baseUrl", value: "..." }] }
       if (data.variable) {
         for (const v of data.variable) {
-          if (v.key === 'baseUrl' || v.key === 'url' || v.key === 'host') {
-            baseUrl = v.value || '';
-          } else {
-            variables[v.key] = v.value || '';
+          // Handle both array format and object format
+          const key = v.key || v.id;
+          const value = v.value || v.initialValue || '';
+          if (key === 'baseUrl' || key === 'url' || key === 'host' || key === 'URL') {
+            baseUrl = value || '';
+          } else if (key) {
+            variables[key] = value || '';
           }
         }
       }
@@ -408,6 +411,28 @@ function Integrations() {
       // Also check info.server (Postman v2+ format)
       if (data.info?.server && typeof data.info.server === 'string') {
         baseUrl = data.info.server;
+      }
+      
+      // Scan all URLs for {{variable}} patterns and add to variables
+      if (data.item) {
+        const scanUrls = (items) => {
+          for (const item of items) {
+            if (item.request?.url?.raw) {
+              const url = item.request.url.raw;
+              const matches = url.match(/\{\{(\w+)\}\}/g);
+              if (matches) {
+                matches.forEach(m => {
+                  const varName = m.replace(/[{}]/g, '');
+                  if (!variables[varName] && varName !== 'baseUrl' && varName !== 'url') {
+                    variables[varName] = '';
+                  }
+                });
+              }
+            }
+            if (item.item) scanUrls(item.item);
+          };
+        };
+        scanUrls(data.item);
       }
       
       setPostmanCollection(data);
