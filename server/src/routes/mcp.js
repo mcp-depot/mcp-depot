@@ -174,33 +174,23 @@ const fetchExternalMcpTools = async (userId, role) => {
     
     const servers = await ExternalMcpServer.findAll({ where: { isActive: true } });
     
-    const allExternalTools = [];
+    if (servers.length === 0) return [];
+    
     const fetchTimeout = 10000;
     
-    for (const server of servers) {
+    // Fetch all servers in parallel
+    async function fetchOneServer(server) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
+      
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
+        let tools = [];
         
         if (server.transportType === 'stdio') {
-          const tools = await getStdioMcpTools(server.command, server.args, server.env, server.runtime);
+          tools = await getStdioMcpTools(server.command, server.args, server.env, server.runtime, controller.signal);
           clearTimeout(timeoutId);
-          
-          await server.update({ lastFetchedAt: new Date(), lastFetchError: null });
-          
-          (tools.tools || []).forEach(tool => {
-            allExternalTools.push({
-              ...tool,
-              input_schema: tool.input_schema || tool.inputSchema || null,
-              inputSchema: tool.inputSchema || tool.input_schema || null,
-              _id: `external-${server.id}-${tool.id || tool.name}`,
-              source: 'external',
-              externalServerId: server.id,
-              externalServerName: server.name,
-              externalServerUrl: 'stdio'
-            });
-          });
-          continue;
+          const toolsList = tools?.tools || [];
+          return { server, tools: toolsList, error: null };
         }
         
         const headers = {};
@@ -227,44 +217,72 @@ const fetchExternalMcpTools = async (userId, role) => {
         const response = await fetch(toolsUrl, { headers, signal: controller.signal });
         clearTimeout(timeoutId);
         
-        if (response.ok) {
-          const data = await response.json();
-          const tools = data.tools || [];
-          
-          await server.update({ lastFetchedAt: new Date(), lastFetchError: null });
-          
-          tools.forEach(tool => {
-            allExternalTools.push({
-              ...tool,
-              input_schema: tool.input_schema || tool.inputSchema || null,
-              inputSchema: tool.inputSchema || tool.input_schema || null,
-              _id: `external-${server.id}-${tool.id || tool.name}`,
-              source: 'external',
-              externalServerId: server.id,
-              externalServerName: server.name,
-              externalServerUrl: server.url
-            });
-          });
-        } else {
-          await server.update({ lastFetchError: `HTTP ${response.status}` });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
         }
-      } catch (e) {
-        const errorMsg = e.name === 'AbortError' ? 'Request timeout' : e.message;
-        logger.error({ serverName: server.name, error: errorMsg }, 'Failed to fetch tools from external MCP server');
-        try {
-          await server.update({ lastFetchError: errorMsg });
-        } catch (err) {}
+        
+        const data = await response.json();
+        tools = data.tools || [];
+        
+        return { server, tools, error: null };
+      } catch (err) {
+        const msg = err.name === 'AbortError' ? 'Timeout' : err.message;
+        return { server, tools: [], error: msg };
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
     
+    // Fetch all servers in parallel - total time = slowest single server
+    const results = await Promise.allSettled(servers.map(fetchOneServer));
+    
+    // Process results and collect tools
+    const allExternalTools = [];
+    const serverStatusUpdates = [];
+    
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const { server, tools, error } = result.value;
+        
+        // Store update for later (outside the fetch loop)
+        serverStatusUpdates.push({ server, error });
+        
+        // Add tools to result
+        for (const tool of tools) {
+          allExternalTools.push({
+            ...tool,
+            input_schema: tool.input_schema || tool.inputSchema || null,
+            inputSchema: tool.inputSchema || tool.input_schema || null,
+            _id: `external-${server.id}-${tool.id || tool.name}`,
+            source: 'external',
+            externalServerId: server.id,
+            externalServerName: server.name,
+            externalServerUrl: server.transportType === 'stdio' ? 'stdio' : server.url
+          });
+        }
+      }
+    }
+    
+    // Update all servers after fetching (parallel to each other, not blocking fetches)
+    await Promise.allSettled(serverStatusUpdates.map(async ({ server, error }) => {
+      try {
+        await server.update({
+          lastFetchedAt: new Date(),
+          lastFetchError: error
+        });
+      } catch (updateErr) {
+        logger.error({ err: updateErr.message }, 'Failed to update external MCP server status');
+      }
+    }));
+    
     return allExternalTools;
-  } catch (e) {
-    logger.error({ error: e.message }, 'Error fetching external MCP tools');
+  } catch (error) {
+    logger.error({ err: error.message }, 'Failed to fetch external MCP tools');
     return [];
   }
 };
 
-async function getStdioMcpTools(command, args, envVars, runtime = 'node') {
+async function getStdioMcpTools(command, args, envVars, runtime = 'node', signal = null) {
   return new Promise((resolve, reject) => {
     const argsArray = safeJsonParse(args, []);
     const envVarsObj = safeJsonParse(envVars, {});
@@ -314,29 +332,50 @@ async function getStdioMcpTools(command, args, envVars, runtime = 'node') {
     
     proc.stdin.write(JSON.stringify(request) + '\n');
     
-    setTimeout(() => {
-      try {
-        proc.kill();
-      } catch (e) {}
-      
-      try {
-        const lines = stdout.trim().split('\n');
-        const lastLine = lines[lines.length - 1];
-        const response = JSON.parse(lastLine);
-        
-        if (response.error) {
-          reject(new Error(response.error.message || response.error));
-        } else {
-          resolve(response.result);
+    // Internal timeout as backstop - reduced from 30s to 10s
+    const internalTimeout = setTimeout(() => {
+      try { proc.kill(); } catch (e) {}
+      reject(new Error('Stdio timeout'));
+    }, 10000);
+    
+    // Listen for external abort signal
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(internalTimeout);
+        try { proc.kill(); } catch (e) {}
+        reject(new Error('Timeout'));
+      }, { once: true });
+    }
+    
+    // Check for response once stdout has data
+    const checkInterval = setInterval(() => {
+      const lines = stdout.trim().split('\n');
+      if (lines.length > 0) {
+        clearInterval(checkInterval);
+        clearTimeout(internalTimeout);
+        try {
+          const lastLine = lines[lines.length - 1];
+          const response = JSON.parse(lastLine);
+          
+          if (response.error) {
+            reject(new Error(response.error.message || response.error));
+          } else {
+            resolve(response.result);
+          }
+        } catch (e) {
+          reject(new Error(`Failed to parse response: ${e.message}. Output: ${stdout}`));
         }
-      } catch (e) {
-        reject(new Error(`Failed to parse response: ${e.message}. Output: ${stdout}`));
       }
-    }, 30000);
+    }, 100);
+    
+    // Clean up on resolve/reject
+    const cleanup = () => clearInterval(checkInterval);
+    resolve.then(cleanup).catch(cleanup);
+    reject.then(cleanup).catch(cleanup);
   });
 }
 
-async function executeStdioMcpTool(command, args, envVars, toolName, arguments_, runtime = 'node') {
+async function executeStdioMcpTool(command, args, envVars, toolName, params, runtime = 'node') {
   return new Promise((resolve, reject) => {
     const argsArray = safeJsonParse(args, []);
     const envVarsObj = safeJsonParse(envVars, {});

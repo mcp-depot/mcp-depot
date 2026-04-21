@@ -283,3 +283,134 @@ if (typeof bodyParams === 'object' && bodyParams !== null) {
 | `"{unknown}"` | not in params | `"{unknown}"` (left as-is, no crash) |
 
 **Impact:** Any tool whose API uses curly-brace syntax in values — Jira (`{noformat}`, `{code}`), Confluence, or any user-provided text containing `{word}` — is affected.
+
+---
+
+### Issue 34 — External MCP servers cause `GET /mcp/tools` to time out
+
+**Files:**
+- `server/src/routes/mcp.js` lines 171-337 (`fetchExternalMcpTools`, `getStdioMcpTools`)
+
+**What is broken:**
+
+Adding one or more external MCP servers (stdio or HTTP) causes `GET /mcp/tools` to hang or time out. The more servers added, the worse it gets. Claude Code's tool listing call fails entirely.
+
+**Why it is broken:**
+
+Three compounding problems in `fetchExternalMcpTools`:
+
+**Problem 1 — Sequential fetching (critical)**
+
+The function loops through servers with `await` inside a `for...of`:
+
+```js
+// mcp.js ~line 180
+for (const server of servers) {
+  if (server.transportType === 'stdio') {
+    const tools = await getStdioMcpTools(...);   // blocks until this server responds
+    ...
+  }
+  const response = await fetch(toolsUrl, ...);   // blocks until this server responds
+}
+```
+
+Total time = sum of all server response times. With 3 servers each taking 5 seconds: **15 seconds minimum**. With any one server timing out at 10s: the entire request stalls for 10s before moving to the next.
+
+**Problem 2 — Stdio timeout ignores the parent AbortController**
+
+HTTP calls correctly use a 10s `AbortController` signal. Stdio calls do not — the signal is created but never passed to `getStdioMcpTools`, which uses its own hardcoded 30s timeout:
+
+```js
+// mcp.js ~line 182-186
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), fetchTimeout); // 10s
+const tools = await getStdioMcpTools(server.command, server.args, ...);
+// ↑ controller.signal never passed — stdio server can hang for 30s
+```
+
+**Problem 3 — DB writes inside the sequential loop**
+
+Every iteration calls `await server.update(...)` to persist `lastFetchedAt` / `lastFetchError`. With N servers this adds N sequential DB round-trips on top of the network waits.
+
+**The fix:**
+
+**Step 1 — Refactor `fetchExternalMcpTools` to fetch all servers in parallel**
+
+Extract per-server logic into a helper and use `Promise.allSettled`:
+
+```js
+async function fetchExternalMcpTools(servers, fetchTimeout = 10000) {
+  const allTools = [];
+
+  async function fetchOne(server) {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), fetchTimeout);
+    try {
+      let tools = [];
+      if (server.transportType === 'stdio') {
+        tools = await getStdioMcpTools(
+          server.command, server.args, server.env, server.runtime,
+          controller.signal  // ← pass signal so stdio respects the same timeout
+        );
+      } else {
+        const toolsUrl = `${server.url.replace(/\/$/, '')}/tools`;
+        const headers  = server.authHeader ? { Authorization: server.authHeader } : {};
+        const response = await fetch(toolsUrl, { headers, signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        tools = data.tools || [];
+      }
+      await server.update({ lastFetchedAt: new Date(), lastFetchError: null });
+      return tools.map(tool => ({ ...tool, _source: server.name }));
+    } catch (err) {
+      const msg = err.name === 'AbortError' ? 'Timeout' : err.message;
+      await server.update({ lastFetchError: msg });
+      return [];
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  // Fetch all servers in parallel — total time = slowest single server
+  const results = await Promise.allSettled(servers.map(fetchOne));
+  for (const result of results) {
+    if (result.status === 'fulfilled') allTools.push(...result.value);
+  }
+  return allTools;
+}
+```
+
+**Step 2 — Pass `signal` into `getStdioMcpTools`**
+
+Add a `signal` parameter and wire it to `proc.kill()` when aborted:
+
+```js
+async function getStdioMcpTools(command, args, envVars, runtime = 'node', signal = null) {
+  return new Promise((resolve, reject) => {
+    // ... existing spawn logic ...
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        try { proc.kill(); } catch (e) {}
+        reject(new Error('Timeout'));
+      }, { once: true });
+    }
+
+    // Keep internal timeout as a backstop — reduce from 30s to 10s
+    setTimeout(() => {
+      try { proc.kill(); } catch (e) {}
+      reject(new Error('Stdio timeout'));
+    }, 10000);  // was 30000
+  });
+}
+```
+
+**Before vs After:**
+
+| Scenario | Before | After |
+|----------|--------|-------|
+| 3 servers × 5s each | 15s (sequential) | 5s (parallel) |
+| 1 server hangs at 30s | 30s blocked | 10s, then continues |
+| 5 servers, 1 times out | 40s+ total | 10s total |
+
+**Impact:** Any MCPConnect instance with more than one external MCP server configured. Symptoms worsen with each additional server added.
