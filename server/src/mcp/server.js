@@ -8,6 +8,7 @@ const AdapterFactory = require('../adapters');
 const encryption = require('../services/encryption');
 const logger = require('../services/logger');
 const { executeCompositeTool } = require('../services/compositeExecutor');
+const { pruneNulls } = require('../services/body-utils');
 const { z } = require('zod/v3');
 
 const { randomUUID } = require('crypto');
@@ -196,9 +197,10 @@ class MCPConnectServer {
 
     let bodyParams = endpoint.body || {};
     if (typeof bodyParams === 'object' && bodyParams !== null) {
-      bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/\{(\w+)\}/g, (match, key) => {
-        return params?.[key] !== undefined ? JSON.stringify(params[key]) : match;
+      bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/"\{(\w+)\}"/g, (match, key) => {
+        return params?.[key] !== undefined ? JSON.stringify(params[key]) : 'null';
       }));
+      bodyParams = pruneNulls(bodyParams);
     }
 
     const method = (endpoint.method || 'GET').toUpperCase();

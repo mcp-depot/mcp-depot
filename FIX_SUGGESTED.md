@@ -46,6 +46,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 38 | POST body merges template result AND all flat param keys; nulls in body | latest |
 | 38b | Optional params leave null nodes in resolved body template | latest |
 | 38c | Non-null default params added as flat body keys on top of template | latest |
+| 38d | Fixes 38/38b/38c applied to wrong file — Claude Code uses `mcp/server.js` not `mcp.js` | latest |
 
 ---
 
@@ -312,3 +313,86 @@ const hasBodyTemplate = !!(tool.endpoint.body && Object.keys(tool.endpoint.body)
 - `parent_comment_id` and other template vars are already handled by `bodyTemplateVars.has(key)` above the fallthrough — they are unaffected by this change
 
 **File:** `server/src/routes/mcp.js` — line ~1053 (add `hasBodyTemplate`), line ~1086 (add `if (!hasBodyTemplate)` guard)
+
+---
+
+### Issue 38d — All fixes 38/38b/38c applied to wrong file — Claude Code uses a completely separate execution path ✅ RESOLVED
+
+**Fixed in:**
+- `server/src/services/body-utils.js` — new shared utility with `pruneNulls()` function
+- `server/src/mcp/server.js` — regex now emits `null` for missing params, `pruneNulls()` called after substitution
+- `server/src/routes/mcp.js` — updated to import from shared utility
+
+**Root cause:**
+
+There are two independent execution paths in the codebase:
+
+| Path | File | Used by |
+|------|------|---------|
+| REST `/execute` route | `server/src/routes/mcp.js` | Admin UI test button, direct API calls |
+| MCP tool handler | `server/src/mcp/server.js` `executeTool()` lines 147-274 | **Claude Code, Cursor, all MCP clients** |
+
+All fixes so far (38 null guard, 38b pruneNulls, 38c hasBodyTemplate) were applied to `mcp.js`. Claude Code never touches that file. When Claude calls a tool via the MCP protocol, it goes through `mcp/server.js::executeTool` which has its own body construction code that received none of these fixes.
+
+**The body construction in `mcp/server.js` (current state, lines 197-202):**
+
+```js
+let bodyParams = endpoint.body || {};
+if (typeof bodyParams === 'object' && bodyParams !== null) {
+  bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/\{(\w+)\}/g, (match, key) => {
+    return params?.[key] !== undefined ? JSON.stringify(params[key]) : match;
+  }));
+}
+```
+
+This is a simpler regex-based substitution — it does not have `pruneNulls`, does not skip null params, and does not guard against non-template params being added to the body.
+
+**What needs to be applied to `mcp/server.js::executeTool`:**
+
+**Fix 1 — Add `pruneNulls` after body template substitution (same function as in `mcp.js`):**
+
+```js
+// After line 201 (after the existing bodyParams substitution block):
+if (typeof bodyParams === 'object' && bodyParams !== null) {
+  bodyParams = pruneNulls(bodyParams);
+}
+```
+
+Either import/require `pruneNulls` from a shared utility, or duplicate the function at the top of `mcp/server.js`.
+
+**Fix 2 — Leave unsubstituted template placeholders as null so `pruneNulls` removes them:**
+
+The current regex returns the literal `match` string (`{varName}`) when a param is not provided. Change it to return `null` instead so `pruneNulls` can remove those nodes:
+
+```js
+bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/"\{(\w+)\}"/g, (match, key) => {
+  return params?.[key] !== undefined ? JSON.stringify(params[key]) : 'null';
+  //                                                                   ↑ null not the literal placeholder
+}));
+```
+
+Note: the regex must match the quoted form `"{varName}"` (with surrounding quotes from JSON.stringify) so the replacement `null` produces valid JSON.
+
+**Fix 3 — Extract `pruneNulls` into a shared utility to avoid duplication:**
+
+Both `mcp.js` and `mcp/server.js` need this function. Rather than duplicating it, move it to a shared location:
+
+```
+server/src/services/body-utils.js   (new file)
+  exports.pruneNulls = function pruneNulls(obj) { ... }
+
+// then in both mcp.js and mcp/server.js:
+const { pruneNulls } = require('../services/body-utils');
+```
+
+**Recommended fix order:**
+
+1. Extract `pruneNulls` to `body-utils.js` and import in both files
+2. Fix the regex in `mcp/server.js` to emit `null` for missing params (Fix 2)
+3. Call `pruneNulls(bodyParams)` in `mcp/server.js` after substitution (Fix 1)
+4. Verify with the Bitbucket PR comment tool — only `content.raw` and `parent.id` should appear in the body
+
+**Files to change:**
+- `server/src/mcp/server.js` — `executeTool()` body construction block (lines ~197-202)
+- `server/src/services/body-utils.js` — new shared utility (optional but recommended)
+- `server/src/routes/mcp.js` — update import if shared utility is extracted

@@ -10,6 +10,7 @@ const Integration = require('../models/Integration');
 const User = require('../models/User');
 const AdapterFactory = require('../adapters');
 const { logToolCall } = require('../services/tool-logger');
+const { pruneNulls } = require('../services/body-utils');
 const encryption = require('../services/encryption');
 const config = require('../config/env');
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
@@ -57,21 +58,6 @@ function substituteBodyTemplate(obj, params) {
     return result;
   }
   return obj;
-}
-
-function pruneNulls(obj) {
-  if (typeof obj !== 'object' || obj === null) return obj;
-  if (Array.isArray(obj)) return obj.map(item => pruneNulls(item)).filter(item => item !== null && item !== undefined);
-  
-  const result = {};
-  for (const [key, value] of Object.entries(obj)) {
-    const pruned = pruneNulls(value);
-    if (pruned !== null && pruned !== undefined) {
-      if (typeof pruned === 'object' && Object.keys(pruned).length === 0) continue;
-      result[key] = pruned;
-    }
-  }
-  return result;
 }
 
 const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED === 'true';
