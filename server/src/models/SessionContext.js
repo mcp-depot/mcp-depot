@@ -21,6 +21,10 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: false
     },
+    ttlHours: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
     createdBy: {
       type: DataTypes.UUID,
       allowNull: true

@@ -6,6 +6,8 @@ const { loadModels } = require('../config/database');
 
 const router = express.Router();
 
+const DEFAULT_TTL_HOURS = 168; // 7 days
+
 function readableWhere(userId) {
   return { [Op.or]: [{ createdBy: userId }, { isShared: true }, { createdBy: null }] };
 }
@@ -39,7 +41,8 @@ router.get('/:name', auth, async (req, res) => {
 const upsertSchema = Joi.object({
   name: Joi.string().max(255).required(),
   content: Joi.string().required(),
-  shared: Joi.boolean().default(false)
+  shared: Joi.boolean().default(false),
+  ttlHours: Joi.number().integer().min(0).default(DEFAULT_TTL_HOURS)
 });
 
 router.post('/', auth, async (req, res) => {
@@ -50,6 +53,8 @@ router.post('/', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
 
+    const ttlHours = value.ttlHours === 0 ? null : value.ttlHours;
+
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name: value.name },
       defaults: {
@@ -57,6 +62,7 @@ router.post('/', auth, async (req, res) => {
         name: value.name,
         content: value.content,
         isShared: value.shared,
+        ttlHours,
         createdBy: req.user.id
       }
     });
@@ -65,7 +71,7 @@ router.post('/', auth, async (req, res) => {
       if (ctx.createdBy !== req.user.id) {
         return res.status(403).json({ error: 'You do not own this context' });
       }
-      await ctx.update({ content: value.content, isShared: value.shared });
+      await ctx.update({ content: value.content, isShared: value.shared, ttlHours });
     }
 
     res.status(created ? 201 : 200).json(ctx);

@@ -256,14 +256,15 @@ const createDefaultTool = async () => {
       },
       {
         name: 'store-session-context',
-        description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Only the creator can update or delete it.',
+        description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
         endpoint: {
           path: '/api/mcp/session-contexts/store',
           method: 'POST',
           params: {
             name: { type: 'string', required: true, description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
             content: { type: 'string', required: true, description: 'The context to store — markdown, JSON, bullet list, anything' },
-            shared: { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read this context. Default false.' }
+            shared: { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read this context. Default false.' },
+            ttlHours: { type: 'number', required: false, description: 'Hours until this context expires. Default 168 (7 days). Pass 0 to pin permanently (never expires).' }
           },
           headers: {}
         }

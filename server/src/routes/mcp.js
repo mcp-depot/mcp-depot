@@ -113,25 +113,28 @@ router.get('/hello', async (req, res) => {
 });
 
 // Session Context internal routes - exposed via DB seed tools
+const DEFAULT_TTL_HOURS = 168; // 7 days
+
 router.post('/session-contexts/store', async (req, res) => {
   try {
-    const { name, content, shared = false } = req.body;
+    const { name, content, shared = false, ttlHours: rawTtl = DEFAULT_TTL_HOURS } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
     const callerId = req.user?.id ?? null;
+    const ttlHours = rawTtl === 0 ? null : rawTtl; // 0 = pin forever
 
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name },
-      defaults: { id: randomUUID(), name, content, isShared: shared, createdBy: callerId }
+      defaults: { id: randomUUID(), name, content, isShared: shared, ttlHours, createdBy: callerId }
     });
     if (!created) {
       if (ctx.createdBy !== null && ctx.createdBy !== callerId) {
         return res.status(403).json({ error: 'You do not own this context' });
       }
-      await ctx.update({ content, isShared: shared });
+      await ctx.update({ content, isShared: shared, ttlHours });
     }
-    res.json({ success: true, name, chars: content.length, shared, created });
+    res.json({ success: true, name, chars: content.length, shared, ttlHours, created });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

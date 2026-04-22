@@ -133,6 +133,11 @@ const startServer = async () => {
   try {
     await connectDB();
     
+    // Start background context cleanup job
+    const { startContextCleanup } = require('./services/context-cleanup');
+    const { loadModels } = require('./config/database');
+    startContextCleanup(loadModels);
+    
     // Initialize Secret Store if configured via env vars
     const secretStore = require('./services/secret-store');
     const secretStoreEnabled = process.env.SECRET_STORE_ENABLED === 'true';

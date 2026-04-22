@@ -7,7 +7,7 @@
 
 ## Feature 01 — Session Context Store: share AI session context across sessions, tools, and teammates
 
-**Status:** Partially implemented — ownership + sharing design pending
+**Status:** Ownership + sharing implemented — TTL pending
 
 **The problem:**
 
@@ -27,9 +27,9 @@ restricted to the owner.
 
 | Tool | Description |
 |------|-------------|
-| `store-session-context(name, content, shared?)` | Save a named context string. `shared` defaults to `false` (private). |
+| `store-session-context(name, content, shared?, ttlHours?)` | Save a named context. `shared` defaults to `false`. `ttlHours` defaults to 168 (7 days); pass `0` to pin permanently. |
 | `get-session-context(name)` | Retrieve a context you own or that is shared. Returns 404 for private contexts owned by others. |
-| `list-session-contexts()` | List your own contexts plus all shared contexts. |
+| `list-session-contexts()` | List your own contexts plus all shared contexts, with expiry info. |
 | `delete-session-context(name)` | Delete a context you own. Returns 403 if not the owner. |
 
 **Access rules (summary):**
@@ -80,7 +80,8 @@ CREATE TABLE SessionContext (
   name      VARCHAR(255) UNIQUE NOT NULL,
   content   TEXT NOT NULL,
   isShared  BOOLEAN NOT NULL DEFAULT FALSE,
-  createdBy INTEGER REFERENCES Users(id) ON DELETE SET NULL,
+  ttlHours  INTEGER NULL,          -- NULL = never expire; default 168 (7 days) applied at write time
+  createdBy UUID REFERENCES Users(id) ON DELETE SET NULL,
   createdAt DATETIME,
   updatedAt DATETIME
 );
@@ -95,15 +96,18 @@ CREATE TABLE SessionContext (
   create it (they can update it only if they are the owner).
 - `isShared` is stored on the row. The UI should surface this as a toggle so
   users can share or unshare without going through Claude.
-- Consider adding an optional `ttl` (time-to-live) field so temporary investigation
-  contexts auto-expire and do not clutter the store.
+- **TTL:** `ttlHours` stores how long a context lives after its last update. `NULL`
+  means never expire. The default at write time is `168` (7 days) — applied by the
+  server if the caller omits `ttlHours`. Passing `ttlHours: 0` pins the context
+  permanently (stored as `NULL`). A background cleanup job deletes expired rows.
+  The 7-day default is hardcoded for now; a system-setting override can be added later.
 - Admin UI: a list view under a "Contexts" section, with name, owner, shared badge,
-  and age. No editor needed — Claude writes the content. Owner gets a share toggle
-  and a delete button; non-owners see read-only.
+  expiry countdown, and age. No editor needed — the AI writes the content. Owner gets
+  a share toggle and a delete button; non-owners see read-only.
 
-**Effort estimate:** Small — the table exists, the routes exist. This revision adds
-one column (`isShared`), a new migration, and ownership checks throughout the routes
-and MCP tools. No new dependencies.
+**Effort estimate:** Small — the table exists, the routes exist. Remaining work adds
+one column (`ttlHours`), a new migration, TTL param on the store tool, and a cleanup
+job. No new dependencies.
 
 ---
 
@@ -112,33 +116,34 @@ and MCP tools. No new dependencies.
 This section gives the developer exact code to write. All patterns follow existing
 MCPConnect conventions observed in the codebase.
 
-> **Note for the developer:** Feature 01 was partially implemented. The table,
-> model, REST routes (`session-context.js`), and React page (`SessionContexts.jsx`)
-> already exist. This guide supersedes the original spec. Changes needed are:
-> 1. Add `isShared` column via a new migration
-> 2. Update model, REST routes, MCP DB seed records, and UI for ownership + sharing
+> **Note for the developer:** Ownership + sharing (`isShared`) is fully implemented
+> as of commit `44d8cc5`. The remaining work is TTL only:
+> 1. Add `ttlHours` column via a new migration
+> 2. Update model and routes to persist `ttlHours`
+> 3. Add `ttlHours` param to the `store-session-context` DB seed record
+> 4. Add the cleanup job to server startup
 
-#### Files already created (need updating)
+#### Files to update
 
 | File | What to change |
 |------|---------------|
-| `server/src/models/SessionContext.js` | Add `isShared` field |
-| `server/src/routes/session-context.js` | Add ownership checks + `isShared` filtering |
-| `client/src/pages/SessionContexts.jsx` | Add shared badge, share toggle, owner-only controls |
+| `server/src/models/SessionContext.js` | Add `ttlHours` field |
+| `server/src/routes/session-context.js` | Add `ttlHours` to upsertSchema + create/update |
+| `server/src/config/database.js` | Add `ttlHours` param to `store-session-context` seed |
+| `server/src/server.js` (or app entry point) | Start the cleanup job on startup |
 
 #### New files to create
 
 | File | Purpose |
 |------|---------|
-| `server/src/migrations/20260501-session-context-add-shared.js` | Alter migration — adds `isShared` to existing table |
+| `server/src/migrations/20260502-session-context-add-ttl.js` | Alter migration — adds `ttlHours` to existing table |
+| `server/src/services/session-context-cleanup.js` | Hourly cleanup job for expired contexts |
 
 ---
 
 #### 1. Sequelize model — `server/src/models/SessionContext.js`
 
-Add `isShared` field. Do NOT include an `associate` block — the `belongsTo(User)`
-association was removed in commit `d370b00` to fix a DB sync failure, and the routes
-compare `createdBy` directly as an integer (`ctx.createdBy !== req.user.id`).
+Add `ttlHours` field. `NULL` means never expire.
 
 ```js
 const { DataTypes } = require('sequelize');
@@ -164,8 +169,13 @@ module.exports = (sequelize) => {
       allowNull: false,
       defaultValue: false
     },
-    createdBy: {
+    ttlHours: {
       type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null   // null = never expire
+    },
+    createdBy: {
+      type: DataTypes.UUID,
       allowNull: true
     }
   }, {
@@ -179,26 +189,26 @@ module.exports = (sequelize) => {
 
 ---
 
-#### 2. New migration — `server/src/migrations/20260501-session-context-add-shared.js`
+#### 2. New migration — `server/src/migrations/20260502-session-context-add-ttl.js`
 
-Adds `isShared` to the existing `SessionContext` table. Existing rows get
-`isShared = false` (the column default), which is correct — pre-existing contexts
-become private to whoever created them.
+Adds `ttlHours` to the existing `SessionContext` table. Existing rows get
+`ttlHours = null` (never expire). The server's cleanup job will not touch them
+until a future `store-session-context` call sets a TTL on them.
 
 ```js
 'use strict';
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.addColumn('SessionContext', 'isShared', {
-      type: Sequelize.BOOLEAN,
-      allowNull: false,
-      defaultValue: false
+    await queryInterface.addColumn('SessionContext', 'ttlHours', {
+      type: Sequelize.INTEGER,
+      allowNull: true,
+      defaultValue: null
     });
   },
 
   async down(queryInterface) {
-    await queryInterface.removeColumn('SessionContext', 'isShared');
+    await queryInterface.removeColumn('SessionContext', 'ttlHours');
   }
 };
 ```
@@ -257,10 +267,14 @@ router.get('/:name', auth, async (req, res) => {
   }
 });
 
+const DEFAULT_TTL_HOURS = 168; // 7 days
+
 const upsertSchema = Joi.object({
-  name:    Joi.string().max(255).required(),
-  content: Joi.string().required(),
-  shared:  Joi.boolean().default(false)
+  name:     Joi.string().max(255).required(),
+  content:  Joi.string().required(),
+  shared:   Joi.boolean().default(false),
+  ttlHours: Joi.number().integer().min(0).allow(null).default(DEFAULT_TTL_HOURS)
+  // 0 = pin permanently (stored as null); omit = use default (7 days)
 });
 
 // POST /session-contexts — create (owner set to caller) or update (owner only)
@@ -272,6 +286,8 @@ router.post('/', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
 
+    const ttlHours = value.ttlHours === 0 ? null : value.ttlHours;  // 0 → pin forever
+
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name: value.name },
       defaults: {
@@ -279,6 +295,7 @@ router.post('/', auth, async (req, res) => {
         name:      value.name,
         content:   value.content,
         isShared:  value.shared,
+        ttlHours,
         createdBy: req.user.id
       }
     });
@@ -287,7 +304,7 @@ router.post('/', auth, async (req, res) => {
       if (ctx.createdBy !== req.user.id) {
         return res.status(403).json({ error: 'You do not own this context' });
       }
-      await ctx.update({ content: value.content, isShared: value.shared });
+      await ctx.update({ content: value.content, isShared: value.shared, ttlHours });
     }
 
     res.status(created ? 201 : 200).json(ctx);
@@ -368,27 +385,30 @@ router.get('/session-contexts/list',     checkMcpAuth, async (req, res) => { ...
 router.delete('/session-contexts/delete', checkMcpAuth, async (req, res) => { ... });
 ```
 
-For the `store` handler, add `isShared` support and set `createdBy` from the resolved user:
+For the `store` handler, add `isShared` and `ttlHours` support and set `createdBy` from the resolved user:
 
 ```js
+const DEFAULT_TTL_HOURS = 168; // 7 days — applied if ttlHours is omitted
+
 router.post('/session-contexts/store', checkMcpAuth, async (req, res) => {
   try {
-    const { name, content, shared = false } = req.body;
+    const { name, content, shared = false, ttlHours: rawTtl = DEFAULT_TTL_HOURS } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
     const callerId = req.user?.id ?? null;  // null if authMode is none/optional with no token
+    const ttlHours = rawTtl === 0 ? null : rawTtl;  // 0 → pin forever (stored as null)
 
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name },
-      defaults: { id: randomUUID(), name, content, isShared: shared, createdBy: callerId }
+      defaults: { id: randomUUID(), name, content, isShared: shared, ttlHours, createdBy: callerId }
     });
     if (!created) {
       // Only allow update if caller owns it, or context is ownerless (createdBy null)
       if (ctx.createdBy !== null && ctx.createdBy !== callerId) {
         return res.status(403).json({ error: 'You do not own this context' });
       }
-      await ctx.update({ content, isShared: shared });
+      await ctx.update({ content, isShared: shared, ttlHours });
     }
     res.json({ success: true, name, chars: content.length, shared, created });
   } catch (err) {
@@ -431,14 +451,28 @@ to `store-session-context`:
 ```js
 {
   name: 'store-session-context',
-  description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Only the creator can update or delete it.',
+  description: `Save a named context to MCPConnect for later retrieval across sessions or by teammates.
+
+Visibility: private by default. Set shared=true to make it readable by any MCPConnect user.
+
+Expiry (TTL): contexts expire based on their last write time — reading a context does NOT reset the clock, only writing does.
+- Default: 168 hours (7 days) from the last store call.
+- To pin permanently: pass ttlHours=0.
+- To refresh the clock on an active context: call store-session-context again with the same name and content.
+
+Before storing, if the user has not specified how long to keep this context, ask them:
+  "Should this context expire after 7 days, or would you like to keep it permanently? (default: 7 days)"
+If the user does not answer or says they don't mind, use the default (omit ttlHours).
+
+When listing or reading contexts, if any context is expiring within 24 hours, proactively tell the user and offer to refresh it.`,
   endpoint: {
     path: '/api/mcp/session-contexts/store',
     method: 'POST',
     params: {
-      name:    { type: 'string',  required: true,  description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
-      content: { type: 'string',  required: true,  description: 'The context to store — markdown, JSON, bullet list, anything' },
-      shared:  { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read this context. Default false.' }
+      name:     { type: 'string',  required: true,  description: 'Unique human-readable key, e.g. "bitbucket-debug". The first creator owns the name; others cannot overwrite it.' },
+      content:  { type: 'string',  required: true,  description: 'The context to store — markdown, JSON, bullet list, anything useful to another session.' },
+      shared:   { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read this context. Default false (private).' },
+      ttlHours: { type: 'number',  required: false, description: 'Hours until this context expires, measured from its last write. Default 168 (7 days). Pass 0 to pin permanently (never expires). Calling store-session-context again on the same name resets the expiry clock.' }
     },
     headers: {}
   }
@@ -456,27 +490,57 @@ the new behaviour.
 Changes from the current implementation:
 
 - Each row shows a **Private** / **Shared** badge
+- Each row shows a live **Expires** countdown (ticks every minute) — **Pinned** badge for permanent contexts
+- Countdown is color-coded: normal when > 24 h remaining, amber when 1-24 h, red when < 1 h
 - Rows the current user owns show a **Share / Unshare** toggle and a **Delete** button
 - Rows owned by others (shared contexts) show no edit controls
-- The modal shows the owner (raw `createdBy` integer or username if available) and
-  the shared status
+- The modal shows shared status, expiry, and size
 
 ```jsx
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 
+// Returns { label, urgency } for a context's TTL.
+// urgency: 'pinned' | 'ok' | 'soon' | 'urgent'
+function expiryInfo(ctx, now) {
+  if (ctx.ttlHours == null) return { label: 'Pinned', urgency: 'pinned' };
+  const expiresAt = new Date(ctx.updatedAt).getTime() + ctx.ttlHours * 3600000;
+  const msLeft = expiresAt - now;
+  if (msLeft <= 0) return { label: 'Expired', urgency: 'urgent' };
+  const hLeft = msLeft / 3600000;
+  if (hLeft < 1) {
+    const mLeft = Math.ceil(msLeft / 60000);
+    return { label: `${mLeft}m`, urgency: 'urgent' };
+  }
+  if (hLeft < 24) {
+    const h = Math.floor(hLeft);
+    const m = Math.floor((hLeft - h) * 60);
+    return { label: `${h}h ${m}m`, urgency: 'soon' };
+  }
+  const d = Math.floor(hLeft / 24);
+  const h = Math.floor(hLeft % 24);
+  return { label: `${d}d ${h}h`, urgency: 'ok' };
+}
+
 export default function SessionContexts() {
   const { token, user } = useAuth();
-  const [contexts, setContexts]   = useState([]);
-  const [selected, setSelected]   = useState(null);
-  const [loading, setLoading]     = useState(true);
+  const [contexts, setContexts] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [now, setNow]           = useState(Date.now());
+
+  // Tick every minute so countdowns update without a page refresh
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   const load = async () => {
     setLoading(true);
     try {
       const data = await api.get('/session-contexts', token);
-      setContexts(data);
+      setContexts(Array.isArray(data) ? data : (data?.data || data?.contexts || []));
     } finally {
       setLoading(false);
     }
@@ -512,7 +576,7 @@ export default function SessionContexts() {
         <div className="empty-state">
           <div className="empty-state-icon">💬</div>
           <h3>No contexts yet</h3>
-          <p>Ask Claude to store a context using <code>store-session-context</code>.</p>
+          <p>From your AI session, call <code>store-session-context</code> with a name and content.</p>
         </div>
       ) : (
         <table className="data-table">
@@ -520,78 +584,89 @@ export default function SessionContexts() {
             <tr>
               <th>Name</th>
               <th>Visibility</th>
+              <th>Expires</th>
               <th>Updated</th>
               <th>Size</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {contexts.map(ctx => (
-              <tr key={ctx.id} onClick={() => setSelected(ctx)} className="clickable-row">
-                <td><code>{ctx.name}</code></td>
-                <td>
-                  <span className={`badge ${ctx.isShared ? 'badge-green' : 'badge-muted'}`}>
-                    {ctx.isShared ? 'Shared' : 'Private'}
-                  </span>
-                </td>
-                <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
-                <td>{ctx.content?.length ?? 0} chars</td>
-                <td onClick={e => e.stopPropagation()}>
-                  {isOwner(ctx) && (
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button
-                        className="btn btn-sm btn-secondary"
-                        onClick={() => handleToggleShare(ctx.name, ctx.isShared)}
-                      >
-                        {ctx.isShared ? 'Unshare' : 'Share'}
-                      </button>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => handleDelete(ctx.name)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {contexts.map(ctx => {
+              const { label, urgency } = expiryInfo(ctx, now);
+              return (
+                <tr key={ctx.id} onClick={() => setSelected(ctx)} className="clickable-row">
+                  <td><code>{ctx.name}</code></td>
+                  <td>
+                    <span className={`badge ${ctx.isShared ? 'badge-green' : 'badge-muted'}`}>
+                      {ctx.isShared ? 'Shared' : 'Private'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`expiry expiry-${urgency}`}>{label}</span>
+                  </td>
+                  <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
+                  <td>{ctx.content?.length ?? 0} chars</td>
+                  <td onClick={e => e.stopPropagation()}>
+                    {isOwner(ctx) && (
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          onClick={() => handleToggleShare(ctx.name, ctx.isShared)}
+                        >
+                          {ctx.isShared ? 'Unshare' : 'Share'}
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => handleDelete(ctx.name)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
 
-      {selected && (
-        <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>{selected.name}</h2>
-              <button className="modal-close" onClick={() => setSelected(null)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="modal-meta">
-                <span>{selected.isShared ? '🌐 Shared' : '🔒 Private'}</span>
-                <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
-                <span>{selected.content?.length ?? 0} chars</span>
+      {selected && (() => {
+        const { label, urgency } = expiryInfo(selected, now);
+        return (
+          <div className="modal-overlay" onClick={() => setSelected(null)}>
+            <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>{selected.name}</h2>
+                <button className="modal-close" onClick={() => setSelected(null)}>✕</button>
               </div>
-              <pre className="context-preview">{selected.content}</pre>
-            </div>
-            <div className="modal-footer">
-              {isOwner(selected) && (
-                <>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => handleToggleShare(selected.name, selected.isShared)}
-                  >
-                    {selected.isShared ? 'Make Private' : 'Share with team'}
-                  </button>
-                  <button className="btn btn-danger" onClick={() => handleDelete(selected.name)}>Delete</button>
-                </>
-              )}
-              <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
+              <div className="modal-body">
+                <div className="modal-meta">
+                  <span>{selected.isShared ? '🌐 Shared' : '🔒 Private'}</span>
+                  <span>Expires: <span className={`expiry expiry-${urgency}`}>{label}</span></span>
+                  <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
+                  <span>{selected.content?.length ?? 0} chars</span>
+                </div>
+                <pre className="context-preview">{selected.content}</pre>
+              </div>
+              <div className="modal-footer">
+                {isOwner(selected) && (
+                  <>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleToggleShare(selected.name, selected.isShared)}
+                    >
+                      {selected.isShared ? 'Make Private' : 'Share with team'}
+                    </button>
+                    <button className="btn btn-danger" onClick={() => handleDelete(selected.name)}>Delete</button>
+                  </>
+                )}
+                <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -611,6 +686,13 @@ CSS additions needed in `client/src/index.css` (if not already present):
 }
 .badge-green { background: rgba(59,178,115,0.15); color: var(--success); }
 .badge-muted { background: var(--surface-hover); color: var(--text-light); }
+
+/* TTL expiry countdown */
+.expiry { font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.expiry-pinned { color: var(--text-light); }
+.expiry-ok     { color: var(--text-light); }
+.expiry-soon   { color: var(--warning, #d97706); font-weight: 600; }
+.expiry-urgent { color: var(--danger,  #e53e3e); font-weight: 600; }
 ```
 
 ---
@@ -640,26 +722,60 @@ Once deployed, test the full cycle from a Claude Code session:
 
 ---
 
-#### 7. Optional: TTL (auto-expiry)
+#### 7. Cleanup job — `server/src/services/session-context-cleanup.js`
 
-If the store gets cluttered, add a `ttlHours` column (nullable integer) and a
-background job that runs every hour to delete expired rows:
-
-```sql
-ALTER TABLE SessionContext ADD COLUMN ttlHours INTEGER NULL;
-```
+Background job that deletes expired contexts. A row is expired when its `ttlHours`
+is not null AND `updatedAt + ttlHours hours < NOW()`. The job runs once at server
+startup and then every hour via `setInterval`.
 
 ```js
-// In a cron or startup job:
+'use strict';
+
 const { Op } = require('sequelize');
-const cutoff = new Date(Date.now() - ctx.ttlHours * 3600000);
-await SessionContext.destroy({
-  where: { ttlHours: { [Op.ne]: null }, updatedAt: { [Op.lt]: cutoff } }
-});
+
+const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+async function runCleanup(loadModels) {
+  try {
+    const { SessionContext } = loadModels();
+    const candidates = await SessionContext.findAll({
+      where: { ttlHours: { [Op.ne]: null } },
+      attributes: ['id', 'updatedAt', 'ttlHours']
+    });
+    const now = Date.now();
+    const expiredIds = candidates
+      .filter(c => now > new Date(c.updatedAt).getTime() + c.ttlHours * 3600000)
+      .map(c => c.id);
+    if (expiredIds.length > 0) {
+      await SessionContext.destroy({ where: { id: { [Op.in]: expiredIds } } });
+      console.log(`[session-context-cleanup] Deleted ${expiredIds.length} expired context(s)`);
+    }
+  } catch (err) {
+    console.error('[session-context-cleanup] Cleanup error:', err.message);
+  }
+}
+
+function startCleanupJob(loadModels) {
+  runCleanup(loadModels);
+  setInterval(() => runCleanup(loadModels), INTERVAL_MS);
+}
+
+module.exports = { startCleanupJob };
 ```
 
-This is optional — skip for the initial implementation and add only if users report
-context clutter.
+The JS-filter approach (load candidates, compute expiry in JS) avoids SQL dialect
+differences between SQLite, PostgreSQL, and MySQL.
+
+**Wiring into server startup** — in `server/src/server.js` (or wherever the app
+initialises after the DB sync):
+
+```js
+const { startCleanupJob } = require('./services/session-context-cleanup');
+const { loadModels } = require('./config/database');
+
+// After sequelize.sync():
+startCleanupJob(loadModels);
+```
 
 ---
 
