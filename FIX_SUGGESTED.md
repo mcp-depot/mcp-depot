@@ -50,6 +50,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 38e | Same flat-param body merge bug exists in `consume.js` and `compositeExecutor.js` — both unfixed | latest |
 | 39 | Template substitution always produces strings — number/boolean params serialised as `"786047927"` not `786047927` | latest |
 | 40 | Session context MCP tools return 401 when MCP auth mode is required | `a5e5ae7` |
+| 41 | Ownerless contexts invisible in admin UI and list/get MCP tools | `de20e7a` |
 
 ---
 
@@ -1105,7 +1106,7 @@ FEATURES.md and can be implemented as a follow-up once the basic flow works.
 
 ## Feature 01 — Ownerless contexts (stored via MCP) invisible in admin UI and `list`/`get` MCP tools
 
-**Status:** Open
+**Status:** Resolved — fixed in commit `de20e7a`
 
 **Symptom:**
 
