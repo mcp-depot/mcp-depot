@@ -952,3 +952,13 @@ await this.registerSessionContextTools();
 - `server/src/routes/mcp.js` — add 4 internal REST handlers (Step 1)
 - `server/src/config/database.js` — add 4 entries to `toolsToCreate` array (Step 2)
 - `server/src/mcp/server.js` — remove `registerSessionContextTools()` and its call (Step 3)
+
+---
+
+## Feature 01 — list-session-contexts fails: "User is not associated to SessionContext!"
+
+**Status:** Resolved
+
+**Fixed in:** commit 83a18fc - removed User include from list route
+
+**What was fixed:** Removed the User include from the `/session-contexts/list` handler since the association was removed in commit d370b00
