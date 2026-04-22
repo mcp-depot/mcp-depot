@@ -52,7 +52,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 40 | Session context MCP tools return 401 when MCP auth mode is required | `a5e5ae7` |
 | 41 | Ownerless contexts invisible in admin UI and list/get MCP tools | `de20e7a` |
 | 42 | Session Contexts empty state references Claude by name | `72e830c` |
-| 43 | `list-session-contexts` MCP response omits TTL info — `ttlHours` and `expiresAt` missing | open |
+| 43 | `list-session-contexts` MCP response omits TTL info — `ttlHours` and `expiresAt` missing | `5827ac3` |
 
 ---
 
