@@ -604,3 +604,351 @@ bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/"\{(\w+)\}"/g, (matc
 This guarantees a `number`-typed param always lands in the JSON as a bare integer even if it arrived as a string, which makes the tool resilient to type mismatches between what Claude passes and what the API expects.
 
 **Files to fix:** `server/src/mcp/server.js` (lines ~199-204), `server/src/routes/mcp.js` (`substituteBodyTemplate` or the inline substitution), `server/src/routes/consume.js` (lines ~221-229)
+
+---
+
+## Feature 01 — Session Context Store: UI layout broken (missing CSS classes)
+
+**Status:** Open
+
+**What is broken:**
+
+The `SessionContexts.jsx` page renders without any layout, table styling, or modal
+structure. The page header has no padding, the table has no borders or row styling,
+clicking a row opens a modal where all content is crammed with no spacing, and the
+`<pre>` block for context content overflows or has no visible distinction.
+
+**Why it is broken:**
+
+`SessionContexts.jsx` uses CSS class names that do not exist in `index.css`. The
+developer invented new class names instead of using the established patterns from
+other pages (Tools.jsx, Integrations.jsx etc.).
+
+| Class used in JSX | Exists in index.css | Fix |
+|---|---|---|
+| `page-container` | No | Use `container` |
+| `page-subtitle` | No | Wrap in `page-header`, use `<p>` which gets `.page-header p` styles |
+| `data-table` | No | Add new class (see below) |
+| `clickable-row` | No | Add new class (see below) |
+| `modal-lg` | No | No large variant exists - add one or remove and use inline style |
+| `modal-meta` | No | Add new class (see below) |
+| `context-preview` | No | Add new class (see below) |
+
+**Fix 1 - Restructure `SessionContexts.jsx` to use existing patterns:**
+
+```jsx
+return (
+  <div className="container">
+    <div className="page-header">
+      <h1>Session Contexts</h1>
+      <p>Named context snapshots stored by AI sessions. Read by other sessions to skip re-diagnosis.</p>
+    </div>
+
+    {loading ? (
+      <div className="loading-overlay"><div className="spinner"></div></div>
+    ) : contexts.length === 0 ? (
+      <div className="empty-state">
+        <div className="empty-state-icon">💬</div>
+        <h3>No contexts yet</h3>
+        <p>Ask Claude to store a context using <code>store-session-context</code>.</p>
+      </div>
+    ) : (
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Creator</th>
+            <th>Updated</th>
+            <th>Size</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {contexts.map(ctx => (
+            <tr key={ctx.id} onClick={() => setSelected(ctx)} className="clickable-row">
+              <td><code>{ctx.name}</code></td>
+              <td>{ctx.creator?.username ?? '-'}</td>
+              <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
+              <td>{ctx.content?.length ?? 0} chars</td>
+              <td>
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={(e) => { e.stopPropagation(); handleDelete(ctx.name); }}
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+
+    {selected && (
+      <div className="modal-overlay" onClick={() => setSelected(null)}>
+        <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>{selected.name}</h2>
+            <button className="modal-close" onClick={() => setSelected(null)}>✕</button>
+          </div>
+          <div className="modal-body">
+            <div className="modal-meta">
+              <span>By {selected.creator?.username ?? 'unknown'}</span>
+              <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
+            </div>
+            <pre className="context-preview">{selected.content}</pre>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+);
+```
+
+**Fix 2 - Add missing classes to `client/src/index.css`:**
+
+```css
+/* ── Session Contexts page ───────────────────────────────────────────── */
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 0.6rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.clickable-row:hover {
+  background: var(--surface-hover);
+}
+
+.modal-lg {
+  max-width: 760px;
+}
+
+.modal-meta {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.8rem;
+  color: var(--text-light);
+  margin-bottom: 1rem;
+}
+
+.context-preview {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  max-height: 50vh;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  color: var(--text);
+}
+```
+
+**Files to fix:**
+- `client/src/pages/SessionContexts.jsx` — restructure JSX (Fix 1)
+- `client/src/index.css` — add missing CSS classes (Fix 2)
+
+---
+
+## Feature 01 — Session Context tools invisible in admin UI and list-tools
+
+**Status:** Open
+
+**What is broken:**
+
+`store-session-context`, `get-session-context`, `list-session-contexts`, and
+`delete-session-context` do not appear in the MCPConnect admin UI and do not appear
+when Claude calls `list-tools`. They work via MCP if Claude knows to call them by
+name, but they cannot be discovered.
+
+**Why it is broken:**
+
+The developer registered these tools via `this.server.tool()` inside
+`registerSessionContextTools()` in `server/src/mcp/server.js`. This is a different
+pattern from every other built-in tool in MCPConnect.
+
+`hello`, `list-tools`, `fetch-url`, `list-skills`, and `get-skill` are all **DB
+seed records** in `server/src/config/database.js` pointing to `/api/mcp/*` REST
+routes. When MCPConnect initialises, it loads these DB records and registers them
+via `registerTool()` just like any user-created tool. That is why they appear in
+the admin UI and in `list-tools` results.
+
+`registerSessionContextTools()` bypasses the DB entirely → no DB record → invisible
+everywhere except the raw MCP protocol (and even that requires the server to have
+restarted after the code was deployed).
+
+**Fix — three steps:**
+
+**Step 1** — Add 4 internal REST handlers to `server/src/routes/mcp.js` (alongside
+the existing `hello`, `fetch-url` etc. handlers). These do not need user `auth`
+middleware — they are called internally by MCPConnect's execution layer.
+
+```js
+// store-session-context
+router.post('/session-contexts/store', async (req, res) => {
+  try {
+    const { name, content } = req.body;
+    if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
+    const { SessionContext } = loadModels();
+    const { randomUUID } = require('crypto');
+    const [ctx, created] = await SessionContext.findOrCreate({
+      where: { name },
+      defaults: { id: randomUUID(), name, content }
+    });
+    if (!created) await ctx.update({ content });
+    res.json({ success: true, name, chars: content.length, created });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// get-session-context
+router.get('/session-contexts/get', async (req, res) => {
+  try {
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const { SessionContext } = loadModels();
+    const ctx = await SessionContext.findOne({ where: { name } });
+    if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
+    res.json({ name: ctx.name, content: ctx.content, updatedAt: ctx.updatedAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// list-session-contexts
+router.get('/session-contexts/list', async (req, res) => {
+  try {
+    const { SessionContext, User } = loadModels();
+    const all = await SessionContext.findAll({
+      include: [{ model: User, as: 'creator', attributes: ['username'] }],
+      order: [['updatedAt', 'DESC']]
+    });
+    res.json(all.map(c => ({
+      name: c.name,
+      creator: c.creator?.username ?? 'unknown',
+      updatedAt: c.updatedAt,
+      chars: c.content.length
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// delete-session-context
+router.delete('/session-contexts/delete', async (req, res) => {
+  try {
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const { SessionContext } = loadModels();
+    const deleted = await SessionContext.destroy({ where: { name } });
+    if (!deleted) return res.status(404).json({ error: `No context found with name '${name}'` });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+```
+
+**Step 2** — Add DB seed records in `server/src/config/database.js` inside the
+`toolsToCreate` array (the `else` branch, alongside `fetch-url`, `list-skills`,
+`get-skill`). This ensures existing installs get the tools on next startup.
+
+```js
+{
+  name: 'store-session-context',
+  description: 'Save a named context string to MCPConnect so other sessions can retrieve it. Use this to share investigation summaries, findings, or decision logs across Claude sessions or teammates.',
+  endpoint: {
+    path: '/api/mcp/session-contexts/store',
+    method: 'POST',
+    params: {
+      name:    { type: 'string', required: true,  description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
+      content: { type: 'string', required: true,  description: 'The context to store — markdown, JSON, bullet list, anything' }
+    },
+    headers: {}
+  }
+},
+{
+  name: 'get-session-context',
+  description: 'Retrieve a named context previously stored in MCPConnect and inject it into the current session.',
+  endpoint: {
+    path: '/api/mcp/session-contexts/get',
+    method: 'GET',
+    params: {
+      name: { type: 'string', required: true, description: 'The name of the context to retrieve' }
+    },
+    headers: {}
+  }
+},
+{
+  name: 'list-session-contexts',
+  description: 'List all named contexts stored in MCPConnect, with name, creator, and timestamps.',
+  endpoint: {
+    path: '/api/mcp/session-contexts/list',
+    method: 'GET',
+    params: {},
+    headers: {}
+  }
+},
+{
+  name: 'delete-session-context',
+  description: 'Delete a named context from MCPConnect.',
+  endpoint: {
+    path: '/api/mcp/session-contexts/delete',
+    method: 'DELETE',
+    params: {
+      name: { type: 'string', required: true, description: 'The name of the context to delete' }
+    },
+    headers: {}
+  }
+},
+```
+
+**Step 3** — Remove `registerSessionContextTools()` from `server/src/mcp/server.js`
+and its call at line 75. With DB seed records in place, these tools are registered
+automatically by the existing `registerTool()` loop in `initialize()` — exactly
+like `hello` and `list-tools`. Keeping both would double-register the same tool
+names causing a conflict.
+
+```js
+// DELETE this entire method from server.js:
+async registerSessionContextTools() { ... }
+
+// DELETE this call from initialize():
+await this.registerSessionContextTools();
+```
+
+**Files to fix:**
+- `server/src/routes/mcp.js` — add 4 internal REST handlers (Step 1)
+- `server/src/config/database.js` — add 4 entries to `toolsToCreate` array (Step 2)
+- `server/src/mcp/server.js` — remove `registerSessionContextTools()` and its call (Step 3)

@@ -253,6 +253,53 @@ const createDefaultTool = async () => {
           params: {},
           headers: {}
         }
+      },
+      {
+        name: 'store-session-context',
+        description: 'Save a named context string to MCPConnect so other sessions can retrieve it. Use this to share investigation summaries, findings, or decision logs across Claude sessions or teammates.',
+        endpoint: {
+          path: '/api/mcp/session-contexts/store',
+          method: 'POST',
+          params: {
+            name: { type: 'string', required: true, description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
+            content: { type: 'string', required: true, description: 'The context to store — markdown, JSON, bullet list, anything' }
+          },
+          headers: {}
+        }
+      },
+      {
+        name: 'get-session-context',
+        description: 'Retrieve a named context previously stored in MCPConnect and inject it into the current session.',
+        endpoint: {
+          path: '/api/mcp/session-contexts/get',
+          method: 'GET',
+          params: {
+            name: { type: 'string', required: true, description: 'The name of the context to retrieve' }
+          },
+          headers: {}
+        }
+      },
+      {
+        name: 'list-session-contexts',
+        description: 'List all named contexts stored in MCPConnect, with name, creator, and timestamps.',
+        endpoint: {
+          path: '/api/mcp/session-contexts/list',
+          method: 'GET',
+          params: {},
+          headers: {}
+        }
+      },
+      {
+        name: 'delete-session-context',
+        description: 'Delete a named context from MCPConnect.',
+        endpoint: {
+          path: '/api/mcp/session-contexts/delete',
+          method: 'DELETE',
+          params: {
+            name: { type: 'string', required: true, description: 'The name of the context to delete' }
+          },
+          headers: {}
+        }
       }
     ];
 

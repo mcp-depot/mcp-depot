@@ -112,6 +112,68 @@ router.get('/hello', async (req, res) => {
   });
 });
 
+// Session Context internal routes - exposed via DB seed tools
+router.post('/session-contexts/store', async (req, res) => {
+  try {
+    const { name, content } = req.body;
+    if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
+    const { SessionContext } = loadModels();
+    const { randomUUID } = require('crypto');
+    const [ctx, created] = await SessionContext.findOrCreate({
+      where: { name },
+      defaults: { id: randomUUID(), name, content }
+    });
+    if (!created) await ctx.update({ content });
+    res.json({ success: true, name, chars: content.length, created });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/session-contexts/get', async (req, res) => {
+  try {
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const { SessionContext } = loadModels();
+    const ctx = await SessionContext.findOne({ where: { name } });
+    if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
+    res.json({ name: ctx.name, content: ctx.content, updatedAt: ctx.updatedAt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/session-contexts/list', async (req, res) => {
+  try {
+    const { SessionContext, User } = loadModels();
+    const all = await SessionContext.findAll({
+      include: [{ model: User, as: 'creator', attributes: ['username'] }],
+      order: [['updatedAt', 'DESC']]
+    });
+    res.json(all.map(c => ({
+      name: c.name,
+      creator: c.creator?.username ?? 'unknown',
+      updatedAt: c.updatedAt,
+      chars: c.content.length
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/session-contexts/delete', async (req, res) => {
+  try {
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const { SessionContext } = loadModels();
+    const deleted = await SessionContext.destroy({ where: { name } });
+    if (!deleted) return res.status(404).json({ error: `No context found with name '${name}'` });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/fetch-url', optionalAuth, async (req, res) => {
   try {
     const { url, timeout, maxSize, headers } = req.query;

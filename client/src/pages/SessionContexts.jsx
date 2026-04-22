@@ -36,16 +36,20 @@ function SessionContexts() {
   };
 
   return (
-    <div className="page-container">
-      <h1>Session Contexts</h1>
-      <p className="page-subtitle">
-        Named context snapshots stored by AI sessions. Read by other sessions to skip re-diagnosis.
-      </p>
+    <div className="container">
+      <div className="page-header">
+        <h1>Session Contexts</h1>
+        <p>Named context snapshots stored by AI sessions. Read by other sessions to skip re-diagnosis.</p>
+      </div>
 
       {loading ? (
-        <p>Loading...</p>
+        <div className="loading-overlay"><div className="spinner"></div></div>
       ) : contexts.length === 0 ? (
-        <p className="empty-state">No contexts stored yet. Ask Claude to store a context.</p>
+        <div className="empty-state">
+          <div className="empty-state-icon">💬</div>
+          <h3>No contexts yet</h3>
+          <p>Ask Claude to store a context using <code>store-session-context</code>.</p>
+        </div>
       ) : (
         <table className="data-table">
           <thead>
@@ -66,7 +70,7 @@ function SessionContexts() {
                 <td>{ctx.content?.length ?? 0} chars</td>
                 <td>
                   <button
-                    className="btn-danger btn-sm"
+                    className="btn btn-sm btn-danger"
                     onClick={(e) => { e.stopPropagation(); handleDelete(ctx.name); }}
                   >
                     Delete
@@ -80,14 +84,21 @@ function SessionContexts() {
 
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
-            <h2>{selected.name}</h2>
-            <div className="modal-meta">
-              <span>By {selected.creator?.username ?? 'unknown'}</span>
-              <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{selected.name}</h2>
+              <button className="modal-close" onClick={() => setSelected(null)}>✕</button>
             </div>
-            <pre className="context-preview">{selected.content}</pre>
-            <button className="btn-secondary" onClick={() => setSelected(null)}>Close</button>
+            <div className="modal-body">
+              <div className="modal-meta">
+                <span>By {selected.creator?.username ?? 'unknown'}</span>
+                <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
+              </div>
+              <pre>{selected.content}</pre>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
+            </div>
           </div>
         </div>
       )}
