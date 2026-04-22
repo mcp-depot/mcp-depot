@@ -1,11 +1,11 @@
 const express = require('express');
 const Joi = require('joi');
-const { authenticateToken } = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
 
 const router = express.Router();
 
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', auth, async (req, res) => {
   try {
     const { SessionContext, User } = loadModels();
     const contexts = await SessionContext.findAll({
@@ -18,7 +18,7 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-router.get('/:name', authenticateToken, async (req, res) => {
+router.get('/:name', auth, async (req, res) => {
   try {
     const { SessionContext, User } = loadModels();
     const ctx = await SessionContext.findOne({
@@ -37,7 +37,7 @@ const upsertSchema = Joi.object({
   content: Joi.string().required()
 });
 
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', auth, async (req, res) => {
   const { error, value } = upsertSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
 
@@ -57,7 +57,7 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-router.delete('/:name', authenticateToken, async (req, res) => {
+router.delete('/:name', auth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const deleted = await SessionContext.destroy({ where: { name: req.params.name } });
