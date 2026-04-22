@@ -37,23 +37,30 @@ function safeJsonParse(value, defaultValue) {
   }
 }
 
-function substituteBodyTemplate(obj, params) {
+function coerceParam(value, paramDefs, key) {
+  const type = paramDefs?.[key]?.type;
+  if (type === 'number' || type === 'integer') return Number(value);
+  if (type === 'boolean') return value === 'true' || value === true;
+  return value;
+}
+
+function substituteBodyTemplate(obj, params, paramDefs = {}) {
   if (typeof obj === 'string') {
     const sole = obj.match(/^\{(\w+)\}$/);
     if (sole && params[sole[1]] !== undefined) {
-      return params[sole[1]];
+      return coerceParam(params[sole[1]], paramDefs, sole[1]);
     }
     return obj.replace(/\{(\w+)\}/g, (match, key) =>
-      params[key] !== undefined ? String(params[key]) : match
+      params[key] !== undefined ? coerceParam(params[key], paramDefs, key) : match
     );
   }
   if (Array.isArray(obj)) {
-    return obj.map(item => substituteBodyTemplate(item, params));
+    return obj.map(item => substituteBodyTemplate(item, params, paramDefs));
   }
   if (obj !== null && typeof obj === 'object') {
     const result = {};
     for (const [key, value] of Object.entries(obj)) {
-      result[key] = substituteBodyTemplate(value, params);
+      result[key] = substituteBodyTemplate(value, params, paramDefs);
     }
     return result;
   }
@@ -1081,7 +1088,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     }
 
     if (typeof bodyParams === 'object' && bodyParams !== null) {
-      bodyParams = substituteBodyTemplate(bodyParams, mergedParams);
+      bodyParams = substituteBodyTemplate(bodyParams, mergedParams, tool.endpoint.params || {});
       bodyParams = pruneNulls(bodyParams);
     }
 

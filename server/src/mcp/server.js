@@ -11,6 +11,13 @@ const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 const { z } = require('zod/v3');
 
+function coerceParam(value, paramDefs, key) {
+  const type = paramDefs?.[key]?.type;
+  if (type === 'number' || type === 'integer') return Number(value);
+  if (type === 'boolean') return value === 'true' || value === true;
+  return value;
+}
+
 const { randomUUID } = require('crypto');
 
 const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
@@ -198,7 +205,9 @@ class MCPConnectServer {
     let bodyParams = endpoint.body || {};
     if (typeof bodyParams === 'object' && bodyParams !== null) {
       bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/"\{(\w+)\}"/g, (match, key) => {
-        return params?.[key] !== undefined ? JSON.stringify(params[key]) : 'null';
+        if (params?.[key] === undefined) return 'null';
+        const coerced = coerceParam(params[key], endpoint.params, key);
+        return JSON.stringify(coerced);
       }));
       bodyParams = pruneNulls(bodyParams);
     }

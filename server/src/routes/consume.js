@@ -12,6 +12,13 @@ const secretStore = require('../services/secret-store');
 const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 
+function coerceParam(value, paramDefs, key) {
+  const type = paramDefs?.[key]?.type;
+  if (type === 'number' || type === 'integer') return Number(value);
+  if (type === 'boolean') return value === 'true' || value === true;
+  return value;
+}
+
 const router = express.Router();
 
 const executeToolSchema = Joi.object({
@@ -224,10 +231,14 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       bodyParams = JSON.parse(JSON.stringify(bodyParams)
         .replace(/"(\{\w+\})"/g, (match, placeholder) => {
           const key = placeholder.slice(1, -1);
-          return mergedParams[key] !== undefined ? JSON.stringify(mergedParams[key]) : match;
+          if (mergedParams[key] === undefined) return match;
+          const coerced = coerceParam(mergedParams[key], tool.endpoint.params, key);
+          return JSON.stringify(coerced);
         })
         .replace(/\{(\w+)\}/g, (match, key) => {
-          return mergedParams[key] !== undefined ? String(mergedParams[key]) : 'null';
+          if (mergedParams[key] === undefined) return 'null';
+          const coerced = coerceParam(mergedParams[key], tool.endpoint.params, key);
+          return String(coerced);
         }));
       bodyParams = pruneNulls(bodyParams);
     }

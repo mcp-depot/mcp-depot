@@ -48,6 +48,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 38c | Non-null default params added as flat body keys on top of template | latest |
 | 38d | Fixes 38/38b/38c applied to wrong file — Claude Code uses `mcp/server.js` not `mcp.js` | latest |
 | 38e | Same flat-param body merge bug exists in `consume.js` and `compositeExecutor.js` — both unfixed | latest |
+| 39 | Template substitution always produces strings — number/boolean params serialised as `"786047927"` not `786047927` | latest |
 
 ---
 
@@ -516,3 +517,90 @@ if (typeof bodyParams === 'object' && bodyParams !== null) {
 **Files to fix:**
 - `server/src/routes/consume.js` — lines ~200-229 (param loop + template substitution block)
 - `server/src/services/compositeExecutor.js` — `executeSimpleTool()` lines ~126-134 (param loop + add template substitution + pruneNulls)
+
+---
+
+### Debugging tip — add console.log before HTTP call to confirm which path is still leaking
+
+Since the fix has been applied to multiple paths but the identical 15+ fields keep appearing, add a log immediately before the actual HTTP call in each execution path to see which one is firing with the dirty body:
+
+```js
+// Add this immediately before each adapter.post() / adapter.put() / adapter.patch() call:
+console.log('[MCPConnect] Request body to', path, JSON.stringify(bodyParams, null, 2));
+```
+
+Check all four locations:
+- `mcp/server.js` `executeTool()` — before lines 214-226 (adapter calls)
+- `mcp.js` `/execute` route — before lines 1109-1117 (adapter calls)
+- `consume.js` — before the adapter call in its execute block
+- `compositeExecutor.js` `executeSimpleTool()` — before lines 141-148 (adapter calls)
+
+The log that prints the 15 extra fields identifies the unfixed path. Only one of them should fire when Claude Code calls the Bitbucket tool.
+
+**Immediate workaround (no code change):** Strip the tool definition in the admin UI down to only the params that appear in the body template and path — `workspace`, `repo_slug`, `pull_request_id`, `content_raw`, `parent_comment_id`. Delete `id`, `type`, `user`, `inline_*`, `content_html`, `content_markup`, `deleted`, `pending`, `created_on`, `updated_on`, `pullrequest`, `resolution`. If the framework only adds what is defined, this stops the extra keys immediately.
+
+---
+
+### Issue 39 — Template substitution always produces strings — number/boolean params serialised as `"786047927"` not `786047927` ✅ RESOLVED
+
+**Fixed in:**
+- `server/src/mcp/server.js` — added `coerceParam()` function, updated substitution
+- `server/src/routes/mcp.js` — added `coerceParam()` function to `substituteBodyTemplate`
+- `server/src/routes/consume.js` — added `coerceParam()` function, updated substitution
+- `server/src/services/compositeExecutor.js` — added `coerceParam()` function, updated substitution
+
+**Symptom:**
+
+After stripping the tool to minimal params, Bitbucket returns `"parent.id": "expected int"`. The body being sent is:
+
+```json
+{ "parent": { "id": "786047927" }, "content": { "raw": "..." } }
+```
+
+instead of:
+
+```json
+{ "parent": { "id": 786047927 }, "content": { "raw": "..." } }
+```
+
+**Why it happens:**
+
+The body template is stored as:
+```json
+{ "parent": { "id": "{parent_comment_id}" }, "content": { "raw": "{content_raw}" } }
+```
+
+The `{parent_comment_id}` placeholder sits inside JSON string quotes. When the substitution replaces it using `JSON.stringify(params[key])`, if `params[key]` arrives as a JS string `"786047927"` (because the param is typed as `string` in the tool definition or in the Zod schema), `JSON.stringify` wraps it in quotes and the result is `"id": "786047927"`.
+
+**Two-part fix:**
+
+**Part 1 — Ensure the Zod schema uses `z.number()` for number params (already in `registerTool`, check tool definition)**
+
+In `mcp/server.js::registerTool`, the Zod schema correctly maps `type: 'number'` → `z.number()`. If the tool's `parent_comment_id` param is defined as `type: "number"` in the admin UI, Claude Code will pass it as a JS number and the substitution produces the correct `786047927` (unquoted).
+
+**Verify:** open the tool in the admin UI and confirm `parent_comment_id` is set to type `number` not `string`. This may be sufficient on its own.
+
+**Part 2 — Make template substitution type-aware as a safety net (framework fix)**
+
+Even if a value arrives as a string `"786047927"`, the substitution should cast it to the declared param type before embedding in the template. Update the substitution in all execution paths (`mcp/server.js`, `mcp.js`, `consume.js`) to look up the param's declared type and coerce accordingly:
+
+```js
+// Helper — coerce value to its declared type before JSON.stringify
+function coerceParam(value, paramDefs, key) {
+  const type = paramDefs?.[key]?.type;
+  if (type === 'number' || type === 'integer') return Number(value);
+  if (type === 'boolean') return value === 'true' || value === true;
+  return value;  // string or unknown — leave as-is
+}
+
+// In the substitution replace callback:
+bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/"\{(\w+)\}"/g, (match, key) => {
+  if (params?.[key] === undefined) return 'null';
+  const coerced = coerceParam(params[key], endpoint.params, key);
+  return JSON.stringify(coerced);
+}));
+```
+
+This guarantees a `number`-typed param always lands in the JSON as a bare integer even if it arrived as a string, which makes the tool resilient to type mismatches between what Claude passes and what the API expects.
+
+**Files to fix:** `server/src/mcp/server.js` (lines ~199-204), `server/src/routes/mcp.js` (`substituteBodyTemplate` or the inline substitution), `server/src/routes/consume.js` (lines ~221-229)

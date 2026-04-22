@@ -6,6 +6,13 @@ const logger = require('./logger');
 const encryption = require('./encryption');
 const { pruneNulls } = require('./body-utils');
 
+function coerceParam(value, paramDefs, key) {
+  const type = paramDefs?.[key]?.type;
+  if (type === 'number' || type === 'integer') return Number(value);
+  if (type === 'boolean') return value === 'true' || value === true;
+  return value;
+}
+
 function getPath(obj, dotPath) {
   return dotPath.split('.').reduce((current, key) => current?.[key], obj);
 }
@@ -143,7 +150,9 @@ async function executeSimpleTool(tool, inputs, userId) {
   
   if (typeof bodyParams === 'object' && bodyParams !== null) {
     bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/"\{(\w+)\}"/g, (match, key) => {
-      return inputs[key] !== undefined ? JSON.stringify(inputs[key]) : 'null';
+      if (inputs[key] === undefined) return 'null';
+      const coerced = coerceParam(inputs[key], tool.endpoint.params, key);
+      return JSON.stringify(coerced);
     }));
     bodyParams = pruneNulls(bodyParams);
   }
