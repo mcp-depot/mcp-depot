@@ -948,6 +948,10 @@ a:hover {
 .log-ts { font-size: 0.75rem; color: var(--text-light); white-space: nowrap; }
 .log-message { flex: 1; font-size: 0.9rem; }
 
+/* Session pages common */
+.page-container { padding: 1rem; }
+.page-subtitle { color: var(--text-light); margin-bottom: 1rem; }
+
 /* Login Page */
 .login-page {
   min-height: 100vh;

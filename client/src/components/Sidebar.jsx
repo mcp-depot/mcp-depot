@@ -15,7 +15,8 @@ import {
   ChevronDown,
   User,
   Database,
-  Hash
+  Layers,
+  MessagesSquare
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -49,8 +50,8 @@ function Sidebar() {
       { path: '/skills', icon: FileText, label: 'Skills' },
     ]},
     { section: 'Sessions', items: [
-      { path: '/session-contexts', icon: Database, label: 'Contexts' },
-      { path: '/session-channels', icon: Hash, label: 'Channels' },
+      { path: '/session-contexts', icon: Layers, label: 'Contexts' },
+      { path: '/session-channels', icon: MessagesSquare, label: 'Channels' },
     ]},
     { section: 'Operations', items: [
       { path: '/monitoring', icon: Activity, label: 'Monitoring' },
