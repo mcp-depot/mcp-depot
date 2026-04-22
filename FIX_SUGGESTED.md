@@ -54,6 +54,9 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 42 | Session Contexts empty state references Claude by name | `72e830c` |
 | 43 | `list-session-contexts` MCP response omits TTL info — `ttlHours` and `expiresAt` missing | `5827ac3` |
 | 44 | `SessionContexts.jsx` does not display TTL — Expires column and live countdown missing | `6566f74` |
+| 45 | Sidebar: Contexts and Channels added as flat items instead of collapsible Sessions group | open |
+| 46 | `SessionChannels.jsx` uses undeclared CSS classes — page renders unstyled | open |
+| 47 | `SessionContexts.jsx` emojis not replaced with Lucide icons as specified | open |
 
 ---
 
@@ -1311,3 +1314,274 @@ so the text should be tool-agnostic.
 ```
 
 Also update the page subtitle on line 58 if it references any specific AI tool.
+
+---
+
+## Feature 02 — Sidebar: Contexts and Channels added as flat items instead of collapsible Sessions group
+
+**Status:** Open
+
+**What is broken:**
+
+`Sidebar.jsx` adds both session pages as flat links inside the existing "Tools" section:
+
+```jsx
+{ path: '/session-contexts', icon: Database, label: 'Contexts' },
+{ path: '/session-channels', icon: Hash, label: 'Channels' },
+```
+
+The spec (FEATURES.md §6) requires a collapsible **Sessions** group with its own header,
+expand/collapse chevron, and the two pages as indented sub-links underneath it. The
+current implementation shows two extra items in a section that already has Tools and
+Skills — it is visually cluttered and the relationship between Contexts and Channels is
+not communicated.
+
+The wrong icons were also used. Spec requires `Layers` for the group, `FileStack` for
+Contexts, `MessagesSquare` for Channels.
+
+**What to change:**
+
+**1. Add `SessionsNavGroup` component inside `Sidebar.jsx` (or as a separate file)**
+
+```jsx
+import { useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { Layers, FileStack, MessagesSquare, ChevronRight } from 'lucide-react';
+
+function SessionsNavGroup() {
+  const location = useLocation();
+  const isSessionRoute = location.pathname.startsWith('/session');
+  const [open, setOpen] = useState(isSessionRoute);
+
+  return (
+    <div className="nav-group">
+      <button
+        className={`nav-group-header ${isSessionRoute ? 'active' : ''}`}
+        onClick={() => setOpen(o => !o)}
+      >
+        <Layers size={16} />
+        {/* Only render text when sidebar is not collapsed */}
+        <span>Sessions</span>
+        <ChevronRight
+          size={14}
+          className="nav-group-chevron"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+        />
+      </button>
+
+      {open && (
+        <div className="nav-group-children">
+          <NavLink
+            to="/session-contexts"
+            className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+          >
+            <FileStack size={16} />
+            <span>Contexts</span>
+          </NavLink>
+          <NavLink
+            to="/session-channels"
+            className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+          >
+            <MessagesSquare size={16} />
+            <span>Channels</span>
+          </NavLink>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+When the sidebar is collapsed (`collapsed === true`), hide the `<span>` text and the
+chevron — same way all other sidebar labels are hidden — and show only the `Layers`
+icon.
+
+**2. Replace the two flat links in `navItems` with `<SessionsNavGroup />`**
+
+Remove from the `navItems` array:
+```jsx
+{ path: '/session-contexts', icon: Database, label: 'Contexts' },
+{ path: '/session-channels', icon: Hash, label: 'Channels' },
+```
+
+Render `<SessionsNavGroup />` in the "Tools" section where those two items were. Since
+`navItems` is currently a flat data array rendered by `map`, the simplest approach is
+to render the Sessions group as a manual JSX element after the Skills link rather than
+trying to encode it in the data array.
+
+**3. Add CSS to `client/src/index.css`**
+
+```css
+/* Collapsible nav group */
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  color: var(--text-light);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  border-radius: 6px;
+}
+.nav-group-header:hover,
+.nav-group-header.active { color: var(--text); background: var(--surface-hover); }
+
+.nav-group-chevron { margin-left: auto; transition: transform 0.15s ease; }
+
+.nav-group-children { padding-left: 12px; }
+.nav-group-children .nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: var(--text-light);
+  text-decoration: none;
+}
+.nav-group-children .nav-link:hover,
+.nav-group-children .nav-link.active { color: var(--text); background: var(--surface-hover); }
+```
+
+---
+
+## Feature 02 — `SessionChannels.jsx` uses undeclared CSS classes — page renders unstyled
+
+**Status:** Open
+
+**What is broken:**
+
+`SessionChannels.jsx` uses class names that do not exist in `index.css`: `page-container`,
+`page-subtitle`, `two-panel`, `panel-left`, `panel-right`, `panel-header`,
+`panel-actions`, `channel-row`, `channel-name`, `channel-meta`, `message-log`,
+`log-entry`, `log-ts`, `log-message`. The page renders but has no layout, spacing, or
+colour — it looks broken next to every other admin page.
+
+The page also has structural issues: the messages array defensive check at the bottom
+handles both `Array.isArray(messages)` and `messages.messages?.map(...)` separately —
+this duplicates rendering logic and one branch will always be dead. The route already
+returns a plain array (see `session-channel.js`), so only `Array.isArray` is needed.
+
+**What to change:**
+
+Rewrite `SessionChannels.jsx` to follow the same structure and class names as
+`SessionContexts.jsx`. Use `.container`, `.page-header`, `.data-table`, `.empty-state`,
+`.badge`, `.modal` etc. — all of which are already defined in `index.css`.
+
+The two-panel layout (channel list on left, message log on right) is fine as a concept,
+but implement it with existing or new well-named classes that are actually added to
+`index.css`. Suggested structure:
+
+```css
+/* Add to index.css */
+.split-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.split-layout-list { /* left panel */ }
+.split-layout-detail { /* right panel */ }
+
+.channel-item {
+  padding: 10px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+}
+.channel-item:hover { background: var(--surface-hover); }
+.channel-item.active { background: var(--surface-hover); color: var(--primary); }
+
+.log-entry {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+  align-items: flex-start;
+}
+.log-entry:last-child { border-bottom: none; }
+.log-ts {
+  color: var(--text-light);
+  white-space: nowrap;
+  font-size: 0.8rem;
+  min-width: 140px;
+}
+.log-message { color: var(--text); line-height: 1.5; }
+```
+
+Also fix the dead-code defensive branch on `messages` — use `Array.isArray(messages)`
+only, since the route always returns a plain array:
+
+```jsx
+{Array.isArray(messages) && messages.map(m => (
+  <div key={m.id} className="log-entry">
+    <span className="log-ts">{m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}</span>
+    <span className="log-message">{m.message}</span>
+  </div>
+))}
+{Array.isArray(messages) && messages.length === 0 && !loadingMessages && (
+  <div className="empty-state">
+    <p>No messages in this channel yet.</p>
+  </div>
+)}
+```
+
+---
+
+## Feature 02 — `SessionContexts.jsx` emojis not replaced with Lucide icons
+
+**Status:** Open
+
+**What is broken:**
+
+FEATURES.md §6 specifies that all emoji usage in the session pages should be replaced
+with Lucide React icons. The developer did not apply these changes to `SessionContexts.jsx`.
+
+**What to change:**
+
+Three replacements in `client/src/pages/SessionContexts.jsx`:
+
+**Empty state icon** (line ~93):
+```jsx
+// Remove:
+<div className="empty-state-icon">💬</div>
+
+// Replace with:
+import { MessageSquare } from 'lucide-react';
+<div className="empty-state-icon"><MessageSquare size={40} strokeWidth={1.5} /></div>
+```
+
+**Modal shared indicator** (line ~156):
+```jsx
+// Remove:
+<span>🌐 Shared</span>
+
+// Replace with:
+import { Globe } from 'lucide-react';
+<span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+  <Globe size={14} /> Shared
+</span>
+```
+
+**Modal private indicator** (line ~156):
+```jsx
+// Remove:
+<span>🔒 Private</span>
+
+// Replace with:
+import { Lock } from 'lucide-react';
+<span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+  <Lock size={14} /> Private
+</span>
+```
+
+All three Lucide components can be imported in a single line at the top of the file.

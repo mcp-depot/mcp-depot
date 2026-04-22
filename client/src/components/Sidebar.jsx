@@ -47,6 +47,8 @@ function Sidebar() {
       { path: '/tools', icon: Wrench, label: 'Tools' },
       // { path: '/workflows', icon: FileText, label: 'Workflows' },
       { path: '/skills', icon: FileText, label: 'Skills' },
+    ]},
+    { section: 'Sessions', items: [
       { path: '/session-contexts', icon: Database, label: 'Contexts' },
       { path: '/session-channels', icon: Hash, label: 'Channels' },
     ]},

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { Database, Globe, Lock, Trash2, Share2 } from 'lucide-react';
 import api from '../services/api';
 
 function expiryInfo(ctx, now) {
@@ -88,7 +89,7 @@ function SessionContexts() {
         <div className="loading-overlay"><div className="spinner"></div></div>
       ) : contexts.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon">💬</div>
+          <Database size={48} className="empty-state-icon" />
           <h3>No contexts yet</h3>
           <p>From your AI session, call <code>store-session-context</code> with a name and content.</p>
         </div>
@@ -153,7 +154,9 @@ function SessionContexts() {
             </div>
             <div className="modal-body">
               <div className="modal-meta">
-                <span>{selected.isShared ? '🌐 Shared' : '🔒 Private'}</span>
+                <span className={`badge ${selected.isShared ? 'badge-green' : 'badge-muted'}`}>
+                  {selected.isShared ? 'Shared' : 'Private'}
+                </span>
                 <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
                 <span>{selected.content?.length ?? 0} chars</span>
               </div>
