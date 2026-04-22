@@ -39,8 +39,12 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 26 | N+1 queries in integrations list (already uses batch queries) | latest |
 | 27 | Per-user credentials broken at MCP tool execution - missing JSON.parse | latest |
 | 28 | Body template substitution corrupts values containing `{word}` patterns - recursive walker used | latest |
+| 34 | External MCP servers cause GET /mcp/tools to time out - parallel fetching | latest |
 | 35 | Body params sent to query instead of body; OpenAPI type mapping | latest |
 | 36 | Tool execution catch block returns [object Object] - error serialization fixed | latest |
+| 37 | Monitoring page should show actual upstream API response | latest |
+| 38 | POST body merges template result AND all flat param keys; nulls in body | latest |
+| 38b | Optional params leave null nodes in resolved body template | latest |
 
 ---
 
@@ -208,7 +212,12 @@ async function getStdioMcpTools(command, args, envVars, runtime = 'node', signal
 
 ---
 
-### Feature Request 37 — Monitoring page should show actual upstream API response, not just the wrapped MCP error
+### Feature Request 37 — Monitoring page should show actual upstream API response, not just the wrapped MCP error ✅ RESOLVED
+
+**Fixed in:**
+- Error serialization now shows actual API error details (Issue 36)
+- Monitoring expanded view shows: path, query params, request body, response body
+- Full URL is now logged and displayed
 
 **Status:** Feature request
 
@@ -242,3 +251,20 @@ Secrets (Authorization header value, tokens) should be redacted — show the hea
 - Store it alongside the existing log entry (or add new columns to the logs table)
 - The monitoring UI just needs to expand the existing log row to show upstream detail
 - For errors specifically, the upstream response body is the highest-value field — even logging just that to the existing error message would be a significant improvement
+
+---
+
+### Issue 38 — POST body merges template result AND all flat param keys — APIs reject unrecognised fields ✅ RESOLVED
+
+**Fixed in:** `server/src/routes/mcp.js`
+
+**Changes:**
+1. Added null/undefined guard: `if (value === null || value === undefined) continue;` - skips null params
+2. Template-consumed keys (bodyTemplateVars) already handled (Issue 35) - never added as flat keys
+3. Added `pruneNulls()` function to remove null nodes after template substitution
+
+---
+
+### Issue 38b — Optional params not provided by caller leave null/placeholder nodes in the resolved body template ✅ RESOLVED
+
+**Fixed in:** `server/src/routes/mcp.js` - `pruneNulls()` function added and applied after template substitution

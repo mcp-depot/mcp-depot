@@ -59,6 +59,21 @@ function substituteBodyTemplate(obj, params) {
   return obj;
 }
 
+function pruneNulls(obj) {
+  if (typeof obj !== 'object' || obj === null) return obj;
+  if (Array.isArray(obj)) return obj.map(item => pruneNulls(item)).filter(item => item !== null && item !== undefined);
+  
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const pruned = pruneNulls(value);
+    if (pruned !== null && pruned !== undefined) {
+      if (typeof pruned === 'object' && Object.keys(pruned).length === 0) continue;
+      result[key] = pruned;
+    }
+  }
+  return result;
+}
+
 const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED === 'true';
 const TOOLS_CACHE_TTL = parseInt(process.env.TOOLS_CACHE_TTL) || 300000;
 
@@ -1038,6 +1053,8 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     const transformConfig = tool.endpoint.transform || {};
     
     for (const [key, value] of Object.entries(mergedParams)) {
+      if (value === null || value === undefined) continue;  // Skip null/undefined values
+      
       if (path.includes(`{${key}}`)) {
         pathParams[key] = value;
       } else if (['POST', 'PUT', 'PATCH'].includes(tool.endpoint.method)) {
@@ -1080,6 +1097,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
 
     if (typeof bodyParams === 'object' && bodyParams !== null) {
       bodyParams = substituteBodyTemplate(bodyParams, mergedParams);
+      bodyParams = pruneNulls(bodyParams);
     }
 
     let result;
