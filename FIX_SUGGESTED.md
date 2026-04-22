@@ -53,7 +53,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 41 | Ownerless contexts invisible in admin UI and list/get MCP tools | `de20e7a` |
 | 42 | Session Contexts empty state references Claude by name | `72e830c` |
 | 43 | `list-session-contexts` MCP response omits TTL info — `ttlHours` and `expiresAt` missing | `5827ac3` |
-| 44 | `SessionContexts.jsx` does not display TTL — Expires column and live countdown missing | open |
+| 44 | `SessionContexts.jsx` does not display TTL — Expires column and live countdown missing | `6566f74` |
 
 ---
 
