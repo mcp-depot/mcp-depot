@@ -64,7 +64,7 @@ function SessionContexts() {
         <div className="empty-state">
           <div className="empty-state-icon">💬</div>
           <h3>No contexts yet</h3>
-          <p>Ask Claude to store a context using <code>store-session-context</code>.</p>
+          <p>From your AI session, call <code>store-session-context</code> with a name and content.</p>
         </div>
       ) : (
         <table className="data-table">
