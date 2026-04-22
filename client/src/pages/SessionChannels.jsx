@@ -97,14 +97,7 @@ function SessionChannels() {
               </div>
               {loadingMessages && <p>Loading messages...</p>}
               <div className="message-log">
-                {Array.isArray(messages) ? messages.map(m => (
-                  <div key={m.id} className="log-entry">
-                    <span className="log-ts">
-                      {m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}
-                    </span>
-                    <span className="log-message">{m.message}</span>
-                  </div>
-                )) : messages.messages?.map(m => (
+                {messages.map(m => (
                   <div key={m.id} className="log-entry">
                     <span className="log-ts">
                       {m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}
@@ -112,7 +105,7 @@ function SessionChannels() {
                     <span className="log-message">{m.message}</span>
                   </div>
                 ))}
-                {!loadingMessages && (messages.length === 0 || messages.messages?.length === 0) && (
+                {!loadingMessages && messages.length === 0 && (
                   <p className="empty-state">No messages yet.</p>
                 )}
               </div>

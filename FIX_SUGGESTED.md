@@ -62,6 +62,8 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 49 | Issue 45 partial — sidebar is a static section, not a collapsible group; wrong icons (Database/Hash instead of Layers/FileStack/MessagesSquare) | `907bbbe` |
 | 50 | Issue 47 partial — empty state uses `<Database>` instead of `<MessageSquare>`; modal uses text badges instead of `<Globe>`/`<Lock>` icon components | `907bbbe` |
 | 51 | `SessionChannels.jsx` still uses `page-container` and `page-subtitle` — no CSS defined for those classes | `907bbbe` |
+| 52 | Issue 50 partial — `Globe`/`Lock` imported in `SessionContexts.jsx` but never rendered; modal badge shows text only, no icons | open |
+| 53 | Dead code in `SessionChannels.jsx` — `messages.messages?.map(...)` branch unreachable; unused `Database` import in `Sidebar.jsx` | open |
 
 ---
 
@@ -1737,3 +1739,116 @@ WHERE name = 'clear-channel';
 ```
 
 After either approach, reconnect MCP in Claude Code and retry `read-channel`.
+
+---
+
+## Issue 52 — `Globe`/`Lock` imported in `SessionContexts.jsx` but never rendered in modal
+
+**Status:** Open
+
+**What is broken:**
+
+`Globe` and `Lock` are imported at line 3 of `SessionContexts.jsx` but never placed in the JSX. The modal visibility badge shows plain text "Shared" / "Private" with no icon alongside. The spec requires inline icon + label: `<Globe size={14} /> Shared` and `<Lock size={14} /> Private`.
+
+**Why it is broken:**
+
+Issue 50 was marked resolved but the fix only changed the empty-state icon. The modal badge was not updated — the icons were imported in anticipation but the JSX render was not changed.
+
+**What to change — `client/src/pages/SessionContexts.jsx`:**
+
+**1. In the table `<tbody>` row (Visibility `<td>`):**
+
+```jsx
+// Current:
+<span className={`badge ${ctx.isShared ? 'badge-green' : 'badge-muted'}`}>
+  {ctx.isShared ? 'Shared' : 'Private'}
+</span>
+
+// Replace with:
+<span className={`badge ${ctx.isShared ? 'badge-green' : 'badge-muted'}`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+  {ctx.isShared ? <><Globe size={13} /> Shared</> : <><Lock size={13} /> Private</>}
+</span>
+```
+
+**2. In the modal `modal-meta` section:**
+
+```jsx
+// Current:
+<span className={`badge ${selected.isShared ? 'badge-green' : 'badge-muted'}`}>
+  {selected.isShared ? 'Shared' : 'Private'}
+</span>
+
+// Replace with:
+<span className={`badge ${selected.isShared ? 'badge-green' : 'badge-muted'}`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+  {selected.isShared ? <><Globe size={13} /> Shared</> : <><Lock size={13} /> Private</>}
+</span>
+```
+
+**File:** `client/src/pages/SessionContexts.jsx` — visibility badge in table row and modal `modal-meta`
+
+---
+
+## Issue 53 — Dead code in `SessionChannels.jsx`; unused `Database` import in `Sidebar.jsx`
+
+**Status:** Open
+
+**What is broken:**
+
+**Problem 1 — `SessionChannels.jsx` dead code (lines 107-113, 115):**
+
+After the `d1d699a` response-normalization fix, `messages` state is always set to an array (via `res?.messages || res || []`). The dual-branch render at lines 100-113 has an unreachable else:
+
+```jsx
+// messages is always an array now — the else branch never executes
+{Array.isArray(messages) ? messages.map(m => ...) : messages.messages?.map(m => ...)}
+```
+
+Line 115 also has a dead check:
+```jsx
+{!loadingMessages && (messages.length === 0 || messages.messages?.length === 0) && ...}
+// messages.messages is always undefined — second condition is always falsy
+```
+
+**Problem 2 — `Sidebar.jsx` unused import (line 17):**
+
+```js
+import { ..., Database, Layers, MessagesSquare } from 'lucide-react';
+```
+
+`Database` was replaced by `Layers`/`MessagesSquare` in commit `907bbbe` but its import was not removed. This will cause a linter warning.
+
+**What to change:**
+
+**`client/src/pages/SessionChannels.jsx`** — simplify the message rendering:
+
+```jsx
+{/* Replace lines 100-118 with: */}
+<div className="message-log">
+  {Array.isArray(messages) && messages.map(m => (
+    <div key={m.id} className="log-entry">
+      <span className="log-ts">
+        {m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}
+      </span>
+      <span className="log-message">{m.message}</span>
+    </div>
+  ))}
+  {!loadingMessages && Array.isArray(messages) && messages.length === 0 && (
+    <p className="empty-state">No messages yet.</p>
+  )}
+</div>
+```
+
+**`client/src/components/Sidebar.jsx`** — remove `Database` from the import line:
+
+```js
+// Remove Database from the import:
+import { LayoutDashboard, Plug, Wrench, FileText, Activity, Settings,
+         ChevronLeft, Zap, ChevronRight, LogOut, ChevronDown, User,
+         Layers, MessagesSquare } from 'lucide-react';
+```
+
+**Files:**
+- `client/src/pages/SessionChannels.jsx` — lines 100-118 (message render block)
+- `client/src/components/Sidebar.jsx` — line 17 (remove `Database` from import)

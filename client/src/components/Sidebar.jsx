@@ -14,7 +14,6 @@ import {
   LogOut,
   ChevronDown,
   User,
-  Database,
   Layers,
   MessagesSquare
 } from 'lucide-react';
