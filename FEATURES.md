@@ -788,7 +788,7 @@ startCleanupJob(loadModels);
 
 ## Feature 02 — Session Channels: live append-only log shared across sessions
 
-**Status:** Proposed
+**Status:** Implemented
 
 **Relationship to Feature 01:**
 
