@@ -105,12 +105,19 @@ class OpenAPIParser {
           const pathParams = details.parameters?.filter(p => p.in === 'path') || [];
           const queryParams = details.parameters?.filter(p => p.in === 'query') || [];
 
+          const mapOpenApiType = (type) => {
+            if (type === 'integer') return 'number';
+            if (type === 'boolean') return 'boolean';
+            if (type === 'array') return 'array';
+            return 'string';
+          };
+
           for (const p of pathParams) {
             params.push({
               name: p.name,
               in: 'path',
               required: p.required || false,
-              type: p.schema?.type || 'string',
+              type: mapOpenApiType(p.schema?.type),
               description: p.description || ''
             });
           }
@@ -120,7 +127,7 @@ class OpenAPIParser {
               name: p.name,
               in: 'query',
               required: p.required || false,
-              type: p.schema?.type || 'string',
+              type: mapOpenApiType(p.schema?.type),
               description: p.description || ''
             });
           }

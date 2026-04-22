@@ -1045,7 +1045,20 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
           (JSON.stringify(tool.endpoint.body || {}).match(/\{(\w+)\}/g) || [])
             .map(m => m.slice(1, -1))
         );
-        if (transformConfig[key]) {
+        
+        // If key is in body template, ALWAYS add to body for substitution - never to query
+        if (bodyTemplateVars.has(key)) {
+          if (transformConfig[key]) {
+            const target = transformConfig[key].split('.');
+            let current = bodyParams;
+            for (let i = 0; i < target.length - 1; i++) {
+              if (!current[target[i]]) current[target[i]] = {};
+              current = current[target[i]];
+            }
+            current[target[target.length - 1]] = value;
+          }
+          // Don't add to queryParams - let body template substitution handle it
+        } else if (transformConfig[key]) {
           const target = transformConfig[key].split('.');
           let current = bodyParams;
           for (let i = 0; i < target.length - 1; i++) {
@@ -1053,7 +1066,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
             current = current[target[i]];
           }
           current[target[target.length - 1]] = value;
-        } else if (key !== 'workspace' && key !== 'repo_slug' && !bodyTemplateVars.has(key)) {
+        } else if (key !== 'workspace' && key !== 'repo_slug') {
           bodyParams[key] = value;
         }
       } else {

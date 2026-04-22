@@ -182,3 +182,13 @@ async function getStdioMcpTools(command, args, envVars, runtime = 'node', signal
 | 5 servers, 1 times out | 40s+ total | 10s total |
 
 **Impact:** Any MCPConnect instance with more than one external MCP server configured. Symptoms worsen with each additional server added.
+
+---
+
+### Issue 35 — Body params always sent as query string; body template substitution does not happen for `"in": "query"` params ✅ RESOLVED
+
+**Fixed in:** Execution layer - params in body template now always go to body (not query). OpenAPI importer - integer now maps to number.
+
+**Changes:**
+1. **Execution layer (mcp.js)**: If param key IS in bodyTemplateVars, it stays in body for substitution - never goes to queryParams
+2. **OpenAPI importer (openapi-parser.js)**: Added `mapOpenApiType()` to correctly map `integer` → `number`, `boolean` → `boolean`
