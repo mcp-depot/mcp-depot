@@ -18,17 +18,12 @@ module.exports = (sequelize) => {
     },
     createdBy: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-      references: { model: 'Users', key: 'id' }
+      allowNull: true
     }
   }, {
     tableName: 'SessionContext',
     timestamps: true
   });
-
-  SessionContext.associate = (models) => {
-    SessionContext.belongsTo(models.User, { foreignKey: 'createdBy', as: 'creator' });
-  };
 
   return SessionContext;
 };
