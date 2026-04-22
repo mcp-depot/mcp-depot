@@ -72,6 +72,8 @@ class MCPConnectServer {
       this.registerTool(tool);
     }
 
+    await this.registerSessionContextTools();
+
     logger.info({ toolCount: tools.length }, 'MCP Server initialized');
   }
 
@@ -431,6 +433,107 @@ class MCPConnectServer {
     await this.server.sendToolListChanged();
     
     logger.info({ toolCount: tools.length, skillCount: skills.length }, 'Tools refreshed');
+  }
+
+  async registerSessionContextTools() {
+    const { SessionContext, User } = loadModels();
+
+    this.server.tool(
+      'store-session-context',
+      {
+        description: 'Save a named context string to MCPConnect so other sessions can retrieve it. Use this to share investigation summaries, findings, or decision logs across Claude sessions or teammates.',
+        inputSchema: z.object({
+          name: z.string().describe('Unique human-readable key, e.g. "bitbucket-debug"'),
+          content: z.string().describe('The context to store — markdown, JSON, bullet list, anything')
+        })
+      },
+      async ({ name, content }) => {
+        try {
+          const { randomUUID } = require('crypto');
+          const [ctx] = await SessionContext.findOrCreate({
+            where: { name },
+            defaults: { id: randomUUID(), name, content }
+          });
+          if (ctx.content !== content) {
+            await ctx.update({ content });
+          }
+          return { content: [{ type: 'text', text: `Context '${name}' stored (${content.length} chars).` }] };
+        } catch (err) {
+          return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+        }
+      }
+    );
+
+    this.server.tool(
+      'get-session-context',
+      {
+        description: 'Retrieve a named context previously stored in MCPConnect and inject it into the current session.',
+        inputSchema: z.object({
+          name: z.string().describe('The name of the context to retrieve')
+        })
+      },
+      async ({ name }) => {
+        try {
+          const ctx = await SessionContext.findOne({ where: { name } });
+          if (!ctx) {
+            return { content: [{ type: 'text', text: `No context found with name '${name}'.` }] };
+          }
+          return { content: [{ type: 'text', text: ctx.content }] };
+        } catch (err) {
+          return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+        }
+      }
+    );
+
+    this.server.tool(
+      'list-session-contexts',
+      {
+        description: 'List all named contexts stored in MCPConnect, with name, creator, and timestamps.',
+        inputSchema: z.object({})
+      },
+      async () => {
+        try {
+          const all = await SessionContext.findAll({
+            include: [{ model: User, as: 'creator', attributes: ['username'] }],
+            order: [['updatedAt', 'DESC']]
+          });
+          if (all.length === 0) {
+            return { content: [{ type: 'text', text: 'No contexts stored yet.' }] };
+          }
+          const lines = all.map(c => {
+            const creator = c.creator?.username ?? 'unknown';
+            const date = c.updatedAt ? c.updatedAt.toISOString().slice(0, 10) : 'unknown';
+            return `- **${c.name}** | by ${creator} | updated ${date} | ${c.content.length} chars`;
+          });
+          return { content: [{ type: 'text', text: lines.join('\n') }] };
+        } catch (err) {
+          return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+        }
+      }
+    );
+
+    this.server.tool(
+      'delete-session-context',
+      {
+        description: 'Delete a named context from MCPConnect.',
+        inputSchema: z.object({
+          name: z.string().describe('The name of the context to delete')
+        })
+      },
+      async ({ name }) => {
+        try {
+          const deleted = await SessionContext.destroy({ where: { name } });
+          if (!deleted) {
+            return { content: [{ type: 'text', text: `No context found with name '${name}'.` }] };
+          }
+          return { content: [{ type: 'text', text: `Context '${name}' deleted.` }] };
+        } catch (err) {
+          return { content: [{ type: 'text', text: `Error: ${err.message}` }], isError: true };
+        }
+      }
+    );
+
+    logger.info('Session Context MCP tools registered');
   }
 }
 

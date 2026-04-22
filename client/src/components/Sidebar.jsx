@@ -13,7 +13,8 @@ import {
   ChevronRight,
   LogOut,
   ChevronDown,
-  User
+  User,
+  Database
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -45,6 +46,7 @@ function Sidebar() {
       { path: '/tools', icon: Wrench, label: 'Tools' },
       // { path: '/workflows', icon: FileText, label: 'Workflows' },
       { path: '/skills', icon: FileText, label: 'Skills' },
+      { path: '/session-contexts', icon: Database, label: 'Contexts' },
     ]},
     { section: 'Operations', items: [
       { path: '/monitoring', icon: Activity, label: 'Monitoring' },

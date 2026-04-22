@@ -26,6 +26,7 @@ const loadModels = () => {
   const ExternalMcpServer = require('../models/ExternalMcpServer');
   const PromptLibrary = require('../models/PromptLibrary')(sequelize);
   const SystemSetting = require('../models/SystemSetting');
+  const SessionContext = require('../models/SessionContext')(sequelize);
   
   if (!associationsDefined) {
     User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
@@ -44,10 +45,12 @@ const loadModels = () => {
     
     ExternalMcpServer.belongsTo(User, { foreignKey: 'userId', as: 'user' });
     
+    SessionContext.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+    
     associationsDefined = true;
   }
   
-  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting };
+  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext };
 };
 
 const generatePassword = () => {
