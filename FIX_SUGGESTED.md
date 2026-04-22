@@ -39,6 +39,8 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 26 | N+1 queries in integrations list (already uses batch queries) | latest |
 | 27 | Per-user credentials broken at MCP tool execution - missing JSON.parse | latest |
 | 28 | Body template substitution corrupts values containing `{word}` patterns - recursive walker used | latest |
+| 35 | Body params sent to query instead of body; OpenAPI type mapping | latest |
+| 36 | Tool execution catch block returns [object Object] - error serialization fixed | latest |
 
 ---
 

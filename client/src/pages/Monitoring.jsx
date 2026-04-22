@@ -404,6 +404,7 @@ function Monitoring() {
                                   style={{ overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '4px', padding: '0.5rem', cursor: 'pointer' }}
                                 >
                                   <h4 style={{ marginBottom: '0.5rem' }}>Request</h4>
+                                  {call.fullUrl && <div style={{ marginBottom: '0.5rem', wordBreak: 'break-word', fontSize: '0.8rem', color: 'var(--text-light)' }}><strong>URL:</strong> <code>{call.method} {call.fullUrl}</code></div>}
                                   <div style={{ marginBottom: '0.5rem', wordBreak: 'break-word' }}><strong>Path:</strong> <code>{call.path}</code></div>
                                   {call.queryParams && Object.keys(call.queryParams).length > 0 && (
                                     <div style={{ marginBottom: '0.5rem' }}><strong>Query:</strong> <pre style={{ margin: '0.25rem 0', padding: '0.5rem', background: 'var(--surface)', borderRadius: '4px', fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{JSON.stringify(call.queryParams, null, 2)}</pre></div>

@@ -1114,6 +1114,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       });
 
       const userId = req.user?.id || req.apiKey?.userId;
+      const fullUrl = `${integration.config.baseUrl}${path}${Object.keys(queryParams).length > 0 ? '?' + new URLSearchParams(queryParams).toString() : ''}`;
       await logToolCall({
         toolId: tool.id,
         userId,
@@ -1122,6 +1123,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         callerType: req.apiKey ? 'api' : 'rest',
         method: tool.endpoint.method,
         path: tool.endpoint.path,
+        fullUrl,
         requestHeaders: mergedHeaders,
         requestBody: bodyParams,
         queryParams,
@@ -1134,6 +1136,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       const errorDetail = error?.response?.data
         ? JSON.stringify(error.response.data)
         : (error?.message || String(error));
+      const fullUrl = `${integration.config.baseUrl}${path}${Object.keys(queryParams).length > 0 ? '?' + new URLSearchParams(queryParams).toString() : ''}`;
       res.status(500).json({ error: errorDetail });
 
       await logToolCall({
@@ -1144,6 +1147,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         callerType: req.apiKey ? 'api' : 'rest',
         method: tool.endpoint.method,
         path: tool.endpoint.path,
+        fullUrl,
         requestHeaders: mergedHeaders,
         requestBody: bodyParams,
         queryParams,
