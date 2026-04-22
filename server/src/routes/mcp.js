@@ -113,7 +113,7 @@ router.get('/hello', async (req, res) => {
 });
 
 // Session Context internal routes - exposed via DB seed tools
-router.post('/session-contexts/store', checkMcpAuth, async (req, res) => {
+router.post('/session-contexts/store', async (req, res) => {
   try {
     const { name, content, shared = false } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
@@ -137,7 +137,7 @@ router.post('/session-contexts/store', checkMcpAuth, async (req, res) => {
   }
 });
 
-router.get('/session-contexts/get', checkMcpAuth, async (req, res) => {
+router.get('/session-contexts/get', async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
@@ -155,7 +155,7 @@ router.get('/session-contexts/get', checkMcpAuth, async (req, res) => {
   }
 });
 
-router.get('/session-contexts/list', checkMcpAuth, async (req, res) => {
+router.get('/session-contexts/list', async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const { Op } = require('sequelize');
@@ -177,7 +177,7 @@ router.get('/session-contexts/list', checkMcpAuth, async (req, res) => {
   }
 });
 
-router.delete('/session-contexts/delete', checkMcpAuth, async (req, res) => {
+router.delete('/session-contexts/delete', async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });

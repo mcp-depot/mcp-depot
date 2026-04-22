@@ -1045,3 +1045,57 @@ If `createdBy` (the raw integer FK) is useful in the UI response, it is already
 present on the `SessionContext` record itself - no join needed.
 
 **File to fix:** `server/src/routes/session-context.js` - lines 8-33
+
+---
+
+## Feature 01 — Session context MCP tools return 401 when MCP auth mode is `required`
+
+**Status:** Open
+
+**Symptom:**
+
+Calling `list-session-contexts`, `store-session-context`, `get-session-context`, or
+`delete-session-context` via Claude returns:
+```
+Error: API Error: {"error":"MCP authentication required. Please provide a valid JWT token or API key."}
+```
+
+**Why it is broken:**
+
+The developer added `checkMcpAuth` to the 4 internal session context routes in
+`mcp.js` (lines 116, 140, 158, 180). This middleware is designed for **external**
+MCP clients connecting to MCPConnect - not for MCPConnect calling its own routes
+internally.
+
+When Claude calls a DB-seed tool, `executeTool()` in `mcp/server.js` makes an HTTP
+call to the internal route using `AdapterFactory.create(integration.type, resolvedConfig)`.
+The adapter is configured from the tool's integration record (MCPConnect's self-integration)
+and does not include an MCP API key header. So `checkMcpAuth` in `required` mode
+rejects the call with 401.
+
+These internal routes are not exposed to external MCP clients - they are only
+reachable by MCPConnect's own execution layer. They do not need `checkMcpAuth`.
+
+**The fix — remove `checkMcpAuth` from the 4 session context internal routes:**
+
+```js
+// Change these 4 route declarations in server/src/routes/mcp.js:
+
+// FROM:
+router.post('/session-contexts/store',    checkMcpAuth, async (req, res) => {
+router.get('/session-contexts/get',       checkMcpAuth, async (req, res) => {
+router.get('/session-contexts/list',      checkMcpAuth, async (req, res) => {
+router.delete('/session-contexts/delete', checkMcpAuth, async (req, res) => {
+
+// TO:
+router.post('/session-contexts/store',    async (req, res) => {
+router.get('/session-contexts/get',       async (req, res) => {
+router.get('/session-contexts/list',      async (req, res) => {
+router.delete('/session-contexts/delete', async (req, res) => {
+```
+
+**Note on ownership:** Without `checkMcpAuth`, `req.user` is never set on these
+routes, so `createdBy` cannot be populated from MCP tool calls. Ownership enforcement
+is handled by the REST routes (`/api/session-contexts/*`) used by the admin UI, which
+do have proper `auth` middleware. The ownership + `isShared` redesign is tracked in
+FEATURES.md and can be implemented as a follow-up once the basic flow works.
