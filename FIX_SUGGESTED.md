@@ -609,7 +609,7 @@ This guarantees a `number`-typed param always lands in the JSON as a bare intege
 
 ## Feature 01 — Session Context Store: UI layout broken (missing CSS classes)
 
-**Status:** Open
+**Status:** Resolved — fixed in commit `3d92cfc`
 
 **What is broken:**
 
@@ -782,7 +782,7 @@ return (
 
 ## Feature 01 — Session Context tools invisible in admin UI and list-tools
 
-**Status:** Open
+**Status:** Resolved — fixed in commit `3d92cfc`
 
 **What is broken:**
 
@@ -962,3 +962,86 @@ await this.registerSessionContextTools();
 **Fixed in:** commit 83a18fc - removed User include from list route
 
 **What was fixed:** Removed the User include from the `/session-contexts/list` handler since the association was removed in commit d370b00
+
+---
+
+## Feature 01 — `GET /api/session-contexts` returns 500 (admin UI Contexts page broken) ✅ RESOLVED
+
+**Fixed in:** commit - removed User include from session-context.js REST routes
+
+**Symptom:**
+
+Opening the Contexts page in the admin UI (React app) triggers:
+```
+GET http://localhost:5173/api/session-contexts 500 (Internal Server Error)
+AxiosError: Request failed with status code 500
+```
+
+The page stays blank. The browser console shows `Failed to fetch contexts`.
+
+**Why it is broken:**
+
+`server/src/routes/session-context.js` has two GET routes that both include `User as creator`:
+
+```js
+router.get('/', auth, async (req, res) => {
+  const { SessionContext, User } = loadModels();
+  const contexts = await SessionContext.findAll({
+    include: [{ model: User, as: 'creator', attributes: ['id', 'username'] }],
+    order: [['updatedAt', 'DESC']]
+  });
+  ...
+});
+
+router.get('/:name', auth, async (req, res) => {
+  const { SessionContext, User } = loadModels();
+  const ctx = await SessionContext.findOne({
+    where: { name: req.params.name },
+    include: [{ model: User, as: 'creator', attributes: ['id', 'username'] }]
+  });
+  ...
+});
+```
+
+Commit `d370b00` removed the `SessionContext.associate` block from `SessionContext.js`
+(which had `SessionContext.belongsTo(models.User, { foreignKey: 'createdBy', as: 'creator' })`).
+Without that association defined, Sequelize throws:
+`User is not associated to SessionContext!`
+
+This is the identical root cause as the `list-session-contexts` MCP route fixed in `83a18fc`.
+That commit fixed the `/api/mcp/session-contexts/list` handler but left the REST routes in
+`session-context.js` untouched.
+
+**The fix — remove User include from both GET routes in `session-context.js`:**
+
+```js
+router.get('/', auth, async (req, res) => {
+  try {
+    const { SessionContext } = loadModels();
+    const contexts = await SessionContext.findAll({
+      order: [['updatedAt', 'DESC']]
+    });
+    res.json(contexts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:name', auth, async (req, res) => {
+  try {
+    const { SessionContext } = loadModels();
+    const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
+    if (!ctx) return res.status(404).json({ error: 'Context not found' });
+    res.json(ctx);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+```
+
+Also remove the `User` import from `loadModels()` destructuring in those routes.
+
+If `createdBy` (the raw integer FK) is useful in the UI response, it is already
+present on the `SessionContext` record itself - no join needed.
+
+**File to fix:** `server/src/routes/session-context.js` - lines 8-33

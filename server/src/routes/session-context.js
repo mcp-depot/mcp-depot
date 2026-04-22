@@ -7,9 +7,8 @@ const router = express.Router();
 
 router.get('/', auth, async (req, res) => {
   try {
-    const { SessionContext, User } = loadModels();
+    const { SessionContext } = loadModels();
     const contexts = await SessionContext.findAll({
-      include: [{ model: User, as: 'creator', attributes: ['id', 'username'] }],
       order: [['updatedAt', 'DESC']]
     });
     res.json(contexts);
@@ -20,10 +19,9 @@ router.get('/', auth, async (req, res) => {
 
 router.get('/:name', auth, async (req, res) => {
   try {
-    const { SessionContext, User } = loadModels();
+    const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({
-      where: { name: req.params.name },
-      include: [{ model: User, as: 'creator', attributes: ['id', 'username'] }]
+      where: { name: req.params.name }
     });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
     res.json(ctx);
