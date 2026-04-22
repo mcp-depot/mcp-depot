@@ -45,6 +45,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 37 | Monitoring page should show actual upstream API response | latest |
 | 38 | POST body merges template result AND all flat param keys; nulls in body | latest |
 | 38b | Optional params leave null nodes in resolved body template | latest |
+| 38c | Non-null default params added as flat body keys on top of template | latest |
 
 ---
 
@@ -268,3 +269,46 @@ Secrets (Authorization header value, tokens) should be redacted — show the hea
 ### Issue 38b — Optional params not provided by caller leave null/placeholder nodes in the resolved body template ✅ RESOLVED
 
 **Fixed in:** `server/src/routes/mcp.js` - `pruneNulls()` function added and applied after template substitution
+
+---
+
+### Issue 38c — Params with non-null default values still added as flat body keys when a body template exists ✅ RESOLVED
+
+**Fixed in:** `server/src/routes/mcp.js` — added `hasBodyTemplate` check before the fallthrough
+
+**Root cause — `mcp.js` line 1086:**
+
+```js
+} else if (key !== 'workspace' && key !== 'repo_slug') {
+  bodyParams[key] = value;  // ← fires for ANY non-null param not in the template
+}
+```
+
+This fallthrough runs for every param that is not null, not a path param, not in `bodyTemplateVars`, and has no `transformConfig`. Auto-imported OpenAPI params (`id`, `type`, `user`, `deleted`, `pending`, `created_on`, etc.) that have default values set in the tool definition arrive as non-null and hit this line — getting stamped onto the body as flat top-level keys on top of the template output. Bitbucket rejects all fields it does not recognise.
+
+The null guard from fix 38 only helps params that are truly absent. Params with any default value (empty string, 0, false) bypass it and still land in the body.
+
+**The fix — one condition on the fallthrough:**
+
+Compute `hasBodyTemplate` once before the loop, then guard the fallthrough:
+
+```js
+// Before the param loop (around line 1053):
+const hasBodyTemplate = !!(tool.endpoint.body && Object.keys(tool.endpoint.body).length > 0);
+
+// Replace line 1086-1088:
+} else if (key !== 'workspace' && key !== 'repo_slug') {
+  if (!hasBodyTemplate) {
+    bodyParams[key] = value;  // only for tools with no body template
+  }
+  // when a template exists, ignore — param was not in the template so it has no place in the body
+}
+```
+
+**Why this is safe:**
+
+- Tools WITH a body template: only template vars and path vars affect the request; all other params are silently ignored
+- Tools WITHOUT a body template (simple flat-body POST tools): behaviour unchanged, params still added as flat keys
+- `parent_comment_id` and other template vars are already handled by `bodyTemplateVars.has(key)` above the fallthrough — they are unaffected by this change
+
+**File:** `server/src/routes/mcp.js` — line ~1053 (add `hasBodyTemplate`), line ~1086 (add `if (!hasBodyTemplate)` guard)
