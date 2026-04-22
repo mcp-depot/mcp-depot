@@ -1131,7 +1131,10 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         success: true,
       });
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      const errorDetail = error?.response?.data
+        ? JSON.stringify(error.response.data)
+        : (error?.message || String(error));
+      res.status(500).json({ error: errorDetail });
 
       await logToolCall({
         toolId: tool.id,
@@ -1145,14 +1148,17 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         requestBody: bodyParams,
         queryParams,
         responseStatus: error.response?.status || 500,
-        responseBody: { error: error.message },
+        responseBody: { error: errorDetail },
         responseTime: 0,
         success: false,
-        errorMessage: error.message,
+        errorMessage: errorDetail,
       });
     }
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    const errorDetail = error?.response?.data
+      ? JSON.stringify(error.response.data)
+      : (error?.message || String(error));
+    res.status(500).json({ error: errorDetail });
   }
 });
 

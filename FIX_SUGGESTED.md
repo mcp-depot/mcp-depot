@@ -192,3 +192,51 @@ async function getStdioMcpTools(command, args, envVars, runtime = 'node', signal
 **Changes:**
 1. **Execution layer (mcp.js)**: If param key IS in bodyTemplateVars, it stays in body for substitution - never goes to queryParams
 2. **OpenAPI importer (openapi-parser.js)**: Added `mapOpenApiType()` to correctly map `integer` → `number`, `boolean` → `boolean`
+
+---
+
+### Issue 36 — Tool execution catch block returns `[object Object]` — actual API error is swallowed ✅ RESOLVED
+
+**Fixed in:**
+- `server/src/adapters/DynamicAdapter.js` - both catch blocks now serialize error response data
+- `server/src/routes/mcp.js` - execution route catch blocks now show actual API error details
+
+**Changes:**
+- Error serialization now checks `error?.response?.data` first, stringifies it, falls back to `error.message` or `String(error)`
+
+---
+
+### Feature Request 37 — Monitoring page should show actual upstream API response, not just the wrapped MCP error
+
+**Status:** Feature request
+
+**Problem:**
+
+The monitoring/logs page currently shows the error that MCPConnect returns to the MCP client (e.g. `[object Object]` or a wrapped message). It does not show:
+- The HTTP status code returned by the upstream API (e.g. Bitbucket, Jira)
+- The raw response body from the upstream API
+- The exact request that was sent (URL, headers minus secrets, body)
+
+This means when a tool call fails, the only way to diagnose it is to add `console.log` to the server or rely on Issue 36's error serialisation fix. Even with Issue 36 fixed, Claude sees the error but the developer watching the monitoring page still can't see the full upstream context.
+
+**Requested behaviour:**
+
+Each tool execution log entry in the monitoring page should show:
+
+| Field | Example |
+|-------|---------|
+| Tool name | `Create a comment on a pull request` |
+| MCP call status | `error` / `success` |
+| Upstream request URL | `POST https://api.bitbucket.org/2.0/repositories/…` |
+| Upstream HTTP status | `400 Bad Request` |
+| Upstream response body | `{"type":"error","error":{"message":"content.raw is required"}}` |
+| Duration | `312ms` |
+
+Secrets (Authorization header value, tokens) should be redacted — show the header name but not the value.
+
+**Implementation notes:**
+
+- The execution route in `mcp.js` already has the request/response at the point of the API call — capture it there before throwing
+- Store it alongside the existing log entry (or add new columns to the logs table)
+- The monitoring UI just needs to expand the existing log row to show upstream detail
+- For errors specifically, the upstream response body is the highest-value field — even logging just that to the existing error message would be a significant improvement

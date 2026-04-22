@@ -147,7 +147,10 @@ class DynamicAdapter {
       });
       return { success: true, status: response.status };
     } catch (error) {
-      return { success: false, error: error.message };
+      const errorDetail = error?.response?.data
+          ? JSON.stringify(error.response.data)
+          : (error?.message || String(error));
+        return { success: false, error: errorDetail };
     }
   }
 
@@ -200,8 +203,10 @@ class DynamicAdapter {
           continue;
         }
         
-        const message = error.response?.data?.message || error.response?.data?.error || error.message;
-        throw new Error(`API Error: ${message}`);
+        const errorDetail = error?.response?.data
+          ? JSON.stringify(error.response.data)
+          : (error?.message || String(error));
+        throw new Error(`API Error: ${errorDetail}`);
       }
     }
     
