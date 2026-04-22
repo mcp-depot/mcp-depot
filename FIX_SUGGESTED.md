@@ -52,6 +52,45 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 40 | Session context MCP tools return 401 when MCP auth mode is required | `a5e5ae7` |
 | 41 | Ownerless contexts invisible in admin UI and list/get MCP tools | `de20e7a` |
 | 42 | Session Contexts empty state references Claude by name | `72e830c` |
+| 43 | `list-session-contexts` MCP response omits TTL info — `ttlHours` and `expiresAt` missing | open |
+
+---
+
+### Issue 43 — `list-session-contexts` response omits TTL fields
+
+**What is broken:**
+
+The MCP `list-session-contexts` handler (`GET /api/mcp/session-contexts/list`) maps rows
+to a response object that does not include `ttlHours` or `expiresAt`. Claude cannot warn
+the user about expiring contexts because it has no expiry data to work with.
+
+**Why it is broken:**
+
+The response mapping was written before the TTL design was finalised. The `ttlHours`
+column exists on the model but was never included in the list response.
+
+**The fix** — in `server/src/routes/mcp.js`, update the mapping inside the list handler:
+
+```js
+res.json(all.map(c => {
+  const expiresAt = c.ttlHours != null
+    ? new Date(new Date(c.updatedAt).getTime() + c.ttlHours * 3600000).toISOString()
+    : null;
+  return {
+    name:      c.name,
+    isShared:  c.isShared,
+    mine:      callerId ? c.createdBy === callerId : false,
+    updatedAt: c.updatedAt,
+    ttlHours:  c.ttlHours,   // null = pinned (never expires)
+    expiresAt,               // ISO timestamp of expiry, or null if pinned
+    chars:     c.content.length
+  };
+}));
+```
+
+`expiresAt` is a pre-computed ISO timestamp so Claude does not need to do arithmetic —
+it can directly compare `expiresAt` to the current time and warn the user if expiry
+is within 24 hours.
 
 ---
 

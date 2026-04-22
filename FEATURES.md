@@ -432,13 +432,20 @@ router.get('/session-contexts/list', checkMcpAuth, async (req, res) => {
       : {};  // unauthenticated — return all (authMode is none, no ownership model active)
 
     const all = await SessionContext.findAll({ where, order: [['updatedAt', 'DESC']] });
-    res.json(all.map(c => ({
-      name:      c.name,
-      isShared:  c.isShared,
-      mine:      callerId ? c.createdBy === callerId : false,
-      updatedAt: c.updatedAt,
-      chars:     c.content.length
-    })));
+    res.json(all.map(c => {
+      const expiresAt = c.ttlHours != null
+        ? new Date(new Date(c.updatedAt).getTime() + c.ttlHours * 3600000).toISOString()
+        : null;
+      return {
+        name:      c.name,
+        isShared:  c.isShared,
+        mine:      callerId ? c.createdBy === callerId : false,
+        updatedAt: c.updatedAt,
+        ttlHours:  c.ttlHours,   // null = pinned (never expires)
+        expiresAt,               // ISO timestamp of expiry, or null if pinned
+        chars:     c.content.length
+      };
+    }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

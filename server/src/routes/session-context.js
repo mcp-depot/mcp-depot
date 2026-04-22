@@ -19,7 +19,22 @@ router.get('/', auth, async (req, res) => {
       where: readableWhere(req.user.id),
       order: [['updatedAt', 'DESC']]
     });
-    res.json(contexts);
+    res.json(contexts.map(c => {
+      const expiresAt = c.ttlHours != null
+        ? new Date(new Date(c.updatedAt).getTime() + c.ttlHours * 3600000).toISOString()
+        : null;
+      return {
+        id: c.id,
+        name: c.name,
+        content: c.content,
+        isShared: c.isShared,
+        ttlHours: c.ttlHours,
+        expiresAt,
+        createdBy: c.createdBy,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt
+      };
+    }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

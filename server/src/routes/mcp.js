@@ -169,12 +169,19 @@ router.get('/session-contexts/list', async (req, res) => {
       : { [Op.or]: [{ isShared: true }, { createdBy: null }] };
 
     const all = await SessionContext.findAll({ where, order: [['updatedAt', 'DESC']] });
-    res.json(all.map(c => ({
-      name: c.name,
-      isShared: c.isShared,
-      updatedAt: c.updatedAt,
-      chars: c.content.length
-    })));
+    res.json(all.map(c => {
+      const expiresAt = c.ttlHours != null
+        ? new Date(new Date(c.updatedAt).getTime() + c.ttlHours * 3600000).toISOString()
+        : null;
+      return {
+        name: c.name,
+        isShared: c.isShared,
+        ttlHours: c.ttlHours,
+        expiresAt,
+        updatedAt: c.updatedAt,
+        chars: c.content.length
+      };
+    }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
