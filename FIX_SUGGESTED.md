@@ -53,6 +53,90 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 41 | Ownerless contexts invisible in admin UI and list/get MCP tools | `de20e7a` |
 | 42 | Session Contexts empty state references Claude by name | `72e830c` |
 | 43 | `list-session-contexts` MCP response omits TTL info — `ttlHours` and `expiresAt` missing | `5827ac3` |
+| 44 | `SessionContexts.jsx` does not display TTL — Expires column and live countdown missing | open |
+
+---
+
+### Issue 44 — `SessionContexts.jsx` does not display TTL
+
+**What is broken:**
+
+The admin UI `Session Contexts` page has no Expires column. The API now returns
+`ttlHours` and `expiresAt` on every row but the UI ignores them.
+
+**The fix** — three changes to `client/src/pages/SessionContexts.jsx`:
+
+**1. Add `expiryInfo` helper and `now` ticker** (above the component):
+
+```jsx
+function expiryInfo(ctx, now) {
+  if (ctx.ttlHours == null) return { label: 'Pinned', urgency: 'pinned' };
+  const expiresAt = new Date(ctx.updatedAt).getTime() + ctx.ttlHours * 3600000;
+  const msLeft = expiresAt - now;
+  if (msLeft <= 0) return { label: 'Expired', urgency: 'urgent' };
+  const hLeft = msLeft / 3600000;
+  if (hLeft < 1) {
+    const mLeft = Math.ceil(msLeft / 60000);
+    return { label: `${mLeft}m`, urgency: 'urgent' };
+  }
+  if (hLeft < 24) {
+    const h = Math.floor(hLeft);
+    const m = Math.floor((hLeft - h) * 60);
+    return { label: `${h}h ${m}m`, urgency: 'soon' };
+  }
+  const d = Math.floor(hLeft / 24);
+  const h = Math.floor(hLeft % 24);
+  return { label: `${d}d ${h}h`, urgency: 'ok' };
+}
+```
+
+**2. Add `now` state inside the component** (alongside existing useState calls):
+
+```jsx
+const [now, setNow] = useState(Date.now());
+
+useEffect(() => {
+  const t = setInterval(() => setNow(Date.now()), 60000);
+  return () => clearInterval(t);
+}, []);
+```
+
+**3. Add Expires column to the table** — add `<th>Expires</th>` to the header and
+this `<td>` to each row (inside the `contexts.map`):
+
+```jsx
+// In <thead>:
+<th>Expires</th>
+
+// In <tbody> row (after Visibility td):
+<td>
+  {(() => {
+    const { label, urgency } = expiryInfo(ctx, now);
+    return <span className={`expiry expiry-${urgency}`}>{label}</span>;
+  })()}
+</td>
+```
+
+And in the modal `modal-meta` section, add:
+
+```jsx
+{(() => {
+  const { label, urgency } = expiryInfo(selected, now);
+  return <span>Expires: <span className={`expiry expiry-${urgency}`}>{label}</span></span>;
+})()}
+```
+
+**4. Add CSS** to `client/src/index.css`:
+
+```css
+.expiry { font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.expiry-pinned { color: var(--text-light); }
+.expiry-ok     { color: var(--text-light); }
+.expiry-soon   { color: var(--warning, #d97706); font-weight: 600; }
+.expiry-urgent { color: var(--danger,  #e53e3e); font-weight: 600; }
+```
+
+Full updated component is in `FEATURES.md` — Implementation Guide, section 5.
 
 ---
 

@@ -2,11 +2,37 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
+function expiryInfo(ctx, now) {
+  if (ctx.ttlHours == null) return { label: 'Pinned', urgency: 'pinned' };
+  const expiresAt = new Date(ctx.updatedAt).getTime() + ctx.ttlHours * 3600000;
+  const msLeft = expiresAt - now;
+  if (msLeft <= 0) return { label: 'Expired', urgency: 'urgent' };
+  const hLeft = msLeft / 3600000;
+  if (hLeft < 1) {
+    const mLeft = Math.ceil(msLeft / 60000);
+    return { label: `${mLeft}m`, urgency: 'urgent' };
+  }
+  if (hLeft < 24) {
+    const h = Math.floor(hLeft);
+    const m = Math.floor((hLeft - h) * 60);
+    return { label: `${h}h ${m}m`, urgency: 'soon' };
+  }
+  const d = Math.floor(hLeft / 24);
+  const h = Math.floor(hLeft % 24);
+  return { label: `${d}d ${h}h`, urgency: 'ok' };
+}
+
 function SessionContexts() {
   const { token, user } = useAuth();
   const [contexts, setContexts] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     loadContexts();
@@ -72,6 +98,7 @@ function SessionContexts() {
             <tr>
               <th>Name</th>
               <th>Visibility</th>
+              <th>Expires</th>
               <th>Updated</th>
               <th>Size</th>
               <th></th>
@@ -84,6 +111,11 @@ function SessionContexts() {
                 <td>
                   <span className={`badge ${ctx.isShared ? 'badge-green' : 'badge-muted'}`}>
                     {ctx.isShared ? 'Shared' : 'Private'}
+                  </span>
+                </td>
+                <td>
+                  <span className={`expiry-${expiryInfo(ctx, now).urgency}`}>
+                    {expiryInfo(ctx, now).label}
                   </span>
                 </td>
                 <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
