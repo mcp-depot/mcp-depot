@@ -65,6 +65,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 52 | Issue 50 partial — `Globe`/`Lock` imported in `SessionContexts.jsx` but never rendered; modal badge shows text only, no icons | `716ec76` |
 | 53 | Dead code in `SessionChannels.jsx` — `messages.messages?.map(...)` branch unreachable; unused `Database` import in `Sidebar.jsx` | `716ec76` |
 | 54 | `SessionChannels.jsx` — selecting a channel crashes with `TypeError: a.map is not a function` — `loadMessages` sets state to full axios object, not the data array | `b5c5e94` |
+| 55 | `SessionChannels.jsx` — messages panel shows empty after fix 54 — `res?.messages` is still wrong, must use `res?.data` | open |
 
 ---
 
@@ -1740,6 +1741,63 @@ WHERE name = 'clear-channel';
 ```
 
 After either approach, reconnect MCP in Claude Code and retry `read-channel`.
+
+---
+
+## Issue 55 — Messages panel shows empty after fix 54 — `res?.messages` still wrong
+
+**Status:** Open
+
+**Symptom:**
+
+After fix `b5c5e94`, clicking a channel no longer crashes. But the right panel shows
+"No messages yet." even when the channel shows "1 msgs" in the left panel.
+
+**Root cause:**
+
+The fix for issue 54 changed the line to:
+
+```js
+const data = Array.isArray(res) ? res : (res?.messages || []);
+```
+
+`res` is still the full axios response object `{ data: [...], status: 200, headers, config, request }`.
+`Array.isArray(res)` → false.
+`res?.messages` → `undefined` (axios response objects have no `.messages` property).
+`data = []`.
+
+The crash is gone but messages are still never extracted. The correct property is `res.data`,
+which is where axios puts the parsed JSON response body.
+
+The admin route (`GET /api/session-channels/:channel` in `session-channel.js`) returns:
+
+```js
+res.json(messages);  // plain JSON array of message objects
+```
+
+Axios receives this as `response.data = [{id, channel, message, createdAt, ...}, ...]`.
+
+**Compare with `loadChannels` in the same file, which works correctly:**
+
+```js
+const data = Array.isArray(res) ? res : (res?.data || res?.channels || []);
+//                                             ↑ res.data — correct
+```
+
+**The fix — `client/src/pages/SessionChannels.jsx`, `loadMessages` function, line ~31:**
+
+```js
+// Replace:
+const data = Array.isArray(res) ? res : (res?.messages || []);
+
+// With:
+const data = Array.isArray(res?.data) ? res.data : (res?.data?.messages || res?.messages || []);
+```
+
+This:
+1. Checks if `res.data` is already a plain array (admin route) — uses it directly
+2. Falls back to `res.data.messages` if it's an object with messages array (MCP route format)
+3. Falls back to `res.messages` as a last resort for unusual response shapes
 
 ---
 

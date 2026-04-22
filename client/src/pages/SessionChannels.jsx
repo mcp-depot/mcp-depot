@@ -14,7 +14,7 @@ function SessionChannels() {
     setLoading(true);
     try {
       const res = await api.get('/session-channels', token);
-      const data = Array.isArray(res) ? res : (res?.data || res?.channels || []);
+      const data = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
       setChannels(data);
     } catch (err) {
       console.error('Failed to load channels:', err);
@@ -28,7 +28,7 @@ function SessionChannels() {
     setLoadingMessages(true);
     try {
       const res = await api.get(`/session-channels/${encodeURIComponent(channel)}`, token);
-      const data = Array.isArray(res) ? res : (res?.messages || []);
+      const data = Array.isArray(res) ? res : (Array.isArray(res?.data) ? res.data : []);
       setMessages(data);
     } catch (err) {
       console.error('Failed to load messages:', err);
