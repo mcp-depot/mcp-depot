@@ -16,6 +16,11 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT,
       allowNull: false
     },
+    isShared: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
     createdBy: {
       type: DataTypes.INTEGER,
       allowNull: true

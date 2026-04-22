@@ -113,44 +113,62 @@ router.get('/hello', async (req, res) => {
 });
 
 // Session Context internal routes - exposed via DB seed tools
-router.post('/session-contexts/store', async (req, res) => {
+router.post('/session-contexts/store', checkMcpAuth, async (req, res) => {
   try {
-    const { name, content } = req.body;
+    const { name, content, shared = false } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
+    const callerId = req.user?.id ?? null;
+
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name },
-      defaults: { id: randomUUID(), name, content }
+      defaults: { id: randomUUID(), name, content, isShared: shared, createdBy: callerId }
     });
-    if (!created) await ctx.update({ content });
-    res.json({ success: true, name, chars: content.length, created });
+    if (!created) {
+      if (ctx.createdBy !== null && ctx.createdBy !== callerId) {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
+      await ctx.update({ content, isShared: shared });
+    }
+    res.json({ success: true, name, chars: content.length, shared, created });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/session-contexts/get', async (req, res) => {
+router.get('/session-contexts/get', checkMcpAuth, async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
     const { SessionContext } = loadModels();
-    const ctx = await SessionContext.findOne({ where: { name } });
+    const callerId = req.user?.id ?? null;
+    const ctx = await SessionContext.findOne({
+      where: callerId
+        ? { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }] }
+        : { name, isShared: true }
+    });
     if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
-    res.json({ name: ctx.name, content: ctx.content, updatedAt: ctx.updatedAt });
+    res.json({ name: ctx.name, content: ctx.content, updatedAt: ctx.updatedAt, isShared: ctx.isShared });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/session-contexts/list', async (req, res) => {
+router.get('/session-contexts/list', checkMcpAuth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
-    const all = await SessionContext.findAll({
-      order: [['updatedAt', 'DESC']]
-    });
+    const { Op } = require('sequelize');
+    const callerId = req.user?.id ?? null;
+
+    const where = callerId
+      ? { [Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
+      : { isShared: true };
+
+    const all = await SessionContext.findAll({ where, order: [['updatedAt', 'DESC']] });
     res.json(all.map(c => ({
       name: c.name,
+      isShared: c.isShared,
       updatedAt: c.updatedAt,
       chars: c.content.length
     })));
@@ -159,13 +177,18 @@ router.get('/session-contexts/list', async (req, res) => {
   }
 });
 
-router.delete('/session-contexts/delete', async (req, res) => {
+router.delete('/session-contexts/delete', checkMcpAuth, async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
     const { SessionContext } = loadModels();
-    const deleted = await SessionContext.destroy({ where: { name } });
-    if (!deleted) return res.status(404).json({ error: `No context found with name '${name}'` });
+    const callerId = req.user?.id ?? null;
+    const ctx = await SessionContext.findOne({ where: { name } });
+    if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
+    if (callerId !== null && ctx.createdBy !== callerId) {
+      return res.status(403).json({ error: 'You do not own this context' });
+    }
+    await ctx.destroy();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

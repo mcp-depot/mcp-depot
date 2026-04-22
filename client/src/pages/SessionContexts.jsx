@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 function SessionContexts() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [contexts, setContexts] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -37,11 +37,25 @@ function SessionContexts() {
     }
   };
 
+  const handleToggleShare = async (name, currentShared) => {
+    try {
+      await api.patch(`/session-contexts/${encodeURIComponent(name)}/share`, token, { shared: !currentShared });
+      loadContexts();
+      if (selected?.name === name) {
+        setSelected(s => ({ ...s, isShared: !currentShared }));
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to toggle share');
+    }
+  };
+
+  const isOwner = (ctx) => ctx.createdBy === user?.id;
+
   return (
     <div className="container">
       <div className="page-header">
         <h1>Session Contexts</h1>
-        <p>Named context snapshots stored by AI sessions. Read by other sessions to skip re-diagnosis.</p>
+        <p>Named context snapshots stored by AI sessions. Private by default — share to make visible to teammates.</p>
       </div>
 
       {loading ? (
@@ -57,7 +71,7 @@ function SessionContexts() {
           <thead>
             <tr>
               <th>Name</th>
-              <th>Creator</th>
+              <th>Visibility</th>
               <th>Updated</th>
               <th>Size</th>
               <th></th>
@@ -67,16 +81,30 @@ function SessionContexts() {
             {contexts.map(ctx => (
               <tr key={ctx.id} onClick={() => setSelected(ctx)} className="clickable-row">
                 <td><code>{ctx.name}</code></td>
-                <td>{ctx.creator?.username ?? '-'}</td>
+                <td>
+                  <span className={`badge ${ctx.isShared ? 'badge-green' : 'badge-muted'}`}>
+                    {ctx.isShared ? 'Shared' : 'Private'}
+                  </span>
+                </td>
                 <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
                 <td>{ctx.content?.length ?? 0} chars</td>
-                <td>
-                  <button
-                    className="btn btn-sm btn-danger"
-                    onClick={(e) => { e.stopPropagation(); handleDelete(ctx.name); }}
-                  >
-                    Delete
-                  </button>
+                <td onClick={e => e.stopPropagation()}>
+                  {isOwner(ctx) && (
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => handleToggleShare(ctx.name, ctx.isShared)}
+                      >
+                        {ctx.isShared ? 'Unshare' : 'Share'}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => handleDelete(ctx.name)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -93,12 +121,24 @@ function SessionContexts() {
             </div>
             <div className="modal-body">
               <div className="modal-meta">
-                <span>By {selected.creator?.username ?? 'unknown'}</span>
+                <span>{selected.isShared ? '🌐 Shared' : '🔒 Private'}</span>
                 <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
+                <span>{selected.content?.length ?? 0} chars</span>
               </div>
               <pre>{selected.content}</pre>
             </div>
             <div className="modal-footer">
+              {isOwner(selected) && (
+                <>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => handleToggleShare(selected.name, selected.isShared)}
+                  >
+                    {selected.isShared ? 'Make Private' : 'Share with team'}
+                  </button>
+                  <button className="btn btn-danger" onClick={() => handleDelete(selected.name)}>Delete</button>
+                </>
+              )}
               <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
             </div>
           </div>

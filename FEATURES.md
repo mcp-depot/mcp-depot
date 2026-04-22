@@ -7,7 +7,7 @@
 
 ## Feature 01 — Session Context Store: share AI session context across sessions, tools, and teammates
 
-**Status:** Proposed
+**Status:** Partially implemented — ownership + sharing design pending
 
 **The problem:**
 
@@ -19,31 +19,49 @@ context, watching the second session re-diagnose things the first already solved
 
 **The proposed solution:**
 
-Add three MCP tools to MCPConnect backed by a simple `SessionContext` table:
+Add four MCP tools to MCPConnect backed by a `SessionContext` table with user
+ownership and opt-in sharing. Contexts are **private by default** — only the creator
+can read, update, and delete their own context. Setting `shared: true` makes a
+context readable by any MCPConnect user, while still keeping write/delete
+restricted to the owner.
 
 | Tool | Description |
 |------|-------------|
-| `store-session-context(name, content)` | Save a named context string (AI-generated summary, investigation notes, decision log, anything) |
-| `get-session-context(name)` | Retrieve a stored context by name and inject it into the current session |
-| `list-session-contexts()` | List all stored contexts with name, creator, and timestamp |
-| `delete-session-context(name)` | Remove a stored context |
+| `store-session-context(name, content, shared?)` | Save a named context string. `shared` defaults to `false` (private). |
+| `get-session-context(name)` | Retrieve a context you own or that is shared. Returns 404 for private contexts owned by others. |
+| `list-session-contexts()` | List your own contexts plus all shared contexts. |
+| `delete-session-context(name)` | Delete a context you own. Returns 403 if not the owner. |
+
+**Access rules (summary):**
+
+| Operation | Who can do it |
+|-----------|--------------|
+| Read (get / list) | Owner, or any user if `isShared = true` |
+| Update content | Owner only (403 for others) |
+| Toggle shared flag | Owner only |
+| Delete | Owner only (403 for others) |
 
 **The workflow:**
 
 ```
 Session A (debugging):
   User: "Summarize what we've found and store it in MCPConnect as 'bitbucket-debug'"
-  Claude: [generates structured summary of findings, attempted fixes, current state]
-  Claude: calls store-session-context('bitbucket-debug', summary)
+  Claude: calls store-session-context('bitbucket-debug', summary, shared=true)
 
 Session B (testing, possibly different machine or tool):
   User: "Load context 'bitbucket-debug' from MCPConnect"
   Claude: calls get-session-context('bitbucket-debug')
   Claude: reads it, instantly has Session A's full mental model — no re-diagnosis needed
+
+Private use (no sharing needed):
+  User: "Store my current investigation notes as 'auth-notes' - keep it private"
+  Claude: calls store-session-context('auth-notes', notes)  // shared defaults to false
 ```
 
 **Why this works well:**
 
+- **Private by default** — sensitive investigation notes, personal working state, or
+  half-formed thoughts stay private until explicitly shared.
 - **AI-curated** — Claude generates the summary, so it captures what actually matters
   rather than dumping a raw transcript. The second session gets a decision-ready
   briefing, not noise.
@@ -53,20 +71,18 @@ Session B (testing, possibly different machine or tool):
   filesystem), a teammate on a different machine loads the same context.
 - **Named and discoverable** — `list-session-contexts()` shows what is available.
   No need to remember what you saved or where.
-- **Fits MCPConnect's existing positioning** — MCPConnect is already a shared hub
-  for tools and credentials. A shared context store is a natural extension: the hub
-  now also shares knowledge, not just tool access.
 
-**Schema (minimal):**
+**Schema:**
 
 ```sql
 CREATE TABLE SessionContext (
-  id          UUID PRIMARY KEY,
-  name        VARCHAR(255) UNIQUE NOT NULL,
-  content     TEXT NOT NULL,
-  createdBy   INTEGER REFERENCES Users(id),
-  createdAt   DATETIME,
-  updatedAt   DATETIME
+  id        UUID PRIMARY KEY,
+  name      VARCHAR(255) UNIQUE NOT NULL,
+  content   TEXT NOT NULL,
+  isShared  BOOLEAN NOT NULL DEFAULT FALSE,
+  createdBy INTEGER REFERENCES Users(id) ON DELETE SET NULL,
+  createdAt DATETIME,
+  updatedAt DATETIME
 );
 ```
 
@@ -74,16 +90,20 @@ CREATE TABLE SessionContext (
 
 - `content` is freeform text — no schema enforcement. Claude writes whatever is
   useful: markdown summaries, JSON state, bullet lists of findings.
-- `name` should be unique and human-readable (acts as the key).
+- `name` is unique across all users. Two users cannot create contexts with the same
+  name. The first creator owns the name; others get a 409 conflict if they try to
+  create it (they can update it only if they are the owner).
+- `isShared` is stored on the row. The UI should surface this as a toggle so
+  users can share or unshare without going through Claude.
 - Consider adding an optional `ttl` (time-to-live) field so temporary investigation
-  contexts auto-expire and don't clutter the store.
-- Admin UI: a simple list view under a "Contexts" section, with name, preview,
-  creator, and age. No editor needed — Claude writes the content.
-- Expose via the existing MCP tool registration pattern — three tools, same auth
-  as everything else in MCPConnect.
+  contexts auto-expire and do not clutter the store.
+- Admin UI: a list view under a "Contexts" section, with name, owner, shared badge,
+  and age. No editor needed — Claude writes the content. Owner gets a share toggle
+  and a delete button; non-owners see read-only.
 
-**Effort estimate:** Small — new DB table, three route handlers, three MCP tool
-registrations. No new dependencies. The hardest part is deciding the UI placement.
+**Effort estimate:** Small — the table exists, the routes exist. This revision adds
+one column (`isShared`), a new migration, and ownership checks throughout the routes
+and MCP tools. No new dependencies.
 
 ---
 
@@ -92,31 +112,33 @@ registrations. No new dependencies. The hardest part is deciding the UI placemen
 This section gives the developer exact code to write. All patterns follow existing
 MCPConnect conventions observed in the codebase.
 
-#### Files to create
+> **Note for the developer:** Feature 01 was partially implemented. The table,
+> model, REST routes (`session-context.js`), and React page (`SessionContexts.jsx`)
+> already exist. This guide supersedes the original spec. Changes needed are:
+> 1. Add `isShared` column via a new migration
+> 2. Update model, REST routes, MCP DB seed records, and UI for ownership + sharing
+
+#### Files already created (need updating)
+
+| File | What to change |
+|------|---------------|
+| `server/src/models/SessionContext.js` | Add `isShared` field |
+| `server/src/routes/session-context.js` | Add ownership checks + `isShared` filtering |
+| `client/src/pages/SessionContexts.jsx` | Add shared badge, share toggle, owner-only controls |
+
+#### New files to create
 
 | File | Purpose |
 |------|---------|
-| `server/src/models/SessionContext.js` | Sequelize model |
-| `server/src/migrations/20260500-session-context.js` | DB migration |
-| `server/src/routes/session-context.js` | REST CRUD routes |
-| `client/src/pages/SessionContexts.jsx` | React admin UI page |
-
-#### Files to modify
-
-| File | Change |
-|------|--------|
-| `server/src/routes/index.js` | Register the new router under `/session-contexts` |
-| `server/src/mcp/server.js` | Register 4 new MCP tools |
-| `client/src/App.jsx` (or router file) | Add `/session-contexts` route |
-| `client/src/components/Sidebar.jsx` (or nav file) | Add "Contexts" nav link |
+| `server/src/migrations/20260501-session-context-add-shared.js` | Alter migration — adds `isShared` to existing table |
 
 ---
 
 #### 1. Sequelize model — `server/src/models/SessionContext.js`
 
-Follow the factory function pattern used by `PromptLibrary.js`. The model uses a
-UUID primary key (generated by `crypto.randomUUID()` before creation, not by the
-DB) and implicit `createdAt` / `updatedAt` timestamps.
+Add `isShared` field. Do NOT include an `associate` block — the `belongsTo(User)`
+association was removed in commit `d370b00` to fix a DB sync failure, and the routes
+compare `createdBy` directly as an integer (`ctx.createdBy !== req.user.id`).
 
 ```js
 const { DataTypes } = require('sequelize');
@@ -137,19 +159,19 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT,
       allowNull: false
     },
+    isShared: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
     createdBy: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-      references: { model: 'Users', key: 'id' }
+      allowNull: true
     }
   }, {
     tableName: 'SessionContext',
     timestamps: true
   });
-
-  SessionContext.associate = (models) => {
-    SessionContext.belongsTo(models.User, { foreignKey: 'createdBy', as: 'creator' });
-  };
 
   return SessionContext;
 };
@@ -157,50 +179,26 @@ module.exports = (sequelize) => {
 
 ---
 
-#### 2. Migration — `server/src/migrations/20260500-session-context.js`
+#### 2. New migration — `server/src/migrations/20260501-session-context-add-shared.js`
 
-Follow the `up` / `down` pattern used by `20260415-composite-tools.js`. Use
-`queryInterface.createTable` in `up` and `queryInterface.dropTable` in `down`.
+Adds `isShared` to the existing `SessionContext` table. Existing rows get
+`isShared = false` (the column default), which is correct — pre-existing contexts
+become private to whoever created them.
 
 ```js
 'use strict';
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('SessionContext', {
-      id: {
-        type: Sequelize.UUID,
-        primaryKey: true,
-        allowNull: false
-      },
-      name: {
-        type: Sequelize.STRING(255),
-        allowNull: false,
-        unique: true
-      },
-      content: {
-        type: Sequelize.TEXT,
-        allowNull: false
-      },
-      createdBy: {
-        type: Sequelize.INTEGER,
-        allowNull: true,
-        references: { model: 'Users', key: 'id' },
-        onDelete: 'SET NULL'
-      },
-      createdAt: {
-        type: Sequelize.DATE,
-        allowNull: false
-      },
-      updatedAt: {
-        type: Sequelize.DATE,
-        allowNull: false
-      }
+    await queryInterface.addColumn('SessionContext', 'isShared', {
+      type: Sequelize.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
     });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable('SessionContext');
+    await queryInterface.removeColumn('SessionContext', 'isShared');
   }
 };
 ```
@@ -209,24 +207,34 @@ module.exports = {
 
 #### 3. REST routes — `server/src/routes/session-context.js`
 
-Follow the pattern in `prompt-library.js`: auth middleware on every route, Joi
-validation on create/update, `loadModels()` to get the Sequelize instance, user
-scoping via `req.user.id`.
+Full rewrite. Key changes from the current implementation:
+
+- GET routes filter by `createdBy = me OR isShared = true` instead of returning all
+- POST upsert checks ownership before allowing update (403 if not owner)
+- New `PATCH /:name/share` endpoint to toggle `isShared` (owner only)
+- DELETE checks ownership (403 if not owner)
+- User include removed (no `belongsTo` association — `createdBy` is a raw integer)
 
 ```js
 const express = require('express');
 const Joi = require('joi');
-const { authenticateToken } = require('../middleware/auth');
-const { loadModels } = require('../models');
+const { Op } = require('sequelize');
+const { auth } = require('../middleware/auth');
+const { loadModels } = require('../config/database');
 
 const router = express.Router();
 
-// GET /session-contexts — list all contexts
-router.get('/', authenticateToken, async (req, res) => {
+// Returns the Sequelize WHERE clause for "contexts readable by this user"
+function readableWhere(userId) {
+  return { [Op.or]: [{ createdBy: userId }, { isShared: true }] };
+}
+
+// GET /session-contexts — own contexts + shared contexts
+router.get('/', auth, async (req, res) => {
   try {
-    const { SessionContext, User } = await loadModels();
+    const { SessionContext } = loadModels();
     const contexts = await SessionContext.findAll({
-      include: [{ model: User, as: 'creator', attributes: ['id', 'username'] }],
+      where: readableWhere(req.user.id),
       order: [['updatedAt', 'DESC']]
     });
     res.json(contexts);
@@ -235,13 +243,12 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /session-contexts/:name — get one context by name
-router.get('/:name', authenticateToken, async (req, res) => {
+// GET /session-contexts/:name — own or shared only; 404 for private contexts by others
+router.get('/:name', auth, async (req, res) => {
   try {
-    const { SessionContext, User } = await loadModels();
+    const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({
-      where: { name: req.params.name },
-      include: [{ model: User, as: 'creator', attributes: ['id', 'username'] }]
+      where: { name: req.params.name, ...readableWhere(req.user.id) }
     });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
     res.json(ctx);
@@ -251,36 +258,71 @@ router.get('/:name', authenticateToken, async (req, res) => {
 });
 
 const upsertSchema = Joi.object({
-  name: Joi.string().max(255).required(),
-  content: Joi.string().required()
+  name:    Joi.string().max(255).required(),
+  content: Joi.string().required(),
+  shared:  Joi.boolean().default(false)
 });
 
-// POST /session-contexts — create or update (upsert by name)
-router.post('/', authenticateToken, async (req, res) => {
+// POST /session-contexts — create (owner set to caller) or update (owner only)
+router.post('/', auth, async (req, res) => {
   const { error, value } = upsertSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
 
   try {
-    const { SessionContext } = await loadModels();
+    const { SessionContext } = loadModels();
+    const { randomUUID } = require('crypto');
+
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name: value.name },
-      defaults: { ...value, createdBy: req.user.id, id: require('crypto').randomUUID() }
+      defaults: {
+        id:        randomUUID(),
+        name:      value.name,
+        content:   value.content,
+        isShared:  value.shared,
+        createdBy: req.user.id
+      }
     });
+
     if (!created) {
-      await ctx.update({ content: value.content });
+      if (ctx.createdBy !== req.user.id) {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
+      await ctx.update({ content: value.content, isShared: value.shared });
     }
+
     res.status(created ? 201 : 200).json(ctx);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// DELETE /session-contexts/:name — delete a context by name
-router.delete('/:name', authenticateToken, async (req, res) => {
+// PATCH /session-contexts/:name/share — toggle isShared (owner only)
+router.patch('/:name/share', auth, async (req, res) => {
   try {
-    const { SessionContext } = await loadModels();
-    const deleted = await SessionContext.destroy({ where: { name: req.params.name } });
-    if (!deleted) return res.status(404).json({ error: 'Context not found' });
+    const { SessionContext } = loadModels();
+    const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
+    if (!ctx) return res.status(404).json({ error: 'Context not found' });
+    if (ctx.createdBy !== req.user.id) {
+      return res.status(403).json({ error: 'You do not own this context' });
+    }
+    const isShared = typeof req.body.shared === 'boolean' ? req.body.shared : !ctx.isShared;
+    await ctx.update({ isShared });
+    res.json({ name: ctx.name, isShared });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /session-contexts/:name — owner only
+router.delete('/:name', auth, async (req, res) => {
+  try {
+    const { SessionContext } = loadModels();
+    const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
+    if (!ctx) return res.status(404).json({ error: 'Context not found' });
+    if (ctx.createdBy !== req.user.id) {
+      return res.status(403).json({ error: 'You do not own this context' });
+    }
+    await ctx.destroy();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -290,117 +332,134 @@ router.delete('/:name', authenticateToken, async (req, res) => {
 module.exports = router;
 ```
 
-Register in `server/src/routes/index.js`:
-
-```js
-const sessionContextRouter = require('./session-context');
-router.use('/session-contexts', sessionContextRouter);
-```
-
 ---
 
-#### 4. MCP tool registration — additions to `server/src/mcp/server.js`
+#### 4. MCP internal routes — additions to `server/src/routes/mcp.js`
 
-Find the section where other built-in tools are registered (the block of
-`this.server.tool(...)` calls inside the class). Add the four tools below.
+The four MCP tools are backed by internal REST handlers at `/api/mcp/session-contexts/*`.
+These currently have **no auth middleware**, so `req.user` is never set and `createdBy`
+is always null. Ownership enforcement requires adding `checkMcpAuth` to these routes.
 
-The handler for each tool calls the local REST API using the same `axios` instance
-already used elsewhere in the file (or calls the Sequelize model directly if
-preferred — direct DB access avoids an HTTP round-trip).
+**How `checkMcpAuth` resolves a user (from `middleware/mcpAuth.js`):**
+
+| Auth mode (system setting) | `req.user` result |
+|---|---|
+| `none` | Never set — ownership impossible |
+| `optional` | Set only if caller sends a valid Bearer JWT; otherwise null |
+| `required` | Always set — from `Authorization: Bearer <JWT>` or `X-API-Key: <user-api-key>` |
+
+In `required` mode, Claude Code / MCP clients pass their API key via `X-API-Key` header.
+`checkMcpAuth` looks it up with `User.findOne({ where: { apiKey } })` and sets `req.user`.
+This is the correct mode for ownership to work reliably.
+
+**Fallback for null user (optional/none mode):** if `req.user` is null, store
+`createdBy: null`. Null-owner contexts are readable by everyone and only admins can
+delete them. Do not throw an error — just degrade gracefully.
+
+Add `checkMcpAuth` to the session context routes:
 
 ```js
-const { z } = require('zod');
+const { checkMcpAuth } = require('../middleware/mcpAuth');
 
-// --- Session Context tools ---
+// Apply to all session context MCP routes:
+router.post('/session-contexts/store',   checkMcpAuth, async (req, res) => { ... });
+router.get('/session-contexts/get',      checkMcpAuth, async (req, res) => { ... });
+router.get('/session-contexts/list',     checkMcpAuth, async (req, res) => { ... });
+router.delete('/session-contexts/delete', checkMcpAuth, async (req, res) => { ... });
+```
 
-this.server.tool(
-  'store-session-context',
-  {
-    description: 'Save a named context string to MCPConnect so other sessions can retrieve it. Use this to share investigation summaries, findings, or decision logs across Claude sessions or teammates.',
-    inputSchema: z.object({
-      name:    z.string().describe('Unique human-readable key, e.g. "bitbucket-debug"'),
-      content: z.string().describe('The context to store — markdown, JSON, bullet list, anything')
-    })
-  },
-  async ({ name, content }) => {
-    const { SessionContext } = await loadModels();
-    const [ctx] = await SessionContext.findOrCreate({
+For the `store` handler, add `isShared` support and set `createdBy` from the resolved user:
+
+```js
+router.post('/session-contexts/store', checkMcpAuth, async (req, res) => {
+  try {
+    const { name, content, shared = false } = req.body;
+    if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
+    const { SessionContext } = loadModels();
+    const { randomUUID } = require('crypto');
+    const callerId = req.user?.id ?? null;  // null if authMode is none/optional with no token
+
+    const [ctx, created] = await SessionContext.findOrCreate({
       where: { name },
-      defaults: { id: require('crypto').randomUUID(), name, content }
+      defaults: { id: randomUUID(), name, content, isShared: shared, createdBy: callerId }
     });
-    if (ctx.content !== content) await ctx.update({ content });
-    return { content: [{ type: 'text', text: `Context '${name}' stored (${content.length} chars).` }] };
+    if (!created) {
+      // Only allow update if caller owns it, or context is ownerless (createdBy null)
+      if (ctx.createdBy !== null && ctx.createdBy !== callerId) {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
+      await ctx.update({ content, isShared: shared });
+    }
+    res.json({ success: true, name, chars: content.length, shared, created });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-);
-
-this.server.tool(
-  'get-session-context',
-  {
-    description: 'Retrieve a named context previously stored in MCPConnect and inject it into the current session.',
-    inputSchema: z.object({
-      name: z.string().describe('The name of the context to retrieve')
-    })
-  },
-  async ({ name }) => {
-    const { SessionContext } = await loadModels();
-    const ctx = await SessionContext.findOne({ where: { name } });
-    if (!ctx) return { content: [{ type: 'text', text: `No context found with name '${name}'.` }] };
-    return { content: [{ type: 'text', text: ctx.content }] };
-  }
-);
-
-this.server.tool(
-  'list-session-contexts',
-  {
-    description: 'List all named contexts stored in MCPConnect, with name, creator, and timestamps.',
-    inputSchema: z.object({})
-  },
-  async () => {
-    const { SessionContext, User } = await loadModels();
-    const all = await SessionContext.findAll({
-      include: [{ model: User, as: 'creator', attributes: ['username'] }],
-      order: [['updatedAt', 'DESC']]
-    });
-    if (all.length === 0) return { content: [{ type: 'text', text: 'No contexts stored yet.' }] };
-    const lines = all.map(c =>
-      `- **${c.name}** | by ${c.creator?.username ?? 'unknown'} | updated ${c.updatedAt.toISOString().slice(0, 10)} | ${c.content.length} chars`
-    );
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
-  }
-);
-
-this.server.tool(
-  'delete-session-context',
-  {
-    description: 'Delete a named context from MCPConnect.',
-    inputSchema: z.object({
-      name: z.string().describe('The name of the context to delete')
-    })
-  },
-  async ({ name }) => {
-    const { SessionContext } = await loadModels();
-    const deleted = await SessionContext.destroy({ where: { name } });
-    if (!deleted) return { content: [{ type: 'text', text: `No context found with name '${name}'.` }] };
-    return { content: [{ type: 'text', text: `Context '${name}' deleted.` }] };
-  }
-);
+});
 ```
 
-Note: `loadModels` must be imported at the top of `server.js` if it is not already:
+For the `list` handler, apply the readable filter and return `isShared`:
 
 ```js
-const { loadModels } = require('../models');
+router.get('/session-contexts/list', checkMcpAuth, async (req, res) => {
+  try {
+    const { SessionContext } = loadModels();
+    const { Op } = require('sequelize');
+    const callerId = req.user?.id ?? null;
+
+    // Own contexts + shared contexts + ownerless contexts (createdBy null)
+    const where = callerId
+      ? { [Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
+      : {};  // unauthenticated — return all (authMode is none, no ownership model active)
+
+    const all = await SessionContext.findAll({ where, order: [['updatedAt', 'DESC']] });
+    res.json(all.map(c => ({
+      name:      c.name,
+      isShared:  c.isShared,
+      mine:      callerId ? c.createdBy === callerId : false,
+      updatedAt: c.updatedAt,
+      chars:     c.content.length
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 ```
+
+Update the DB seed records in `server/src/config/database.js` — add `shared` param
+to `store-session-context`:
+
+```js
+{
+  name: 'store-session-context',
+  description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Only the creator can update or delete it.',
+  endpoint: {
+    path: '/api/mcp/session-contexts/store',
+    method: 'POST',
+    params: {
+      name:    { type: 'string',  required: true,  description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
+      content: { type: 'string',  required: true,  description: 'The context to store — markdown, JSON, bullet list, anything' },
+      shared:  { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read this context. Default false.' }
+    },
+    headers: {}
+  }
+},
+```
+
+The other three seed records (`get-session-context`, `list-session-contexts`,
+`delete-session-context`) do not need param changes — their endpoints already handle
+the new behaviour.
 
 ---
 
 #### 5. React admin UI — `client/src/pages/SessionContexts.jsx`
 
-Follow the pattern of `Integrations.jsx` or `PromptLibrary.jsx`: `useAuth` hook,
-`useEffect` to fetch on mount, `useState` for list + selected item + modal open/close.
+Changes from the current implementation:
 
-The page needs only a read-only list — no editor (Claude writes the content). A
-"Delete" button per row is the only write action exposed in the UI.
+- Each row shows a **Private** / **Shared** badge
+- Rows the current user owns show a **Share / Unshare** toggle and a **Delete** button
+- Rows owned by others (shared contexts) show no edit controls
+- The modal shows the owner (raw `createdBy` integer or username if available) and
+  the shared status
 
 ```jsx
 import { useState, useEffect } from 'react';
@@ -408,10 +467,10 @@ import { useAuth } from '../hooks/useAuth';
 import api from '../services/api';
 
 export default function SessionContexts() {
-  const { token } = useAuth();
-  const [contexts, setContexts] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { token, user } = useAuth();
+  const [contexts, setContexts]   = useState([]);
+  const [selected, setSelected]   = useState(null);
+  const [loading, setLoading]     = useState(true);
 
   const load = async () => {
     setLoading(true);
@@ -432,51 +491,104 @@ export default function SessionContexts() {
     load();
   };
 
+  const handleToggleShare = async (name, currentShared) => {
+    await api.patch(`/session-contexts/${encodeURIComponent(name)}/share`, token, { shared: !currentShared });
+    load();
+    if (selected?.name === name) setSelected(s => ({ ...s, isShared: !currentShared }));
+  };
+
+  const isOwner = (ctx) => ctx.createdBy === user?.id;
+
   return (
-    <div className="page-container">
-      <h1>Session Contexts</h1>
-      <p className="page-subtitle">
-        Named context snapshots stored by AI sessions. Read by other sessions to skip re-diagnosis.
-      </p>
+    <div className="container">
+      <div className="page-header">
+        <h1>Session Contexts</h1>
+        <p>Named context snapshots stored by AI sessions. Private by default — share to make visible to teammates.</p>
+      </div>
 
-      {loading && <p>Loading...</p>}
-
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Creator</th>
-            <th>Updated</th>
-            <th>Size</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {contexts.map(ctx => (
-            <tr key={ctx.id} onClick={() => setSelected(ctx)} className="clickable-row">
-              <td><code>{ctx.name}</code></td>
-              <td>{ctx.creator?.username ?? '-'}</td>
-              <td>{new Date(ctx.updatedAt).toLocaleDateString()}</td>
-              <td>{ctx.content.length} chars</td>
-              <td>
-                <button
-                  className="btn-danger btn-sm"
-                  onClick={(e) => { e.stopPropagation(); handleDelete(ctx.name); }}
-                >
-                  Delete
-                </button>
-              </td>
+      {loading ? (
+        <div className="loading-overlay"><div className="spinner"></div></div>
+      ) : contexts.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">💬</div>
+          <h3>No contexts yet</h3>
+          <p>Ask Claude to store a context using <code>store-session-context</code>.</p>
+        </div>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Visibility</th>
+              <th>Updated</th>
+              <th>Size</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {contexts.map(ctx => (
+              <tr key={ctx.id} onClick={() => setSelected(ctx)} className="clickable-row">
+                <td><code>{ctx.name}</code></td>
+                <td>
+                  <span className={`badge ${ctx.isShared ? 'badge-green' : 'badge-muted'}`}>
+                    {ctx.isShared ? 'Shared' : 'Private'}
+                  </span>
+                </td>
+                <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
+                <td>{ctx.content?.length ?? 0} chars</td>
+                <td onClick={e => e.stopPropagation()}>
+                  {isOwner(ctx) && (
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => handleToggleShare(ctx.name, ctx.isShared)}
+                      >
+                        {ctx.isShared ? 'Unshare' : 'Share'}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => handleDelete(ctx.name)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>{selected.name}</h2>
-            <pre className="context-preview">{selected.content}</pre>
-            <button onClick={() => setSelected(null)}>Close</button>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{selected.name}</h2>
+              <button className="modal-close" onClick={() => setSelected(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="modal-meta">
+                <span>{selected.isShared ? '🌐 Shared' : '🔒 Private'}</span>
+                <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
+                <span>{selected.content?.length ?? 0} chars</span>
+              </div>
+              <pre className="context-preview">{selected.content}</pre>
+            </div>
+            <div className="modal-footer">
+              {isOwner(selected) && (
+                <>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => handleToggleShare(selected.name, selected.isShared)}
+                  >
+                    {selected.isShared ? 'Make Private' : 'Share with team'}
+                  </button>
+                  <button className="btn btn-danger" onClick={() => handleDelete(selected.name)}>Delete</button>
+                </>
+              )}
+              <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
+            </div>
           </div>
         </div>
       )}
@@ -485,18 +597,20 @@ export default function SessionContexts() {
 }
 ```
 
-Register the route in `App.jsx` (or wherever React Router routes are declared):
+CSS additions needed in `client/src/index.css` (if not already present):
 
-```jsx
-import SessionContexts from './pages/SessionContexts';
-// ...
-<Route path="/session-contexts" element={<SessionContexts />} />
-```
-
-Add a nav link in the sidebar (match the existing `NavLink` / icon pattern):
-
-```jsx
-<NavLink to="/session-contexts">Contexts</NavLink>
+```css
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.badge-green { background: rgba(59,178,115,0.15); color: var(--success); }
+.badge-muted { background: var(--surface-hover); color: var(--text-light); }
 ```
 
 ---
@@ -505,17 +619,24 @@ Add a nav link in the sidebar (match the existing `NavLink` / icon pattern):
 
 Once deployed, test the full cycle from a Claude Code session:
 
-1. Ask Claude: *"Store a context in MCPConnect called 'test-123' with content 'Hello from session A'."*
-   - Claude calls `store-session-context({ name: 'test-123', content: 'Hello from session A' })`
-   - Response: `Context 'test-123' stored (22 chars).`
-2. Ask Claude: *"List all contexts in MCPConnect."*
-   - Claude calls `list-session-contexts()`
-   - Response shows `test-123` in the list.
-3. Open a second Claude Code window and ask: *"Load context 'test-123' from MCPConnect."*
-   - Claude calls `get-session-context({ name: 'test-123' })`
-   - Response: `Hello from session A`
-4. In the MCPConnect admin UI, navigate to the Contexts page and confirm the row is visible.
-5. Delete via the UI or via Claude: *"Delete context 'test-123' from MCPConnect."*
+1. Ask Claude: *"Store a private context called 'my-notes' with content 'Investigation notes - do not share'."*
+   - Claude calls `store-session-context({ name: 'my-notes', content: '...' })` (shared omitted → false)
+   - Admin UI shows row with **Private** badge.
+
+2. Ask Claude: *"Store a shared context called 'team-debug' with content 'Auth middleware confirmed. RoleRight issue.'."*
+   - Claude calls `store-session-context({ name: 'team-debug', content: '...', shared: true })`
+   - Admin UI shows row with **Shared** badge.
+
+3. Open a second Claude Code window (simulating a teammate) and ask: *"Load context 'team-debug' from MCPConnect."*
+   - Claude calls `get-session-context({ name: 'team-debug' })` — succeeds (shared).
+
+4. Ask the teammate session to load 'my-notes':
+   - Claude calls `get-session-context({ name: 'my-notes' })` — returns 404 (private, not owner).
+
+5. Ask teammate to delete 'team-debug':
+   - REST `DELETE /session-contexts/team-debug` returns 403 (not owner).
+
+6. In the admin UI (as the owner), click **Unshare** on 'team-debug' — badge changes to **Private**.
 
 ---
 
@@ -686,10 +807,6 @@ module.exports = (sequelize) => {
     timestamps: true,
     updatedAt: false
   });
-
-  SessionChannel.associate = (models) => {
-    SessionChannel.belongsTo(models.User, { foreignKey: 'createdBy', as: 'author' });
-  };
 
   return SessionChannel;
 };
