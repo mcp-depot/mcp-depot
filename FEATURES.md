@@ -857,7 +857,7 @@ CREATE TABLE SessionChannel (
   id        UUID PRIMARY KEY,
   channel   VARCHAR(255) NOT NULL,
   message   TEXT NOT NULL,
-  createdBy INTEGER REFERENCES Users(id),
+  createdBy UUID REFERENCES Users(id),
   createdAt DATETIME NOT NULL
   -- no updatedAt: rows are never updated, only inserted or deleted
 );
@@ -890,10 +890,13 @@ parameter on the read route and the composite index.
 
 | File | Change |
 |------|--------|
+| `server/src/config/database.js` | Register `SessionChannel` model in `loadModels()` (same pattern as `SessionContext`) |
 | `server/src/routes/index.js` | Register router under `/session-channels` |
 | `server/src/mcp/server.js` | Register 4 new MCP tools |
 | `client/src/App.jsx` | Add `/session-channels` route |
-| `client/src/components/Sidebar.jsx` | Add "Channels" nav link |
+| `client/src/components/Sidebar.jsx` | Replace flat "Session Contexts" link with collapsible "Sessions" group |
+| `client/src/pages/SessionContexts.jsx` | Replace emojis with Lucide icons |
+| `client/src/index.css` | Add collapsible nav group styles |
 
 ---
 
@@ -921,9 +924,9 @@ module.exports = (sequelize) => {
       allowNull: false
     },
     createdBy: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: { model: 'Users', key: 'id' }
+      type: DataTypes.UUID,
+      allowNull: true
+      // no references — FK constraint on model causes sequelize.sync() failure (same as SessionContext)
     }
   }, {
     tableName: 'SessionChannel',
@@ -962,10 +965,8 @@ module.exports = {
         allowNull: false
       },
       createdBy: {
-        type: Sequelize.INTEGER,
-        allowNull: true,
-        references: { model: 'Users', key: 'id' },
-        onDelete: 'SET NULL'
+        type: Sequelize.UUID,
+        allowNull: true
       },
       createdAt: {
         type: Sequelize.DATE,
@@ -995,23 +996,24 @@ query parameter and uses Sequelize's `Op.gt` to filter rows.
 const express = require('express');
 const Joi = require('joi');
 const { Op } = require('sequelize');
-const { authenticateToken } = require('../middleware/auth');
-const { loadModels } = require('../models');
+const { auth } = require('../middleware/auth');
+const { loadModels } = require('../config/database');
 
 const router = express.Router();
 
 // GET /session-channels — list distinct channels with count and last activity
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', auth, async (req, res) => {
   try {
-    const { SessionChannel } = await loadModels();
+    const { SessionChannel } = loadModels();
+    const { sequelize } = SessionChannel;
     const rows = await SessionChannel.findAll({
       attributes: [
         'channel',
-        [SessionChannel.sequelize.fn('COUNT', SessionChannel.sequelize.col('id')), 'messageCount'],
-        [SessionChannel.sequelize.fn('MAX', SessionChannel.sequelize.col('createdAt')), 'lastActivity']
+        [sequelize.fn('COUNT', sequelize.col('id')), 'messageCount'],
+        [sequelize.fn('MAX', sequelize.col('createdAt')), 'lastActivity']
       ],
       group: ['channel'],
-      order: [[SessionChannel.sequelize.literal('lastActivity'), 'DESC']]
+      order: [[sequelize.literal('lastActivity'), 'DESC']]
     });
     res.json(rows);
   } catch (err) {
@@ -1020,9 +1022,9 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // GET /session-channels/:channel — read messages, optional ?since=ISO timestamp
-router.get('/:channel', authenticateToken, async (req, res) => {
+router.get('/:channel', auth, async (req, res) => {
   try {
-    const { SessionChannel, User } = await loadModels();
+    const { SessionChannel } = loadModels();
     const where = { channel: req.params.channel };
     if (req.query.since) {
       const since = new Date(req.query.since);
@@ -1031,8 +1033,9 @@ router.get('/:channel', authenticateToken, async (req, res) => {
     }
     const messages = await SessionChannel.findAll({
       where,
-      include: [{ model: User, as: 'author', attributes: ['id', 'username'] }],
       order: [['createdAt', 'ASC']]
+      // No User include — no belongsTo association defined (same pattern as SessionContext)
+      // createdBy UUID is returned as-is in each row
     });
     res.json(messages);
   } catch (err) {
@@ -1046,12 +1049,12 @@ const appendSchema = Joi.object({
 });
 
 // POST /session-channels — append a message to a channel
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', auth, async (req, res) => {
   const { error, value } = appendSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
 
   try {
-    const { SessionChannel } = await loadModels();
+    const { SessionChannel } = loadModels();
     const entry = await SessionChannel.create({
       id: require('crypto').randomUUID(),
       channel: value.channel,
@@ -1065,9 +1068,9 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // DELETE /session-channels/:channel — delete all messages in a channel
-router.delete('/:channel', authenticateToken, async (req, res) => {
+router.delete('/:channel', auth, async (req, res) => {
   try {
-    const { SessionChannel } = await loadModels();
+    const { SessionChannel } = loadModels();
     const deleted = await SessionChannel.destroy({ where: { channel: req.params.channel } });
     if (!deleted) return res.status(404).json({ error: 'Channel not found or already empty' });
     res.json({ success: true, deleted });
@@ -1106,7 +1109,7 @@ this.server.tool(
     })
   },
   async ({ channel, message }) => {
-    const { SessionChannel } = await loadModels();
+    const { SessionChannel } = loadModels();
     await SessionChannel.create({
       id: require('crypto').randomUUID(),
       channel,
@@ -1126,15 +1129,15 @@ this.server.tool(
     })
   },
   async ({ channel, since }) => {
-    const { SessionChannel, User } = await loadModels();
+    const { SessionChannel } = loadModels();
     const { Op } = require('sequelize');
     const where = { channel };
     if (since) where.createdAt = { [Op.gt]: new Date(since) };
 
     const messages = await SessionChannel.findAll({
       where,
-      include: [{ model: User, as: 'author', attributes: ['username'] }],
       order: [['createdAt', 'ASC']]
+      // No User include — no belongsTo association defined (same pattern as SessionContext)
     });
 
     if (messages.length === 0) {
@@ -1143,8 +1146,7 @@ this.server.tool(
 
     const lines = messages.map(m => {
       const ts = m.createdAt.toISOString().replace('T', ' ').slice(0, 19);
-      const author = m.author?.username ?? 'unknown';
-      return `[${ts}] ${author}: ${m.message}`;
+      return `[${ts}] ${m.message}`;
     });
 
     return { content: [{ type: 'text', text: lines.join('\n') }] };
@@ -1158,15 +1160,16 @@ this.server.tool(
     inputSchema: z.object({})
   },
   async () => {
-    const { SessionChannel } = await loadModels();
+    const { SessionChannel } = loadModels();
+    const { sequelize } = SessionChannel;
     const rows = await SessionChannel.findAll({
       attributes: [
         'channel',
-        [SessionChannel.sequelize.fn('COUNT', SessionChannel.sequelize.col('id')), 'messageCount'],
-        [SessionChannel.sequelize.fn('MAX', SessionChannel.sequelize.col('createdAt')), 'lastActivity']
+        [sequelize.fn('COUNT', sequelize.col('id')), 'messageCount'],
+        [sequelize.fn('MAX', sequelize.col('createdAt')), 'lastActivity']
       ],
       group: ['channel'],
-      order: [[SessionChannel.sequelize.literal('lastActivity'), 'DESC']]
+      order: [[sequelize.literal('lastActivity'), 'DESC']]
     });
 
     if (rows.length === 0) return { content: [{ type: 'text', text: 'No channels exist yet.' }] };
@@ -1187,7 +1190,7 @@ this.server.tool(
     })
   },
   async ({ channel }) => {
-    const { SessionChannel } = await loadModels();
+    const { SessionChannel } = loadModels();
     const deleted = await SessionChannel.destroy({ where: { channel } });
     if (!deleted) return { content: [{ type: 'text', text: `Channel '${channel}' not found or already empty.` }] };
     return { content: [{ type: 'text', text: `Channel '${channel}' cleared (${deleted} messages deleted).` }] };
@@ -1205,7 +1208,7 @@ in the UI — Claude does all writing via MCP tools.
 
 ```jsx
 import { useState, useEffect } from 'react';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 export default function SessionChannels() {
@@ -1220,7 +1223,7 @@ export default function SessionChannels() {
     setLoading(true);
     try {
       const data = await api.get('/session-channels', token);
-      setChannels(data);
+      setChannels(Array.isArray(data) ? data : (data?.data || data?.channels || []));
     } finally {
       setLoading(false);
     }
@@ -1230,7 +1233,7 @@ export default function SessionChannels() {
     setLoadingMessages(true);
     try {
       const data = await api.get(`/session-channels/${encodeURIComponent(channel)}`, token);
-      setMessages(data);
+      setMessages(Array.isArray(data) ? data : (data?.data || data?.messages || []));
     } finally {
       setLoadingMessages(false);
     }
@@ -1321,7 +1324,7 @@ export default function SessionChannels() {
 }
 ```
 
-Register in `App.jsx` and sidebar (same pattern as Feature 01):
+Register in `App.jsx`:
 
 ```jsx
 import SessionChannels from './pages/SessionChannels';
@@ -1329,13 +1332,117 @@ import SessionChannels from './pages/SessionChannels';
 <Route path="/session-channels" element={<SessionChannels />} />
 ```
 
+---
+
+#### 6. Sidebar navigation — collapsible "Sessions" group
+
+Both Session Contexts and Session Channels live under a single collapsible **Sessions**
+group in the sidebar. The group shows a right-pointing chevron that rotates down when
+expanded. Clicking the group header toggles it open/closed. No hover-open — click is
+more predictable on all screen sizes.
+
+**Icons** — use [Lucide React](https://lucide.dev) throughout. Install if not already
+present: `npm install lucide-react`. Replace all emoji usage with Lucide icons across
+both session pages as well.
+
+| Location | Emoji removed | Lucide icon to use |
+|----------|-------------|-------------------|
+| Sidebar — Sessions group | - | `<Layers size={16} />` |
+| Sidebar — Contexts sub-item | - | `<FileStack size={16} />` |
+| Sidebar — Channels sub-item | - | `<MessagesSquare size={16} />` |
+| Sidebar — expand indicator | - | `<ChevronRight size={14} />` (rotates 90° when open) |
+| SessionContexts empty state | 💬 | `<MessageSquare size={40} strokeWidth={1.5} />` |
+| SessionContexts modal — shared | 🌐 | `<Globe size={14} />` |
+| SessionContexts modal — private | 🔒 | `<Lock size={14} />` |
+
+**Sidebar component changes** — replace the existing flat `Session Contexts` NavLink
+with a collapsible group. Adapt to whichever pattern the existing sidebar uses for
+active state and styling.
+
 ```jsx
-<NavLink to="/session-channels">Channels</NavLink>
+import { useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { Layers, FileStack, MessagesSquare, ChevronRight } from 'lucide-react';
+
+function SessionsNavGroup() {
+  const location = useLocation();
+  const isSessionRoute = location.pathname.startsWith('/session');
+  const [open, setOpen] = useState(isSessionRoute); // auto-open when on a session page
+
+  return (
+    <div className="nav-group">
+      <button
+        className={`nav-group-header ${isSessionRoute ? 'active' : ''}`}
+        onClick={() => setOpen(o => !o)}
+      >
+        <Layers size={16} />
+        <span>Sessions</span>
+        <ChevronRight
+          size={14}
+          className="nav-group-chevron"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+        />
+      </button>
+
+      {open && (
+        <div className="nav-group-children">
+          <NavLink to="/session-contexts" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            <FileStack size={16} />
+            <span>Contexts</span>
+          </NavLink>
+          <NavLink to="/session-channels" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+            <MessagesSquare size={16} />
+            <span>Channels</span>
+          </NavLink>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+**CSS additions** in `client/src/index.css`:
+
+```css
+/* Collapsible nav group */
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px 12px;
+  color: var(--text-light);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  border-radius: 6px;
+}
+.nav-group-header:hover,
+.nav-group-header.active { color: var(--text); background: var(--surface-hover); }
+
+.nav-group-chevron { margin-left: auto; transition: transform 0.15s ease; }
+
+.nav-group-children { padding-left: 12px; }
+.nav-group-children .nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: var(--text-light);
+  text-decoration: none;
+}
+.nav-group-children .nav-link:hover,
+.nav-group-children .nav-link.active { color: var(--text); background: var(--surface-hover); }
 ```
 
 ---
 
-#### 6. End-to-end test (manual)
+#### 7. End-to-end test (manual)
 
 1. Open two Claude Code sessions both connected to the same MCPConnect instance.
 2. In Session A: *"Post to channel 'test-channel': I found that X causes Y."*

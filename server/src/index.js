@@ -21,6 +21,7 @@ const { router: externalMcpRoutes, setClearToolsCache: setExternalMcpClearCache 
 const promptLibraryRoutes = require('./routes/prompt-library');
 const skillsRoutes = require('./routes/skills');
 const sessionContextRoutes = require('./routes/session-context');
+const sessionChannelRoutes = require('./routes/session-channel');
 const systemRoutes = require('./routes/system');
 const oauthRoutes = require('./routes/oauth');
 
@@ -80,6 +81,7 @@ v1Router.use('/prompt-library', promptLibraryRoutes);
 v1Router.use('/skills-library', promptLibraryRoutes);
 v1Router.use('/skills', skillsRoutes);
 v1Router.use('/session-contexts', sessionContextRoutes);
+v1Router.use('/session-channels', sessionChannelRoutes);
 v1Router.use('/system', systemRoutes);
 v1Router.use('/oauth', oauthRoutes);
 

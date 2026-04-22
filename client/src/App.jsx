@@ -12,6 +12,7 @@ import Settings from './pages/Settings';
 import Monitoring from './pages/Monitoring';
 import Skills from './pages/Skills';
 import SessionContexts from './pages/SessionContexts';
+import SessionChannels from './pages/SessionChannels';
 import CompositeToolBuilder from './pages/CompositeToolBuilder';
 import Layout from './components/Layout';
 
@@ -58,6 +59,7 @@ function AppRoutes() {
       <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
       <Route path="/skills" element={<PrivateRoute><Layout><Skills /></Layout></PrivateRoute>} />
       <Route path="/session-contexts" element={<PrivateRoute><Layout><SessionContexts /></Layout></PrivateRoute>} />
+      <Route path="/session-channels" element={<PrivateRoute><Layout><SessionChannels /></Layout></PrivateRoute>} />
       <Route path="/composite-tool/new" element={<PrivateRoute><Layout><CompositeToolBuilder /></Layout></PrivateRoute>} />
       <Route path="/composite-tool/:id" element={<PrivateRoute><Layout><CompositeToolBuilder /></Layout></PrivateRoute>} />
     </Routes>

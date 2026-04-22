@@ -205,6 +205,87 @@ router.delete('/session-contexts/delete', async (req, res) => {
   }
 });
 
+// Session Channel internal routes
+router.post('/session-channels', async (req, res) => {
+  try {
+    const { channel, message } = req.body;
+    if (!channel || !message) return res.status(400).json({ error: 'channel and message are required' });
+    const { SessionChannel } = loadModels();
+    const callerId = req.user?.id ?? null;
+    await SessionChannel.create({
+      id: require('crypto').randomUUID(),
+      channel,
+      message,
+      createdBy: callerId
+    });
+    res.json({ success: true, channel });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/session-channels/:channel', async (req, res) => {
+  try {
+    const { channel } = req.params;
+    const { since } = req.query;
+    const { SessionChannel } = loadModels();
+    const { Op } = require('sequelize');
+    const where = { channel };
+    if (since) where.createdAt = { [Op.gt]: new Date(since) };
+    const messages = await SessionChannel.findAll({
+      where,
+      order: [['createdAt', 'ASC']]
+    });
+    if (messages.length === 0) {
+      return res.json({ channel, messages: [], count: 0 });
+    }
+    res.json({
+      channel,
+      messages: messages.map(m => ({
+        id: m.id,
+        message: m.message,
+        createdAt: m.createdAt,
+        createdBy: m.createdBy
+      })),
+      count: messages.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/session-channels', async (req, res) => {
+  try {
+    const { SessionChannel } = loadModels();
+    const all = await SessionChannel.findAll({ order: [['createdAt', 'DESC']] });
+    const channelMap = new Map();
+    for (const m of all) {
+      if (!channelMap.has(m.channel)) {
+        channelMap.set(m.channel, { channel: m.channel, messageCount: 0, lastActivity: m.createdAt });
+      }
+      const entry = channelMap.get(m.channel);
+      entry.messageCount++;
+    }
+    const channels = Array.from(channelMap.values()).sort((a, b) => 
+      new Date(b.lastActivity) - new Date(a.lastActivity)
+    );
+    res.json(channels);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/session-channels/:channel', async (req, res) => {
+  try {
+    const { channel } = req.params;
+    const { SessionChannel } = loadModels();
+    const deleted = await SessionChannel.destroy({ where: { channel } });
+    res.json({ success: true, channel, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/fetch-url', optionalAuth, async (req, res) => {
   try {
     const { url, timeout, maxSize, headers } = req.query;

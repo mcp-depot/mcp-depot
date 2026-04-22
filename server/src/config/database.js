@@ -27,6 +27,7 @@ const loadModels = () => {
   const PromptLibrary = require('../models/PromptLibrary')(sequelize);
   const SystemSetting = require('../models/SystemSetting');
   const SessionContext = require('../models/SessionContext')(sequelize);
+  const SessionChannel = require('../models/SessionChannel')(sequelize);
   
   if (!associationsDefined) {
     User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
@@ -50,7 +51,7 @@ const loadModels = () => {
     associationsDefined = true;
   }
   
-  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext };
+  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel };
 };
 
 const generatePassword = () => {
@@ -299,6 +300,55 @@ const createDefaultTool = async () => {
           method: 'DELETE',
           params: {
             name: { type: 'string', required: true, description: 'The name of the context to delete' }
+          },
+          headers: {}
+        }
+      },
+      // Session Channel tools
+      {
+        name: 'append-to-channel',
+        description: 'Post a message to a named session channel. Use this to share findings, decisions, or progress as you work — other sessions can read the channel at any time to catch up.',
+        endpoint: {
+          path: '/api/mcp/session-channels',
+          method: 'POST',
+          params: {
+            channel: { type: 'string', required: true, description: 'Channel name, e.g. "pool-api" or "auth-debug"' },
+            message: { type: 'string', required: true, description: 'The message to post — a finding, decision, error, or note' }
+          },
+          headers: {}
+        }
+      },
+      {
+        name: 'read-channel',
+        description: 'Read messages from a named session channel. Pass a since timestamp (ISO 8601) to get only new messages since the last check — useful for polling in long sessions.',
+        endpoint: {
+          path: '/api/mcp/session-channels/:channel',
+          method: 'GET',
+          params: {
+            channel: { type: 'string', required: true, description: 'The channel name to read' },
+            since: { type: 'string', required: false, description: 'ISO 8601 timestamp — only return messages after this time' }
+          },
+          headers: {}
+        }
+      },
+      {
+        name: 'list-channels',
+        description: 'List all active session channels with message count and last activity time.',
+        endpoint: {
+          path: '/api/mcp/session-channels',
+          method: 'GET',
+          params: {},
+          headers: {}
+        }
+      },
+      {
+        name: 'clear-channel',
+        description: 'Delete all messages in a session channel. Use this when the channel is no longer needed.',
+        endpoint: {
+          path: '/api/mcp/session-channels/:channel',
+          method: 'DELETE',
+          params: {
+            channel: { type: 'string', required: true, description: 'The channel name to clear' }
           },
           headers: {}
         }
