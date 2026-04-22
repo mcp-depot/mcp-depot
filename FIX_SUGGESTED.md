@@ -54,9 +54,9 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 42 | Session Contexts empty state references Claude by name | `72e830c` |
 | 43 | `list-session-contexts` MCP response omits TTL info — `ttlHours` and `expiresAt` missing | `5827ac3` |
 | 44 | `SessionContexts.jsx` does not display TTL — Expires column and live countdown missing | `6566f74` |
-| 45 | Sidebar: Contexts and Channels added as flat items instead of collapsible Sessions group | open |
-| 46 | `SessionChannels.jsx` uses undeclared CSS classes — page renders unstyled | open |
-| 47 | `SessionContexts.jsx` emojis not replaced with Lucide icons as specified | open |
+| 45 | Sidebar: Contexts and Channels added as flat items instead of collapsible Sessions group | `816ef6e` |
+| 46 | `SessionChannels.jsx` uses undeclared CSS classes — page renders unstyled | `816ef6e` |
+| 47 | `SessionContexts.jsx` emojis not replaced with Lucide icons as specified | `816ef6e` |
 
 ---
 
