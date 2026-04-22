@@ -58,7 +58,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 46 | `SessionChannels.jsx` uses undeclared CSS classes — page renders unstyled | `816ef6e` |
 | 47 | `SessionContexts.jsx` emojis not replaced with Lucide icons as specified | `816ef6e` |
 | 48 | `read-channel` and `clear-channel` broken — path param `:channel` not substituted by tool execution engine | `3b6346c` |
-| 48b | `read-channel` still broken after fix — DB seed rows not refreshed, old path still in database | open |
+| 48b | `read-channel` still broken after fix — DB seed rows not refreshed, old path still in database | `1709d79` |
 | 49 | Issue 45 partial — sidebar is a static section, not a collapsible group; wrong icons (Database/Hash instead of Layers/FileStack/MessagesSquare) | open |
 | 50 | Issue 47 partial — empty state uses `<Database>` instead of `<MessageSquare>`; modal uses text badges instead of `<Globe>`/`<Lock>` icon components | open |
 | 51 | `SessionChannels.jsx` still uses `page-container` and `page-subtitle` — no CSS defined for those classes | open |
