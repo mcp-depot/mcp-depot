@@ -57,6 +57,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 45 | Sidebar: Contexts and Channels added as flat items instead of collapsible Sessions group | `816ef6e` |
 | 46 | `SessionChannels.jsx` uses undeclared CSS classes — page renders unstyled | `816ef6e` |
 | 47 | `SessionContexts.jsx` emojis not replaced with Lucide icons as specified | `816ef6e` |
+| 48 | `read-channel` and `clear-channel` broken — path param `:channel` not substituted by tool execution engine | open |
 
 ---
 
@@ -1585,3 +1586,108 @@ import { Lock } from 'lucide-react';
 ```
 
 All three Lucide components can be imported in a single line at the top of the file.
+
+---
+
+## Feature 02 — `read-channel` and `clear-channel` broken — path param `:channel` not substituted
+
+**Status:** Open
+
+**Confirmed via MCP test** — `read-channel('test-channel')` returned `{ channel: ':channel', messages: [], count: 0 }`.
+The literal string `:channel` was used as the channel name, not the value passed by the caller.
+
+**Root cause:**
+
+The DB-seeded tool execution engine sends all params as query parameters (for GET) or
+body parameters (for POST). It does not substitute `:param` placeholders in the path.
+
+Comparing the two approaches in `database.js`:
+
+```js
+// session context — WORKS: channel is a query param, path is flat
+{ path: '/api/mcp/session-contexts/get', params: { name: ... } }
+// → GET /api/mcp/session-contexts/get?name=foo
+
+// read-channel — BROKEN: channel is a path param, not substituted
+{ path: '/api/mcp/session-channels/:channel', params: { channel: ... } }
+// → GET /api/mcp/session-channels/:channel?channel=foo  (literal ":channel")
+```
+
+`append-to-channel` is unaffected (POST body, flat path). `clear-channel` has the same
+bug (also uses `/:channel` with DELETE).
+
+**What to change:**
+
+**1. Add two new flat routes in `server/src/routes/mcp.js`** (before the existing `/:channel` routes):
+
+```js
+// GET /api/mcp/session-channels/read?channel=foo&since=...
+router.get('/session-channels/read', async (req, res) => {
+  try {
+    const { channel, since } = req.query;
+    if (!channel) return res.status(400).json({ error: 'channel is required' });
+    const { SessionChannel } = loadModels();
+    const where = { channel };
+    if (since) where.createdAt = { [Op.gt]: new Date(since) };
+    const messages = await SessionChannel.findAll({
+      where,
+      order: [['createdAt', 'ASC']]
+    });
+    if (!messages.length && !(await SessionChannel.findOne({ where: { channel } }))) {
+      return res.status(404).json({ error: `Channel '${channel}' not found` });
+    }
+    res.json({ channel, messages, count: messages.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/mcp/session-channels/clear?channel=foo
+router.delete('/session-channels/clear', async (req, res) => {
+  try {
+    const { channel } = req.query;
+    if (!channel) return res.status(400).json({ error: 'channel is required' });
+    const { SessionChannel } = loadModels();
+    const deleted = await SessionChannel.destroy({ where: { channel } });
+    res.json({ success: true, channel, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+```
+
+**Important:** these two routes must be registered **before** the existing `/:channel`
+route, otherwise Express will match `read` and `clear` as channel names.
+
+**2. Update the DB seeds in `server/src/config/database.js`:**
+
+```js
+// read-channel — change path and remove channel from params (it becomes implicit in path)
+{
+  name: 'read-channel',
+  endpoint: {
+    path: '/api/mcp/session-channels/read',   // was /api/mcp/session-channels/:channel
+    method: 'GET',
+    params: {
+      channel: { type: 'string', required: true, description: 'The channel name to read' },
+      since:   { type: 'string', required: false, description: 'ISO 8601 timestamp — only return messages after this time' }
+    }
+  }
+}
+
+// clear-channel — same fix
+{
+  name: 'clear-channel',
+  endpoint: {
+    path: '/api/mcp/session-channels/clear',  // was /api/mcp/session-channels/:channel
+    method: 'DELETE',
+    params: {
+      channel: { type: 'string', required: true, description: 'The channel name to clear' }
+    }
+  }
+}
+```
+
+After this change the DB seed rows need to be refreshed — either restart the server
+(seeds run on startup) or delete and re-insert the `read-channel` and `clear-channel`
+rows from the Tools table manually.

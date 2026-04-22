@@ -322,7 +322,7 @@ const createDefaultTool = async () => {
         name: 'read-channel',
         description: 'Read messages from a named session channel. Pass a since timestamp (ISO 8601) to get only new messages since the last check — useful for polling in long sessions.',
         endpoint: {
-          path: '/api/mcp/session-channels/:channel',
+          path: '/api/mcp/session-channels/read',
           method: 'GET',
           params: {
             channel: { type: 'string', required: true, description: 'The channel name to read' },
@@ -345,7 +345,7 @@ const createDefaultTool = async () => {
         name: 'clear-channel',
         description: 'Delete all messages in a session channel. Use this when the channel is no longer needed.',
         endpoint: {
-          path: '/api/mcp/session-channels/:channel',
+          path: '/api/mcp/session-channels/clear',
           method: 'DELETE',
           params: {
             channel: { type: 'string', required: true, description: 'The channel name to clear' }

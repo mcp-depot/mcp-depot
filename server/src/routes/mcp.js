@@ -224,6 +224,28 @@ router.post('/session-channels', async (req, res) => {
   }
 });
 
+router.get('/session-channels/read', async (req, res) => {
+  try {
+    const { channel } = req.query;
+    if (!channel) return res.status(400).json({ error: 'channel is required' });
+    const { since } = req.query;
+    const { SessionChannel } = loadModels();
+    const { Op } = require('sequelize');
+    const where = { channel };
+    if (since) where.createdAt = { [Op.gt]: new Date(since) };
+    const messages = await SessionChannel.findAll({ where, order: [['createdAt', 'ASC']] });
+    if (messages.length === 0) return res.json({ channel, messages: [], count: 0 });
+    res.json({
+      channel,
+      messages: messages.map(m => ({ id: m.id, message: m.message, createdAt: m.createdAt, createdBy: m.createdBy })),
+      count: messages.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Legacy path-param route for direct access
 router.get('/session-channels/:channel', async (req, res) => {
   try {
     const { channel } = req.params;
@@ -275,6 +297,19 @@ router.get('/session-channels', async (req, res) => {
   }
 });
 
+router.delete('/session-channels/clear', async (req, res) => {
+  try {
+    const { channel } = req.query;
+    if (!channel) return res.status(400).json({ error: 'channel is required' });
+    const { SessionChannel } = loadModels();
+    const deleted = await SessionChannel.destroy({ where: { channel } });
+    res.json({ success: true, channel, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Legacy path-param route for direct access
 router.delete('/session-channels/:channel', async (req, res) => {
   try {
     const { channel } = req.params;
