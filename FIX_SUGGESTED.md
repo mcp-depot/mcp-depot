@@ -49,6 +49,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 38d | Fixes 38/38b/38c applied to wrong file — Claude Code uses `mcp/server.js` not `mcp.js` | latest |
 | 38e | Same flat-param body merge bug exists in `consume.js` and `compositeExecutor.js` — both unfixed | latest |
 | 39 | Template substitution always produces strings — number/boolean params serialised as `"786047927"` not `786047927` | latest |
+| 40 | Session context MCP tools return 401 when MCP auth mode is required | `a5e5ae7` |
 
 ---
 
@@ -1050,7 +1051,7 @@ present on the `SessionContext` record itself - no join needed.
 
 ## Feature 01 — Session context MCP tools return 401 when MCP auth mode is `required`
 
-**Status:** Open
+**Status:** Resolved — fixed in commit `a5e5ae7`
 
 **Symptom:**
 
