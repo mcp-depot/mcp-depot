@@ -10,16 +10,19 @@ const router = express.Router();
 router.get('/', auth, async (req, res) => {
   try {
     const { SessionChannel } = loadModels();
-    const rows = await SessionChannel.findAll({
-      attributes: [
-        'channel',
-        [SessionChannel.sequelize.fn('COUNT', SessionChannel.sequelize.col('id')), 'messageCount'],
-        [SessionChannel.sequelize.fn('MAX', SessionChannel.sequelize.col('createdAt')), 'lastActivity']
-      ],
-      group: ['channel'],
-      order: [[SessionChannel.sequelize.literal('lastActivity'), 'DESC']]
-    });
-    res.json(rows);
+    const all = await SessionChannel.findAll({ order: [['createdAt', 'DESC']] });
+    const channelMap = new Map();
+    for (const m of all) {
+      if (!channelMap.has(m.channel)) {
+        channelMap.set(m.channel, { channel: m.channel, messageCount: 0, lastActivity: m.createdAt });
+      }
+      const entry = channelMap.get(m.channel);
+      entry.messageCount++;
+    }
+    const channels = Array.from(channelMap.values()).sort((a, b) =>
+      new Date(b.lastActivity) - new Date(a.lastActivity)
+    );
+    res.json(channels);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

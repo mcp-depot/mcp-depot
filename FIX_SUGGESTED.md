@@ -58,6 +58,10 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 46 | `SessionChannels.jsx` uses undeclared CSS classes — page renders unstyled | `816ef6e` |
 | 47 | `SessionContexts.jsx` emojis not replaced with Lucide icons as specified | `816ef6e` |
 | 48 | `read-channel` and `clear-channel` broken — path param `:channel` not substituted by tool execution engine | `3b6346c` |
+| 48b | `read-channel` still broken after fix — DB seed rows not refreshed, old path still in database | open |
+| 49 | Issue 45 partial — sidebar is a static section, not a collapsible group; wrong icons (Database/Hash instead of Layers/FileStack/MessagesSquare) | open |
+| 50 | Issue 47 partial — empty state uses `<Database>` instead of `<MessageSquare>`; modal uses text badges instead of `<Globe>`/`<Lock>` icon components | open |
+| 51 | `SessionChannels.jsx` still uses `page-container` and `page-subtitle` — no CSS defined for those classes | open |
 
 ---
 
@@ -1691,3 +1695,45 @@ route, otherwise Express will match `read` and `clear` as channel names.
 After this change the DB seed rows need to be refreshed — either restart the server
 (seeds run on startup) or delete and re-insert the `read-channel` and `clear-channel`
 rows from the Tools table manually.
+
+---
+
+## Feature 02 — Issue 48b: `read-channel` still broken after code fix — DB seed rows not refreshed
+
+**Status:** Open
+
+**Confirmed via MCP test** — after the `3b6346c` code fix, `read-channel('feature-02-test')`
+still returns `{ channel: ':channel', messages: [], count: 0 }`.
+
+**Root cause:**
+
+`createDefaultTool` uses `findOrCreate` keyed on tool name. Since `read-channel` and
+`clear-channel` already exist in the database (seeded with the old path on first run),
+`findOrCreate` finds them and skips the create — the path field is never updated.
+
+The new routes at `/read` and `/clear` exist in the code, but the DB still has
+`/api/mcp/session-channels/:channel` as the path for both tools, so the execution
+engine still calls the old (now legacy) path-param route.
+
+**What to do:**
+
+Delete the two stale rows from the `Tools` table so the server re-seeds them with the
+correct paths on next startup. From inside the container or wherever the SQLite DB is:
+
+```sql
+DELETE FROM Tools WHERE name IN ('read-channel', 'clear-channel');
+```
+
+Then restart the server. The seed will recreate both rows with the new flat paths.
+
+Alternatively, run a direct UPDATE:
+
+```sql
+UPDATE Tools SET endpoint = json_set(endpoint, '$.path', '/api/mcp/session-channels/read')
+WHERE name = 'read-channel';
+
+UPDATE Tools SET endpoint = json_set(endpoint, '$.path', '/api/mcp/session-channels/clear')
+WHERE name = 'clear-channel';
+```
+
+After either approach, reconnect MCP in Claude Code and retry `read-channel`.
