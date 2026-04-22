@@ -15,10 +15,12 @@ function SessionContexts() {
   const loadContexts = async () => {
     setLoading(true);
     try {
-      const data = await api.get('/session-contexts', token);
-      setContexts(data || []);
+      const res = await api.get('/session-contexts', token);
+      const data = Array.isArray(res) ? res : (res?.data || res?.contexts || []);
+      setContexts(data);
     } catch (err) {
       console.error('Failed to fetch contexts:', err);
+      setContexts([]);
     } finally {
       setLoading(false);
     }
