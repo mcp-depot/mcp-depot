@@ -28,7 +28,7 @@ function SessionChannels() {
     setLoadingMessages(true);
     try {
       const res = await api.get(`/session-channels/${encodeURIComponent(channel)}`, token);
-      const data = res?.messages || res || [];
+      const data = Array.isArray(res) ? res : (res?.messages || []);
       setMessages(data);
     } catch (err) {
       console.error('Failed to load messages:', err);

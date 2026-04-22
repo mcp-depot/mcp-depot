@@ -64,6 +64,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 51 | `SessionChannels.jsx` still uses `page-container` and `page-subtitle` — no CSS defined for those classes | `907bbbe` |
 | 52 | Issue 50 partial — `Globe`/`Lock` imported in `SessionContexts.jsx` but never rendered; modal badge shows text only, no icons | `716ec76` |
 | 53 | Dead code in `SessionChannels.jsx` — `messages.messages?.map(...)` branch unreachable; unused `Database` import in `Sidebar.jsx` | `716ec76` |
+| 54 | `SessionChannels.jsx` — selecting a channel crashes with `TypeError: a.map is not a function` — `loadMessages` sets state to full axios object, not the data array | open |
 
 ---
 
@@ -1739,6 +1740,82 @@ WHERE name = 'clear-channel';
 ```
 
 After either approach, reconnect MCP in Claude Code and retry `read-channel`.
+
+---
+
+## Issue 54 — Selecting a channel crashes with `TypeError: a.map is not a function`
+
+**Status:** Open
+
+**Symptom:**
+
+Clicking any channel in the left panel of the Session Channels page causes a white screen
+and `TypeError: a.map is not a function` in the browser console (`installHook.js:1`).
+
+**Root cause:**
+
+`api` in the React app is a raw **axios instance** — `api.get()` returns the full axios
+response object `{ data: [...], status: 200, headers: {}, config: {}, request: {} }`,
+not the response data directly.
+
+The `loadMessages` normalization code:
+
+```js
+const res = await api.get(`/session-channels/${encodeURIComponent(channel)}`, token);
+const data = res?.messages || res || [];
+setMessages(data);
+```
+
+`res?.messages` is always `undefined` (axios response objects have no `.messages`
+property). The fallthrough `res || []` evaluates to `res` — the full axios object,
+which is truthy. So `setMessages(res)` sets `messages` to the axios object, not an array.
+
+When React renders with `messages = { data: [...], status: 200, ... }`:
+
+```jsx
+{Array.isArray(messages) ? messages.map(...)   // false — not an array
+                         : messages.messages?.map(...)}  // undefined?.map() → undefined
+```
+
+Neither branch throws. But at some point in the component tree React tries to iterate
+`messages` as if it were an array (likely in the `message-log` div with `messages.map`
+called elsewhere or in a parent component's re-render), which throws the error.
+
+Compare with `loadChannels` which does this correctly:
+
+```js
+const data = Array.isArray(res) ? res : (res?.data || res?.channels || []);
+```
+
+`loadMessages` was written with a different (wrong) pattern — using `res?.messages`
+instead of `res?.data`.
+
+**The fix — `client/src/pages/SessionChannels.jsx`, `loadMessages` function:**
+
+```js
+const loadMessages = async (channel) => {
+  setLoadingMessages(true);
+  try {
+    const res = await api.get(`/session-channels/${encodeURIComponent(channel)}`, token);
+    // res is an axios response — use res.data (plain array from admin route)
+    const data = Array.isArray(res?.data)
+      ? res.data
+      : (res?.data?.messages || res?.messages || []);
+    setMessages(data);
+  } catch (err) {
+    console.error('Failed to load messages:', err);
+    setMessages([]);
+  } finally {
+    setLoadingMessages(false);
+  }
+};
+```
+
+This handles both:
+- Admin route (`GET /api/session-channels/:channel`) — returns a plain JSON array → `res.data` is an array, uses it directly
+- MCP route if ever called — returns `{ channel, messages: [...], count }` → `res.data.messages`
+
+**File:** `client/src/pages/SessionChannels.jsx` — `loadMessages` function, line ~29
 
 ---
 
