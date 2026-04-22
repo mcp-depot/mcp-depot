@@ -22,7 +22,7 @@ module.exports = (sequelize) => {
       defaultValue: false
     },
     createdBy: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.UUID,
       allowNull: true
     }
   }, {

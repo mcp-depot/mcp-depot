@@ -1163,3 +1163,27 @@ function readableWhere(userId) {
 This makes ownerless contexts visible to all authenticated users in the admin UI
 and accessible to all MCP callers — which is correct, since without user identity
 there is no basis for restricting them.
+
+---
+
+## Feature 01 — Session Contexts empty state references Claude by name
+
+**Status:** Open
+
+**What to change:**
+
+`client/src/pages/SessionContexts.jsx` line 67 — the empty state copy mentions Claude
+specifically. MCPConnect works with any MCP-compatible AI client (Cursor, Copilot, etc.)
+so the text should be tool-agnostic.
+
+**Current:**
+```jsx
+<p>Ask Claude to store a context using <code>store-session-context</code>.</p>
+```
+
+**Replace with:**
+```jsx
+<p>From your AI session, call <code>store-session-context</code> with a name and content — e.g. <em>"Store a summary of our findings as 'auth-debug'"</em>.</p>
+```
+
+Also update the page subtitle on line 58 if it references any specific AI tool.
