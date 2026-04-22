@@ -57,7 +57,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 45 | Sidebar: Contexts and Channels added as flat items instead of collapsible Sessions group | `816ef6e` |
 | 46 | `SessionChannels.jsx` uses undeclared CSS classes — page renders unstyled | `816ef6e` |
 | 47 | `SessionContexts.jsx` emojis not replaced with Lucide icons as specified | `816ef6e` |
-| 48 | `read-channel` and `clear-channel` broken — path param `:channel` not substituted by tool execution engine | open |
+| 48 | `read-channel` and `clear-channel` broken — path param `:channel` not substituted by tool execution engine | `3b6346c` |
 
 ---
 
