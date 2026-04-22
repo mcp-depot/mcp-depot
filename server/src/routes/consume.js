@@ -10,6 +10,7 @@ const logger = require('../services/logger');
 const encryption = require('../services/encryption');
 const secretStore = require('../services/secret-store');
 const { executeCompositeTool } = require('../services/compositeExecutor');
+const { pruneNulls } = require('../services/body-utils');
 
 const router = express.Router();
 
@@ -196,8 +197,10 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     const pathParams = {};
     const queryParams = {};
     let bodyParams = body || tool.endpoint.body || {};
+    const hasBodyTemplate = !!(tool.endpoint.body && Object.keys(tool.endpoint.body).length > 0);
     
     for (const [key, value] of Object.entries(mergedParams)) {
+      if (value === null || value === undefined) continue;
       if (path.includes(`{${key}}`)) {
         pathParams[key] = value;
       } else if (['POST', 'PUT', 'PATCH'].includes(tool.endpoint.method)) {
@@ -205,7 +208,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
           (JSON.stringify(tool.endpoint.body || {}).match(/\{(\w+)\}/g) || [])
             .map(m => m.slice(1, -1))
         );
-        if (!bodyTemplateVars.has(key)) {
+        if (!bodyTemplateVars.has(key) && !hasBodyTemplate) {
           bodyParams[key] = value;
         }
       } else {
@@ -226,6 +229,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
         .replace(/\{(\w+)\}/g, (match, key) => {
           return mergedParams[key] !== undefined ? String(mergedParams[key]) : 'null';
         }));
+      bodyParams = pruneNulls(bodyParams);
     }
     
     let result;

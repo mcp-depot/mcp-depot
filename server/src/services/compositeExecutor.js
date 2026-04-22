@@ -4,6 +4,7 @@ const AdapterFactory = require('../adapters');
 const secretStore = require('../services/secret-store');
 const logger = require('./logger');
 const encryption = require('./encryption');
+const { pruneNulls } = require('./body-utils');
 
 function getPath(obj, dotPath) {
   return dotPath.split('.').reduce((current, key) => current?.[key], obj);
@@ -122,15 +123,29 @@ async function executeSimpleTool(tool, inputs, userId) {
   let path = tool.endpoint.path;
   const queryParams = {};
   let bodyParams = tool.endpoint.body || {};
+  const hasBodyTemplate = !!(tool.endpoint.body && Object.keys(tool.endpoint.body).length > 0);
+  const bodyTemplateVars = new Set(
+    (JSON.stringify(tool.endpoint.body || {}).match(/\{(\w+)\}/g) || []).map(m => m.slice(1, -1))
+  );
   
   for (const [key, value] of Object.entries(inputs)) {
+    if (value === null || value === undefined) continue;
     if (path.includes(`{${key}}`)) {
       path = path.replace(`{${key}}`, encodeURIComponent(value));
-    } if (tool.endpoint.method !== 'GET') {
-      bodyParams[key] = value;
+    } else if (tool.endpoint.method !== 'GET') {
+      if (!hasBodyTemplate && !bodyTemplateVars.has(key)) {
+        bodyParams[key] = value;
+      }
     } else {
       queryParams[key] = value;
     }
+  }
+  
+  if (typeof bodyParams === 'object' && bodyParams !== null) {
+    bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/"\{(\w+)\}"/g, (match, key) => {
+      return inputs[key] !== undefined ? JSON.stringify(inputs[key]) : 'null';
+    }));
+    bodyParams = pruneNulls(bodyParams);
   }
   
   let result;

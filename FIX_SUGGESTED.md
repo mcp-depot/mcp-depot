@@ -47,6 +47,7 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 38b | Optional params leave null nodes in resolved body template | latest |
 | 38c | Non-null default params added as flat body keys on top of template | latest |
 | 38d | Fixes 38/38b/38c applied to wrong file — Claude Code uses `mcp/server.js` not `mcp.js` | latest |
+| 38e | Same flat-param body merge bug exists in `consume.js` and `compositeExecutor.js` — both unfixed | latest |
 
 ---
 
@@ -396,3 +397,122 @@ const { pruneNulls } = require('../services/body-utils');
 - `server/src/mcp/server.js` — `executeTool()` body construction block (lines ~197-202)
 - `server/src/services/body-utils.js` — new shared utility (optional but recommended)
 - `server/src/routes/mcp.js` — update import if shared utility is extracted
+
+---
+
+### Issue 38e — Same flat-param body merge bug in `consume.js` and `compositeExecutor.js` — both unfixed ✅ RESOLVED
+
+**Fixed in:**
+- `server/src/routes/consume.js` — added null guard, hasBodyTemplate check, pruneNulls call
+- `server/src/services/compositeExecutor.js` — added missing `else`, null guard, hasBodyTemplate check, body template substitution, pruneNulls call
+
+**Full map of all execution paths and their fix status:**
+
+| File | Entry point | Fixed? |
+|------|------------|--------|
+| `server/src/routes/mcp.js` | REST `POST /execute` (admin UI test button) | Yes (38, 38b, 38c) |
+| `server/src/mcp/server.js` `executeTool()` | MCP protocol — non-composite tools | Yes (38d) |
+| `server/src/services/compositeExecutor.js` `executeSimpleTool()` | MCP protocol — composite tools via `executeCompositeTool` | **No** |
+| `server/src/routes/consume.js` | REST `POST /tools/:toolId/execute` | **No** |
+
+---
+
+**Bug 1 — `consume.js` lines 200-214**
+
+Current code adds all non-template params as flat body keys with no null guard and no `hasBodyTemplate` check:
+
+```js
+for (const [key, value] of Object.entries(mergedParams)) {
+  if (path.includes(`{${key}}`)) {
+    pathParams[key] = value;
+  } else if (['POST', 'PUT', 'PATCH'].includes(tool.endpoint.method)) {
+    const bodyTemplateVars = new Set(...);
+    if (!bodyTemplateVars.has(key)) {
+      bodyParams[key] = value;   // ← fires for all non-template params regardless of null or template existence
+    }
+  } else {
+    queryParams[key] = value;
+  }
+}
+```
+
+Fix needed — same pattern as `mcp.js` 38c:
+
+```js
+const hasBodyTemplate = !!(tool.endpoint.body && Object.keys(tool.endpoint.body).length > 0);
+
+for (const [key, value] of Object.entries(mergedParams)) {
+  if (value === null || value === undefined) continue;       // null guard
+  if (path.includes(`{${key}}`)) {
+    pathParams[key] = value;
+  } else if (['POST', 'PUT', 'PATCH'].includes(tool.endpoint.method)) {
+    const bodyTemplateVars = new Set(...);
+    if (bodyTemplateVars.has(key)) {
+      // template substitution handles it — do nothing here
+    } else if (!hasBodyTemplate) {
+      bodyParams[key] = value;                               // only for tools with no template
+    }
+  } else {
+    queryParams[key] = value;
+  }
+}
+// after template substitution:
+bodyParams = pruneNulls(bodyParams);
+```
+
+Also add `pruneNulls` import and call it after the template substitution block at line 220.
+
+---
+
+**Bug 2 — `compositeExecutor.js` lines 126-134 — TWO bugs**
+
+```js
+for (const [key, value] of Object.entries(inputs)) {
+  if (path.includes(`{${key}}`)) {
+    path = path.replace(`{${key}}`, encodeURIComponent(value));
+  } if (tool.endpoint.method !== 'GET') {   // ← missing 'else' — path params ALSO land in body
+    bodyParams[key] = value;                // ← no template check, no null check, no hasBodyTemplate
+  } else {
+    queryParams[key] = value;
+  }
+}
+```
+
+Two problems:
+1. Missing `else` before the second `if` — path params get added to `bodyParams` AND substituted into the URL
+2. No template var detection, no null guard, no `hasBodyTemplate` guard — every input param lands in the body as a flat key
+
+Fix needed:
+
+```js
+const { pruneNulls } = require('../services/body-utils');
+const hasBodyTemplate = !!(tool.endpoint.body && Object.keys(tool.endpoint.body).length > 0);
+const bodyTemplateVars = new Set(
+  (JSON.stringify(tool.endpoint.body || {}).match(/\{(\w+)\}/g) || []).map(m => m.slice(1, -1))
+);
+
+for (const [key, value] of Object.entries(inputs)) {
+  if (value === null || value === undefined) continue;
+  if (path.includes(`{${key}}`)) {
+    path = path.replace(`{${key}}`, encodeURIComponent(value));
+  } else if (tool.endpoint.method !== 'GET') {              // ← 'else if' not 'if'
+    if (!hasBodyTemplate && !bodyTemplateVars.has(key)) {
+      bodyParams[key] = value;
+    }
+  } else {
+    queryParams[key] = value;
+  }
+}
+
+// after body template substitution:
+if (typeof bodyParams === 'object' && bodyParams !== null) {
+  bodyParams = JSON.parse(JSON.stringify(bodyParams).replace(/"\{(\w+)\}"/g, (match, key) => {
+    return inputs[key] !== undefined ? JSON.stringify(inputs[key]) : 'null';
+  }));
+  bodyParams = pruneNulls(bodyParams);
+}
+```
+
+**Files to fix:**
+- `server/src/routes/consume.js` — lines ~200-229 (param loop + template substitution block)
+- `server/src/services/compositeExecutor.js` — `executeSimpleTool()` lines ~126-134 (param loop + add template substitution + pruneNulls)
