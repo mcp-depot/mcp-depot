@@ -1100,3 +1100,65 @@ routes, so `createdBy` cannot be populated from MCP tool calls. Ownership enforc
 is handled by the REST routes (`/api/session-contexts/*`) used by the admin UI, which
 do have proper `auth` middleware. The ownership + `isShared` redesign is tracked in
 FEATURES.md and can be implemented as a follow-up once the basic flow works.
+
+---
+
+## Feature 01 — Ownerless contexts (stored via MCP) invisible in admin UI and `list`/`get` MCP tools
+
+**Status:** Open
+
+**Symptom:**
+
+Any context stored via `store-session-context` (with default `shared: false`) cannot
+be retrieved via `get-session-context`, does not appear in `list-session-contexts`,
+and does not appear in the admin UI Contexts page — even immediately after storing.
+
+**Why it is broken:**
+
+Since `checkMcpAuth` was removed from the internal MCP routes, `req.user` is never
+set. The `store` handler sets `createdBy: req.user?.id ?? null` — so every MCP-stored
+context gets `createdBy: null`.
+
+Both the REST readable filter and the MCP list/get routes treat `createdBy: null`
+contexts as invisible to everyone:
+
+- **REST `readableWhere`** (`session-context.js`):
+  ```js
+  { [Op.or]: [{ createdBy: userId }, { isShared: true }] }
+  // ↑ null createdBy never matches — invisible in admin UI
+  ```
+
+- **MCP `list` null-callerId branch** (`mcp.js`):
+  ```js
+  : { isShared: true }
+  // ↑ only shared contexts — ownerless ones hidden
+  ```
+
+- **MCP `get` null-callerId branch** (`mcp.js`):
+  ```js
+  : { name, isShared: true }
+  // ↑ same — get returns 404 for any private ownerless context
+  ```
+
+**The fix — add `{ createdBy: null }` to all readable scopes:**
+
+**File 1 — `server/src/routes/session-context.js`:**
+```js
+function readableWhere(userId) {
+  return { [Op.or]: [{ createdBy: userId }, { isShared: true }, { createdBy: null }] };
+}
+```
+
+**File 2 — `server/src/routes/mcp.js`, `list` route null-callerId branch:**
+```js
+: { [Op.or]: [{ isShared: true }, { createdBy: null }] };
+```
+
+**File 3 — `server/src/routes/mcp.js`, `get` route null-callerId branch:**
+```js
+: { name, [Op.or]: [{ isShared: true }, { createdBy: null }] }
+```
+
+This makes ownerless contexts visible to all authenticated users in the admin UI
+and accessible to all MCP callers — which is correct, since without user identity
+there is no basis for restricting them.

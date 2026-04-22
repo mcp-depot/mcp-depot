@@ -7,7 +7,7 @@ const { loadModels } = require('../config/database');
 const router = express.Router();
 
 function readableWhere(userId) {
-  return { [Op.or]: [{ createdBy: userId }, { isShared: true }] };
+  return { [Op.or]: [{ createdBy: userId }, { isShared: true }, { createdBy: null }] };
 }
 
 router.get('/', auth, async (req, res) => {

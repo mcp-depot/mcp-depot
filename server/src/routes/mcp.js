@@ -145,8 +145,8 @@ router.get('/session-contexts/get', async (req, res) => {
     const callerId = req.user?.id ?? null;
     const ctx = await SessionContext.findOne({
       where: callerId
-        ? { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }] }
-        : { name, isShared: true }
+        ? { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
+        : { name, [require('sequelize').Op.or]: [{ isShared: true }, { createdBy: null }] }
     });
     if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
     res.json({ name: ctx.name, content: ctx.content, updatedAt: ctx.updatedAt, isShared: ctx.isShared });
@@ -163,7 +163,7 @@ router.get('/session-contexts/list', async (req, res) => {
 
     const where = callerId
       ? { [Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
-      : { isShared: true };
+      : { [Op.or]: [{ isShared: true }, { createdBy: null }] };
 
     const all = await SessionContext.findAll({ where, order: [['updatedAt', 'DESC']] });
     res.json(all.map(c => ({
