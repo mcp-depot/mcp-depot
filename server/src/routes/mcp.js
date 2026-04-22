@@ -145,14 +145,12 @@ router.get('/session-contexts/get', async (req, res) => {
 
 router.get('/session-contexts/list', async (req, res) => {
   try {
-    const { SessionContext, User } = loadModels();
+    const { SessionContext } = loadModels();
     const all = await SessionContext.findAll({
-      include: [{ model: User, as: 'creator', attributes: ['username'] }],
       order: [['updatedAt', 'DESC']]
     });
     res.json(all.map(c => ({
       name: c.name,
-      creator: c.creator?.username ?? 'unknown',
       updatedAt: c.updatedAt,
       chars: c.content.length
     })));
