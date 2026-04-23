@@ -1,7 +1,7 @@
 {
   "name": "mcp-depot",
   "version": "1.0.0",
-  "description": "Self-hosted MCP server — connect Claude to your APIs and platforms",
+  "description": "Self-hosted MCP server — connect AI assistants to your APIs and platforms",
   "bin": {
     "mcp-depot": "bin/cli.js"
   },
