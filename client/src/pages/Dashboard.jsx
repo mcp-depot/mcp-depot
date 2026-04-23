@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings } from 'lucide-react';
+import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings, Layers, MessagesSquare } from 'lucide-react';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -11,7 +11,8 @@ function Dashboard() {
     integrations: { total: 0, active: 0, inactive: 0 },
     tools: { total: 0, active: 0, inactive: 0 },
     mcpServers: { total: 0, active: 0 },
-    prompts: { total: 0 }
+    prompts: { total: 0 },
+    sessions: { contexts: 0, shared: 0, channels: 0 }
   });
   const [loading, setLoading] = useState(true);
 
@@ -51,6 +52,14 @@ function Dashboard() {
 
         const promptsRes = await api.get('/skills').catch(() => ({ data: [] }));
         const prompts = promptsRes.data || [];
+
+        // Fetch session data
+        const ctxRes = await api.get('/session-contexts').catch(() => ({ data: [] }));
+        const contexts = ctxRes.data || [];
+        const sharedContexts = contexts.filter(c => c.isShared).length;
+
+        const chRes = await api.get('/session-channels').catch(() => ({ data: [] }));
+        const channels = chRes.data || [];
         
         setStats({
           integrations: { 
@@ -69,6 +78,11 @@ function Dashboard() {
           },
           prompts: {
             total: prompts.length
+          },
+          sessions: {
+            contexts: contexts.length,
+            shared: sharedContexts,
+            channels: channels.length
           }
         });
       } catch (err) {
@@ -76,8 +90,9 @@ function Dashboard() {
         setStats({ 
           integrations: { total: 0, active: 0, inactive: 0 },
           tools: { total: 0, active: 0, inactive: 0 },
-    mcpServers: { total: 0, active: 0 },
-          prompts: { total: 0 }
+          mcpServers: { total: 0, active: 0 },
+          prompts: { total: 0 },
+          sessions: { contexts: 0, shared: 0, channels: 0 }
         });
       } finally {
         setLoading(false);
@@ -133,6 +148,24 @@ function Dashboard() {
                   Configure
                 </Link>
               </div>
+
+              <div className="stat-card">
+                <div className="stat-card-icon"><Layers size={20} /></div>
+                <div className="stat-card-value">{stats.sessions.contexts + stats.sessions.channels}</div>
+                <div className="stat-card-label">Sessions</div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.75rem' }}>
+                  <span style={{ color: 'var(--text-light)' }}>{stats.sessions.contexts} contexts</span>
+                  <span style={{ color: 'var(--text-light)' }}>{stats.sessions.channels} channels</span>
+                </div>
+                {stats.sessions.shared > 0 && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.25rem' }}>
+                    {stats.sessions.shared} shared
+                  </div>
+                )}
+                <Link to="/session-contexts" className="btn btn-primary btn-small" style={{ marginTop: '0.5rem' }}>
+                  View
+                </Link>
+              </div>
             </div>
 
             <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -152,6 +185,10 @@ function Dashboard() {
                   <Link to="/settings" className="quick-action">
                     <div className="quick-action-icon"><Settings size={16} /></div>
                     <div className="quick-action-label">API Settings</div>
+                  </Link>
+                  <Link to="/session-contexts" className="quick-action">
+                    <div className="quick-action-icon"><MessagesSquare size={16} /></div>
+                    <div className="quick-action-label">Browse Sessions</div>
                   </Link>
                 </div>
               </div>
@@ -178,8 +215,8 @@ function Dashboard() {
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                     <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: '600', flexShrink: 0 }}>3</div>
                     <div>
-                      <strong>Configure External MCP (Optional)</strong>
-                      <p style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>Connect to external MCP servers for additional tools</p>
+                      <strong>Explore Optional Features</strong>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>Connect external MCP servers for more tools, or use Session Contexts and Channels to share AI working state across sessions</p>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>

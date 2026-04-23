@@ -1618,7 +1618,7 @@ tools using `sessionsIntegration.id` rather than `mcpconnectIntegration.id`.
 
 ## Feature 04 — Dashboard: Sessions stat card and Quick Action shortcut
 
-**Status:** Proposed
+**Status:** Implemented
 
 **The problem:**
 
