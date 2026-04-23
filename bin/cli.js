@@ -78,8 +78,10 @@ function startMcpProxy() {
 
     const { Server } = require('@modelcontextprotocol/sdk/server');
     const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-    const sdkDir = path.dirname(require.resolve('@modelcontextprotocol/sdk/package.json'));
-    const types = require(path.join(sdkDir, 'dist', 'cjs', 'types.js'));
+    const types = require(path.join(
+      path.dirname(require.resolve('@modelcontextprotocol/sdk/server')),
+      '..', 'types.js'
+    ));
 
     const server = new Server(
       { name: 'mcp-depot', version: '1.0.0' },
