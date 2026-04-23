@@ -679,6 +679,11 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
     
     const tools = await Tool.findAll({
       where: { isActive: true },
+      include: [{
+        model: Integration,
+        where: { isActive: true },
+        attributes: []
+      }],
       attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type']
     });
 
