@@ -112,675 +112,6 @@ job. No new dependencies.
 ---
 
 ## Feature 02 — Session Channels: live append-only log shared across sessions
-> 1. Add `ttlHours` column via a new migration
-> 2. Update model and routes to persist `ttlHours`
-> 3. Add `ttlHours` param to the `store-session-context` DB seed record
-> 4. Add the cleanup job to server startup
-
-#### Files to update
-
-| File | What to change |
-|------|---------------|
-| `server/src/models/SessionContext.js` | Add `ttlHours` field |
-| `server/src/routes/session-context.js` | Add `ttlHours` to upsertSchema + create/update |
-| `server/src/config/database.js` | Add `ttlHours` param to `store-session-context` seed |
-| `server/src/server.js` (or app entry point) | Start the cleanup job on startup |
-
-#### New files to create
-
-| File | Purpose |
-|------|---------|
-| `server/src/migrations/20260502-session-context-add-ttl.js` | Alter migration — adds `ttlHours` to existing table |
-| `server/src/services/session-context-cleanup.js` | Hourly cleanup job for expired contexts |
-
----
-
-#### 1. Sequelize model — `server/src/models/SessionContext.js`
-
-Add `ttlHours` field. `NULL` means never expire.
-
-```js
-const { DataTypes } = require('sequelize');
-
-module.exports = (sequelize) => {
-  const SessionContext = sequelize.define('SessionContext', {
-    id: {
-      type: DataTypes.UUID,
-      primaryKey: true,
-      defaultValue: DataTypes.UUIDV4
-    },
-    name: {
-      type: DataTypes.STRING(255),
-      allowNull: false,
-      unique: true
-    },
-    content: {
-      type: DataTypes.TEXT,
-      allowNull: false
-    },
-    isShared: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false
-    },
-    ttlHours: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      defaultValue: null   // null = never expire
-    },
-    createdBy: {
-      type: DataTypes.UUID,
-      allowNull: true
-    }
-  }, {
-    tableName: 'SessionContext',
-    timestamps: true
-  });
-
-  return SessionContext;
-};
-```
-
----
-
-#### 2. New migration — `server/src/migrations/20260502-session-context-add-ttl.js`
-
-Adds `ttlHours` to the existing `SessionContext` table. Existing rows get
-`ttlHours = null` (never expire). The server's cleanup job will not touch them
-until a future `store-session-context` call sets a TTL on them.
-
-```js
-'use strict';
-
-module.exports = {
-  async up(queryInterface, Sequelize) {
-    await queryInterface.addColumn('SessionContext', 'ttlHours', {
-      type: Sequelize.INTEGER,
-      allowNull: true,
-      defaultValue: null
-    });
-  },
-
-  async down(queryInterface) {
-    await queryInterface.removeColumn('SessionContext', 'ttlHours');
-  }
-};
-```
-
----
-
-#### 3. REST routes — `server/src/routes/session-context.js`
-
-Full rewrite. Key changes from the current implementation:
-
-- GET routes filter by `createdBy = me OR isShared = true` instead of returning all
-- POST upsert checks ownership before allowing update (403 if not owner)
-- New `PATCH /:name/share` endpoint to toggle `isShared` (owner only)
-- DELETE checks ownership (403 if not owner)
-- User include removed (no `belongsTo` association — `createdBy` is a raw integer)
-
-```js
-const express = require('express');
-const Joi = require('joi');
-const { Op } = require('sequelize');
-const { auth } = require('../middleware/auth');
-const { loadModels } = require('../config/database');
-
-const router = express.Router();
-
-// Returns the Sequelize WHERE clause for "contexts readable by this user"
-function readableWhere(userId) {
-  return { [Op.or]: [{ createdBy: userId }, { isShared: true }] };
-}
-
-// GET /session-contexts — own contexts + shared contexts
-router.get('/', auth, async (req, res) => {
-  try {
-    const { SessionContext } = loadModels();
-    const contexts = await SessionContext.findAll({
-      where: readableWhere(req.user.id),
-      order: [['updatedAt', 'DESC']]
-    });
-    res.json(contexts);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /session-contexts/:name — own or shared only; 404 for private contexts by others
-router.get('/:name', auth, async (req, res) => {
-  try {
-    const { SessionContext } = loadModels();
-    const ctx = await SessionContext.findOne({
-      where: { name: req.params.name, ...readableWhere(req.user.id) }
-    });
-    if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    res.json(ctx);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-const DEFAULT_TTL_HOURS = 168; // 7 days
-
-const upsertSchema = Joi.object({
-  name:     Joi.string().max(255).required(),
-  content:  Joi.string().required(),
-  shared:   Joi.boolean().default(false),
-  ttlHours: Joi.number().integer().min(0).allow(null).default(DEFAULT_TTL_HOURS)
-  // 0 = pin permanently (stored as null); omit = use default (7 days)
-});
-
-// POST /session-contexts — create (owner set to caller) or update (owner only)
-router.post('/', auth, async (req, res) => {
-  const { error, value } = upsertSchema.validate(req.body);
-  if (error) return res.status(400).json({ error: error.details[0].message });
-
-  try {
-    const { SessionContext } = loadModels();
-    const { randomUUID } = require('crypto');
-
-    const ttlHours = value.ttlHours === 0 ? null : value.ttlHours;  // 0 → pin forever
-
-    const [ctx, created] = await SessionContext.findOrCreate({
-      where: { name: value.name },
-      defaults: {
-        id:        randomUUID(),
-        name:      value.name,
-        content:   value.content,
-        isShared:  value.shared,
-        ttlHours,
-        createdBy: req.user.id
-      }
-    });
-
-    if (!created) {
-      if (ctx.createdBy !== req.user.id) {
-        return res.status(403).json({ error: 'You do not own this context' });
-      }
-      await ctx.update({ content: value.content, isShared: value.shared, ttlHours });
-    }
-
-    res.status(created ? 201 : 200).json(ctx);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PATCH /session-contexts/:name/share — toggle isShared (owner only)
-router.patch('/:name/share', auth, async (req, res) => {
-  try {
-    const { SessionContext } = loadModels();
-    const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
-    if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id) {
-      return res.status(403).json({ error: 'You do not own this context' });
-    }
-    const isShared = typeof req.body.shared === 'boolean' ? req.body.shared : !ctx.isShared;
-    await ctx.update({ isShared });
-    res.json({ name: ctx.name, isShared });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /session-contexts/:name — owner only
-router.delete('/:name', auth, async (req, res) => {
-  try {
-    const { SessionContext } = loadModels();
-    const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
-    if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id) {
-      return res.status(403).json({ error: 'You do not own this context' });
-    }
-    await ctx.destroy();
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;
-```
-
----
-
-#### 4. MCP internal routes — additions to `server/src/routes/mcp.js`
-
-The four MCP tools are backed by internal REST handlers at `/api/mcp/session-contexts/*`.
-These currently have **no auth middleware**, so `req.user` is never set and `createdBy`
-is always null. Ownership enforcement requires adding `checkMcpAuth` to these routes.
-
-**How `checkMcpAuth` resolves a user (from `middleware/mcpAuth.js`):**
-
-| Auth mode (system setting) | `req.user` result |
-|---|---|
-| `none` | Never set — ownership impossible |
-| `optional` | Set only if caller sends a valid Bearer JWT; otherwise null |
-| `required` | Always set — from `Authorization: Bearer <JWT>` or `X-API-Key: <user-api-key>` |
-
-In `required` mode, Claude Code / MCP clients pass their API key via `X-API-Key` header.
-`checkMcpAuth` looks it up with `User.findOne({ where: { apiKey } })` and sets `req.user`.
-This is the correct mode for ownership to work reliably.
-
-**Fallback for null user (optional/none mode):** if `req.user` is null, store
-`createdBy: null`. Null-owner contexts are readable by everyone and only admins can
-delete them. Do not throw an error — just degrade gracefully.
-
-Add `checkMcpAuth` to the session context routes:
-
-```js
-const { checkMcpAuth } = require('../middleware/mcpAuth');
-
-// Apply to all session context MCP routes:
-router.post('/session-contexts/store',   checkMcpAuth, async (req, res) => { ... });
-router.get('/session-contexts/get',      checkMcpAuth, async (req, res) => { ... });
-router.get('/session-contexts/list',     checkMcpAuth, async (req, res) => { ... });
-router.delete('/session-contexts/delete', checkMcpAuth, async (req, res) => { ... });
-```
-
-For the `store` handler, add `isShared` and `ttlHours` support and set `createdBy` from the resolved user:
-
-```js
-const DEFAULT_TTL_HOURS = 168; // 7 days — applied if ttlHours is omitted
-
-router.post('/session-contexts/store', checkMcpAuth, async (req, res) => {
-  try {
-    const { name, content, shared = false, ttlHours: rawTtl = DEFAULT_TTL_HOURS } = req.body;
-    if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
-    const { SessionContext } = loadModels();
-    const { randomUUID } = require('crypto');
-    const callerId = req.user?.id ?? null;  // null if authMode is none/optional with no token
-    const ttlHours = rawTtl === 0 ? null : rawTtl;  // 0 → pin forever (stored as null)
-
-    const [ctx, created] = await SessionContext.findOrCreate({
-      where: { name },
-      defaults: { id: randomUUID(), name, content, isShared: shared, ttlHours, createdBy: callerId }
-    });
-    if (!created) {
-      // Only allow update if caller owns it, or context is ownerless (createdBy null)
-      if (ctx.createdBy !== null && ctx.createdBy !== callerId) {
-        return res.status(403).json({ error: 'You do not own this context' });
-      }
-      await ctx.update({ content, isShared: shared, ttlHours });
-    }
-    res.json({ success: true, name, chars: content.length, shared, created });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-```
-
-For the `list` handler, apply the readable filter and return `isShared`:
-
-```js
-router.get('/session-contexts/list', checkMcpAuth, async (req, res) => {
-  try {
-    const { SessionContext } = loadModels();
-    const { Op } = require('sequelize');
-    const callerId = req.user?.id ?? null;
-
-    // Own contexts + shared contexts + ownerless contexts (createdBy null)
-    const where = callerId
-      ? { [Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
-      : {};  // unauthenticated — return all (authMode is none, no ownership model active)
-
-    const all = await SessionContext.findAll({ where, order: [['updatedAt', 'DESC']] });
-    res.json(all.map(c => {
-      const expiresAt = c.ttlHours != null
-        ? new Date(new Date(c.updatedAt).getTime() + c.ttlHours * 3600000).toISOString()
-        : null;
-      return {
-        name:      c.name,
-        isShared:  c.isShared,
-        mine:      callerId ? c.createdBy === callerId : false,
-        updatedAt: c.updatedAt,
-        ttlHours:  c.ttlHours,   // null = pinned (never expires)
-        expiresAt,               // ISO timestamp of expiry, or null if pinned
-        chars:     c.content.length
-      };
-    }));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-```
-
-Update the DB seed records in `server/src/config/database.js` — add `shared` param
-to `store-session-context`:
-
-```js
-{
-  name: 'store-session-context',
-  description: `Save a named context to MCPConnect for later retrieval across sessions or by teammates.
-
-Visibility: private by default. Set shared=true to make it readable by any MCPConnect user.
-
-Expiry (TTL): contexts expire based on their last write time — reading a context does NOT reset the clock, only writing does.
-- Default: 168 hours (7 days) from the last store call.
-- To pin permanently: pass ttlHours=0.
-- To refresh the clock on an active context: call store-session-context again with the same name and content.
-
-Before storing, if the user has not specified how long to keep this context, ask them:
-  "Should this context expire after 7 days, or would you like to keep it permanently? (default: 7 days)"
-If the user does not answer or says they don't mind, use the default (omit ttlHours).
-
-When listing or reading contexts, if any context is expiring within 24 hours, proactively tell the user and offer to refresh it.`,
-  endpoint: {
-    path: '/api/mcp/session-contexts/store',
-    method: 'POST',
-    params: {
-      name:     { type: 'string',  required: true,  description: 'Unique human-readable key, e.g. "bitbucket-debug". The first creator owns the name; others cannot overwrite it.' },
-      content:  { type: 'string',  required: true,  description: 'The context to store — markdown, JSON, bullet list, anything useful to another session.' },
-      shared:   { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read this context. Default false (private).' },
-      ttlHours: { type: 'number',  required: false, description: 'Hours until this context expires, measured from its last write. Default 168 (7 days). Pass 0 to pin permanently (never expires). Calling store-session-context again on the same name resets the expiry clock.' }
-    },
-    headers: {}
-  }
-},
-```
-
-The other three seed records (`get-session-context`, `list-session-contexts`,
-`delete-session-context`) do not need param changes — their endpoints already handle
-the new behaviour.
-
----
-
-#### 5. React admin UI — `client/src/pages/SessionContexts.jsx`
-
-Changes from the current implementation:
-
-- Each row shows a **Private** / **Shared** badge
-- Each row shows a live **Expires** countdown (ticks every minute) — **Pinned** badge for permanent contexts
-- Countdown is color-coded: normal when > 24 h remaining, amber when 1-24 h, red when < 1 h
-- Rows the current user owns show a **Share / Unshare** toggle and a **Delete** button
-- Rows owned by others (shared contexts) show no edit controls
-- The modal shows shared status, expiry, and size
-
-```jsx
-import { useState, useEffect } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import api from '../services/api';
-
-// Returns { label, urgency } for a context's TTL.
-// urgency: 'pinned' | 'ok' | 'soon' | 'urgent'
-function expiryInfo(ctx, now) {
-  if (ctx.ttlHours == null) return { label: 'Pinned', urgency: 'pinned' };
-  const expiresAt = new Date(ctx.updatedAt).getTime() + ctx.ttlHours * 3600000;
-  const msLeft = expiresAt - now;
-  if (msLeft <= 0) return { label: 'Expired', urgency: 'urgent' };
-  const hLeft = msLeft / 3600000;
-  if (hLeft < 1) {
-    const mLeft = Math.ceil(msLeft / 60000);
-    return { label: `${mLeft}m`, urgency: 'urgent' };
-  }
-  if (hLeft < 24) {
-    const h = Math.floor(hLeft);
-    const m = Math.floor((hLeft - h) * 60);
-    return { label: `${h}h ${m}m`, urgency: 'soon' };
-  }
-  const d = Math.floor(hLeft / 24);
-  const h = Math.floor(hLeft % 24);
-  return { label: `${d}d ${h}h`, urgency: 'ok' };
-}
-
-export default function SessionContexts() {
-  const { token, user } = useAuth();
-  const [contexts, setContexts] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [now, setNow]           = useState(Date.now());
-
-  // Tick every minute so countdowns update without a page refresh
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 60000);
-    return () => clearInterval(t);
-  }, []);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const data = await api.get('/session-contexts', token);
-      setContexts(Array.isArray(data) ? data : (data?.data || data?.contexts || []));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const handleDelete = async (name) => {
-    if (!confirm(`Delete context "${name}"?`)) return;
-    await api.delete(`/session-contexts/${encodeURIComponent(name)}`, token);
-    setSelected(null);
-    load();
-  };
-
-  const handleToggleShare = async (name, currentShared) => {
-    await api.patch(`/session-contexts/${encodeURIComponent(name)}/share`, token, { shared: !currentShared });
-    load();
-    if (selected?.name === name) setSelected(s => ({ ...s, isShared: !currentShared }));
-  };
-
-  const isOwner = (ctx) => ctx.createdBy === user?.id;
-
-  return (
-    <div className="container">
-      <div className="page-header">
-        <h1>Session Contexts</h1>
-        <p>Named context snapshots stored by AI sessions. Private by default — share to make visible to teammates.</p>
-      </div>
-
-      {loading ? (
-        <div className="loading-overlay"><div className="spinner"></div></div>
-      ) : contexts.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">💬</div>
-          <h3>No contexts yet</h3>
-          <p>From your AI session, call <code>store-session-context</code> with a name and content.</p>
-        </div>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Visibility</th>
-              <th>Expires</th>
-              <th>Updated</th>
-              <th>Size</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {contexts.map(ctx => {
-              const { label, urgency } = expiryInfo(ctx, now);
-              return (
-                <tr key={ctx.id} onClick={() => setSelected(ctx)} className="clickable-row">
-                  <td><code>{ctx.name}</code></td>
-                  <td>
-                    <span className={`badge ${ctx.isShared ? 'badge-green' : 'badge-muted'}`}>
-                      {ctx.isShared ? 'Shared' : 'Private'}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`expiry expiry-${urgency}`}>{label}</span>
-                  </td>
-                  <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
-                  <td>{ctx.content?.length ?? 0} chars</td>
-                  <td onClick={e => e.stopPropagation()}>
-                    {isOwner(ctx) && (
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button
-                          className="btn btn-sm btn-secondary"
-                          onClick={() => handleToggleShare(ctx.name, ctx.isShared)}
-                        >
-                          {ctx.isShared ? 'Unshare' : 'Share'}
-                        </button>
-                        <button
-                          className="btn btn-sm btn-danger"
-                          onClick={() => handleDelete(ctx.name)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-
-      {selected && (() => {
-        const { label, urgency } = expiryInfo(selected, now);
-        return (
-          <div className="modal-overlay" onClick={() => setSelected(null)}>
-            <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>{selected.name}</h2>
-                <button className="modal-close" onClick={() => setSelected(null)}>✕</button>
-              </div>
-              <div className="modal-body">
-                <div className="modal-meta">
-                  <span>{selected.isShared ? '🌐 Shared' : '🔒 Private'}</span>
-                  <span>Expires: <span className={`expiry expiry-${urgency}`}>{label}</span></span>
-                  <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
-                  <span>{selected.content?.length ?? 0} chars</span>
-                </div>
-                <pre className="context-preview">{selected.content}</pre>
-              </div>
-              <div className="modal-footer">
-                {isOwner(selected) && (
-                  <>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => handleToggleShare(selected.name, selected.isShared)}
-                    >
-                      {selected.isShared ? 'Make Private' : 'Share with team'}
-                    </button>
-                    <button className="btn btn-danger" onClick={() => handleDelete(selected.name)}>Delete</button>
-                  </>
-                )}
-                <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-    </div>
-  );
-}
-```
-
-CSS additions needed in `client/src/index.css` (if not already present):
-
-```css
-.badge {
-  display: inline-block;
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-.badge-green { background: rgba(59,178,115,0.15); color: var(--success); }
-.badge-muted { background: var(--surface-hover); color: var(--text-light); }
-
-/* TTL expiry countdown */
-.expiry { font-size: 0.82rem; font-variant-numeric: tabular-nums; }
-.expiry-pinned { color: var(--text-light); }
-.expiry-ok     { color: var(--text-light); }
-.expiry-soon   { color: var(--warning, #d97706); font-weight: 600; }
-.expiry-urgent { color: var(--danger,  #e53e3e); font-weight: 600; }
-```
-
----
-
-#### 6. End-to-end test (manual)
-
-Once deployed, test the full cycle from a Claude Code session:
-
-1. Ask Claude: *"Store a private context called 'my-notes' with content 'Investigation notes - do not share'."*
-   - Claude calls `store-session-context({ name: 'my-notes', content: '...' })` (shared omitted → false)
-   - Admin UI shows row with **Private** badge.
-
-2. Ask Claude: *"Store a shared context called 'team-debug' with content 'Auth middleware confirmed. RoleRight issue.'."*
-   - Claude calls `store-session-context({ name: 'team-debug', content: '...', shared: true })`
-   - Admin UI shows row with **Shared** badge.
-
-3. Open a second Claude Code window (simulating a teammate) and ask: *"Load context 'team-debug' from MCPConnect."*
-   - Claude calls `get-session-context({ name: 'team-debug' })` — succeeds (shared).
-
-4. Ask the teammate session to load 'my-notes':
-   - Claude calls `get-session-context({ name: 'my-notes' })` — returns 404 (private, not owner).
-
-5. Ask teammate to delete 'team-debug':
-   - REST `DELETE /session-contexts/team-debug` returns 403 (not owner).
-
-6. In the admin UI (as the owner), click **Unshare** on 'team-debug' — badge changes to **Private**.
-
----
-
-#### 7. Cleanup job — `server/src/services/session-context-cleanup.js`
-
-Background job that deletes expired contexts. A row is expired when its `ttlHours`
-is not null AND `updatedAt + ttlHours hours < NOW()`. The job runs once at server
-startup and then every hour via `setInterval`.
-
-```js
-'use strict';
-
-const { Op } = require('sequelize');
-
-const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-
-async function runCleanup(loadModels) {
-  try {
-    const { SessionContext } = loadModels();
-    const candidates = await SessionContext.findAll({
-      where: { ttlHours: { [Op.ne]: null } },
-      attributes: ['id', 'updatedAt', 'ttlHours']
-    });
-    const now = Date.now();
-    const expiredIds = candidates
-      .filter(c => now > new Date(c.updatedAt).getTime() + c.ttlHours * 3600000)
-      .map(c => c.id);
-    if (expiredIds.length > 0) {
-      await SessionContext.destroy({ where: { id: { [Op.in]: expiredIds } } });
-      console.log(`[session-context-cleanup] Deleted ${expiredIds.length} expired context(s)`);
-    }
-  } catch (err) {
-    console.error('[session-context-cleanup] Cleanup error:', err.message);
-  }
-}
-
-function startCleanupJob(loadModels) {
-  runCleanup(loadModels);
-  setInterval(() => runCleanup(loadModels), INTERVAL_MS);
-}
-
-module.exports = { startCleanupJob };
-```
-
-The JS-filter approach (load candidates, compute expiry in JS) avoids SQL dialect
-differences between SQLite, PostgreSQL, and MySQL.
-
-**Wiring into server startup** — in `server/src/server.js` (or wherever the app
-initialises after the DB sync):
-
-```js
-const { startCleanupJob } = require('./services/session-context-cleanup');
-const { loadModels } = require('./config/database');
-
-// After sequelize.sync():
-startCleanupJob(loadModels);
-```
-
----
-
-## Feature 02 — Session Channels: live append-only log shared across sessions
 
 **Status:** Implemented
 
@@ -869,590 +200,6 @@ parameter on the read route and the composite index.
 
 ---
 
-### Implementation Guide
-
-#### Files to create
-
-| File | Purpose |
-|------|---------|
-| `server/src/models/SessionChannel.js` | Sequelize model |
-| `server/src/migrations/20260501-session-channel.js` | DB migration |
-| `server/src/routes/session-channel.js` | REST routes |
-| `client/src/pages/SessionChannels.jsx` | React admin UI page |
-
-#### Files to modify
-
-| File | Change |
-|------|--------|
-| `server/src/config/database.js` | Register `SessionChannel` model in `loadModels()` (same pattern as `SessionContext`) |
-| `server/src/routes/index.js` | Register router under `/session-channels` |
-| `server/src/mcp/server.js` | Register 4 new MCP tools |
-| `client/src/App.jsx` | Add `/session-channels` route |
-| `client/src/components/Sidebar.jsx` | Replace flat "Session Contexts" link with collapsible "Sessions" group |
-| `client/src/pages/SessionContexts.jsx` | Replace emojis with Lucide icons |
-| `client/src/index.css` | Add collapsible nav group styles |
-
----
-
-#### 1. Sequelize model — `server/src/models/SessionChannel.js`
-
-Same factory function pattern as Feature 01. Key differences: no `unique` on
-`channel`, `updatedAt: false` to disable the automatic updatedAt column.
-
-```js
-const { DataTypes } = require('sequelize');
-
-module.exports = (sequelize) => {
-  const SessionChannel = sequelize.define('SessionChannel', {
-    id: {
-      type: DataTypes.UUID,
-      primaryKey: true,
-      defaultValue: DataTypes.UUIDV4
-    },
-    channel: {
-      type: DataTypes.STRING(255),
-      allowNull: false
-    },
-    message: {
-      type: DataTypes.TEXT,
-      allowNull: false
-    },
-    createdBy: {
-      type: DataTypes.UUID,
-      allowNull: true
-      // no references — FK constraint on model causes sequelize.sync() failure (same as SessionContext)
-    }
-  }, {
-    tableName: 'SessionChannel',
-    timestamps: true,
-    updatedAt: false
-  });
-
-  return SessionChannel;
-};
-```
-
----
-
-#### 2. Migration — `server/src/migrations/20260501-session-channel.js`
-
-Same up/down pattern as Feature 01. Adds a composite index on `(channel, createdAt)`
-for fast filtered reads.
-
-```js
-'use strict';
-
-module.exports = {
-  async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('SessionChannel', {
-      id: {
-        type: Sequelize.UUID,
-        primaryKey: true,
-        allowNull: false
-      },
-      channel: {
-        type: Sequelize.STRING(255),
-        allowNull: false
-      },
-      message: {
-        type: Sequelize.TEXT,
-        allowNull: false
-      },
-      createdBy: {
-        type: Sequelize.UUID,
-        allowNull: true
-      },
-      createdAt: {
-        type: Sequelize.DATE,
-        allowNull: false
-      }
-    });
-
-    await queryInterface.addIndex('SessionChannel', ['channel', 'createdAt'], {
-      name: 'idx_session_channel_channel_created'
-    });
-  },
-
-  async down(queryInterface) {
-    await queryInterface.dropTable('SessionChannel');
-  }
-};
-```
-
----
-
-#### 3. REST routes — `server/src/routes/session-channel.js`
-
-Four endpoints. The read endpoint accepts an optional `since` ISO timestamp as a
-query parameter and uses Sequelize's `Op.gt` to filter rows.
-
-```js
-const express = require('express');
-const Joi = require('joi');
-const { Op } = require('sequelize');
-const { auth } = require('../middleware/auth');
-const { loadModels } = require('../config/database');
-
-const router = express.Router();
-
-// GET /session-channels — list distinct channels with count and last activity
-router.get('/', auth, async (req, res) => {
-  try {
-    const { SessionChannel } = loadModels();
-    const { sequelize } = SessionChannel;
-    const rows = await SessionChannel.findAll({
-      attributes: [
-        'channel',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'messageCount'],
-        [sequelize.fn('MAX', sequelize.col('createdAt')), 'lastActivity']
-      ],
-      group: ['channel'],
-      order: [[sequelize.literal('lastActivity'), 'DESC']]
-    });
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /session-channels/:channel — read messages, optional ?since=ISO timestamp
-router.get('/:channel', auth, async (req, res) => {
-  try {
-    const { SessionChannel } = loadModels();
-    const where = { channel: req.params.channel };
-    if (req.query.since) {
-      const since = new Date(req.query.since);
-      if (isNaN(since)) return res.status(400).json({ error: 'Invalid since timestamp' });
-      where.createdAt = { [Op.gt]: since };
-    }
-    const messages = await SessionChannel.findAll({
-      where,
-      order: [['createdAt', 'ASC']]
-      // No User include — no belongsTo association defined (same pattern as SessionContext)
-      // createdBy UUID is returned as-is in each row
-    });
-    res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-const appendSchema = Joi.object({
-  channel: Joi.string().max(255).required(),
-  message: Joi.string().required()
-});
-
-// POST /session-channels — append a message to a channel
-router.post('/', auth, async (req, res) => {
-  const { error, value } = appendSchema.validate(req.body);
-  if (error) return res.status(400).json({ error: error.details[0].message });
-
-  try {
-    const { SessionChannel } = loadModels();
-    const entry = await SessionChannel.create({
-      id: require('crypto').randomUUID(),
-      channel: value.channel,
-      message: value.message,
-      createdBy: req.user.id
-    });
-    res.status(201).json(entry);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /session-channels/:channel — delete all messages in a channel
-router.delete('/:channel', auth, async (req, res) => {
-  try {
-    const { SessionChannel } = loadModels();
-    const deleted = await SessionChannel.destroy({ where: { channel: req.params.channel } });
-    if (!deleted) return res.status(404).json({ error: 'Channel not found or already empty' });
-    res.json({ success: true, deleted });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;
-```
-
-Register in `server/src/routes/index.js`:
-
-```js
-const sessionChannelRouter = require('./session-channel');
-router.use('/session-channels', sessionChannelRouter);
-```
-
----
-
-#### 4. MCP tool registration — additions to `server/src/mcp/server.js`
-
-Add these four tools alongside the Feature 01 tools. The `read-channel` tool
-returns messages formatted as a readable log with timestamps and authors.
-
-```js
-// --- Session Channel tools ---
-
-this.server.tool(
-  'append-to-channel',
-  {
-    description: 'Post a message to a named session channel. Use this to share findings, decisions, or progress as you work — other sessions can read the channel at any time to catch up.',
-    inputSchema: z.object({
-      channel: z.string().describe('Channel name, e.g. "pool-api" or "auth-debug"'),
-      message: z.string().describe('The message to post — a finding, decision, error, or note')
-    })
-  },
-  async ({ channel, message }) => {
-    const { SessionChannel } = loadModels();
-    await SessionChannel.create({
-      id: require('crypto').randomUUID(),
-      channel,
-      message
-    });
-    return { content: [{ type: 'text', text: `Posted to channel '${channel}'.` }] };
-  }
-);
-
-this.server.tool(
-  'read-channel',
-  {
-    description: 'Read messages from a named session channel. Pass a since timestamp (ISO 8601) to get only new messages since the last check — useful for polling in long sessions.',
-    inputSchema: z.object({
-      channel: z.string().describe('The channel name to read'),
-      since:   z.string().optional().describe('ISO 8601 timestamp — only return messages after this time, e.g. "2026-04-22T10:00:00Z"')
-    })
-  },
-  async ({ channel, since }) => {
-    const { SessionChannel } = loadModels();
-    const { Op } = require('sequelize');
-    const where = { channel };
-    if (since) where.createdAt = { [Op.gt]: new Date(since) };
-
-    const messages = await SessionChannel.findAll({
-      where,
-      order: [['createdAt', 'ASC']]
-      // No User include — no belongsTo association defined (same pattern as SessionContext)
-    });
-
-    if (messages.length === 0) {
-      return { content: [{ type: 'text', text: since ? `No new messages in '${channel}' since ${since}.` : `Channel '${channel}' is empty.` }] };
-    }
-
-    const lines = messages.map(m => {
-      const ts = m.createdAt.toISOString().replace('T', ' ').slice(0, 19);
-      return `[${ts}] ${m.message}`;
-    });
-
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
-  }
-);
-
-this.server.tool(
-  'list-channels',
-  {
-    description: 'List all active session channels with message count and last activity time.',
-    inputSchema: z.object({})
-  },
-  async () => {
-    const { SessionChannel } = loadModels();
-    const { sequelize } = SessionChannel;
-    const rows = await SessionChannel.findAll({
-      attributes: [
-        'channel',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'messageCount'],
-        [sequelize.fn('MAX', sequelize.col('createdAt')), 'lastActivity']
-      ],
-      group: ['channel'],
-      order: [[sequelize.literal('lastActivity'), 'DESC']]
-    });
-
-    if (rows.length === 0) return { content: [{ type: 'text', text: 'No channels exist yet.' }] };
-
-    const lines = rows.map(r =>
-      `- **${r.channel}** | ${r.dataValues.messageCount} messages | last activity ${new Date(r.dataValues.lastActivity).toISOString().slice(0, 10)}`
-    );
-    return { content: [{ type: 'text', text: lines.join('\n') }] };
-  }
-);
-
-this.server.tool(
-  'clear-channel',
-  {
-    description: 'Delete all messages in a session channel. Use this when the channel is no longer needed.',
-    inputSchema: z.object({
-      channel: z.string().describe('The channel name to clear')
-    })
-  },
-  async ({ channel }) => {
-    const { SessionChannel } = loadModels();
-    const deleted = await SessionChannel.destroy({ where: { channel } });
-    if (!deleted) return { content: [{ type: 'text', text: `Channel '${channel}' not found or already empty.` }] };
-    return { content: [{ type: 'text', text: `Channel '${channel}' cleared (${deleted} messages deleted).` }] };
-  }
-);
-```
-
----
-
-#### 5. React admin UI — `client/src/pages/SessionChannels.jsx`
-
-Two-panel layout: channel list on the left, message timeline on the right.
-The timeline auto-formats messages as a log with timestamps. No write controls
-in the UI — Claude does all writing via MCP tools.
-
-```jsx
-import { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import api from '../services/api';
-
-export default function SessionChannels() {
-  const { token } = useAuth();
-  const [channels, setChannels] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(false);
-
-  const loadChannels = async () => {
-    setLoading(true);
-    try {
-      const data = await api.get('/session-channels', token);
-      setChannels(Array.isArray(data) ? data : (data?.data || data?.channels || []));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadMessages = async (channel) => {
-    setLoadingMessages(true);
-    try {
-      const data = await api.get(`/session-channels/${encodeURIComponent(channel)}`, token);
-      setMessages(Array.isArray(data) ? data : (data?.data || data?.messages || []));
-    } finally {
-      setLoadingMessages(false);
-    }
-  };
-
-  useEffect(() => { loadChannels(); }, []);
-
-  const handleSelect = (channel) => {
-    setSelected(channel);
-    loadMessages(channel);
-  };
-
-  const handleClear = async (channel) => {
-    if (!confirm(`Clear all messages in "${channel}"?`)) return;
-    await api.delete(`/session-channels/${encodeURIComponent(channel)}`, token);
-    setSelected(null);
-    setMessages([]);
-    loadChannels();
-  };
-
-  const handleRefresh = () => {
-    if (selected) loadMessages(selected);
-  };
-
-  return (
-    <div className="page-container">
-      <h1>Session Channels</h1>
-      <p className="page-subtitle">
-        Append-only logs shared across AI sessions. Sessions post as they work;
-        others read at any time to catch up without interrupting.
-      </p>
-
-      <div className="two-panel">
-        {/* Left: channel list */}
-        <div className="panel-left">
-          {loading && <p>Loading...</p>}
-          {channels.map(ch => (
-            <div
-              key={ch.channel}
-              className={`channel-row ${selected === ch.channel ? 'active' : ''}`}
-              onClick={() => handleSelect(ch.channel)}
-            >
-              <span className="channel-name">{ch.channel}</span>
-              <span className="channel-meta">
-                {ch.dataValues?.messageCount ?? ch.messageCount} msgs
-              </span>
-            </div>
-          ))}
-          {!loading && channels.length === 0 && (
-            <p className="empty-state">No channels yet. Ask Claude to post to a channel.</p>
-          )}
-        </div>
-
-        {/* Right: message timeline */}
-        <div className="panel-right">
-          {selected ? (
-            <>
-              <div className="panel-header">
-                <h2>{selected}</h2>
-                <div className="panel-actions">
-                  <button className="btn-secondary btn-sm" onClick={handleRefresh}>Refresh</button>
-                  <button className="btn-danger btn-sm" onClick={() => handleClear(selected)}>Clear</button>
-                </div>
-              </div>
-              {loadingMessages && <p>Loading messages...</p>}
-              <div className="message-log">
-                {messages.map(m => (
-                  <div key={m.id} className="log-entry">
-                    <span className="log-ts">
-                      {new Date(m.createdAt).toLocaleString()}
-                    </span>
-                    <span className="log-author">{m.author?.username ?? 'unknown'}</span>
-                    <span className="log-message">{m.message}</span>
-                  </div>
-                ))}
-                {!loadingMessages && messages.length === 0 && (
-                  <p className="empty-state">No messages yet.</p>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="empty-state">Select a channel to view its log.</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-```
-
-Register in `App.jsx`:
-
-```jsx
-import SessionChannels from './pages/SessionChannels';
-// ...
-<Route path="/session-channels" element={<SessionChannels />} />
-```
-
----
-
-#### 6. Sidebar navigation — collapsible "Sessions" group
-
-Both Session Contexts and Session Channels live under a single collapsible **Sessions**
-group in the sidebar. The group shows a right-pointing chevron that rotates down when
-expanded. Clicking the group header toggles it open/closed. No hover-open — click is
-more predictable on all screen sizes.
-
-**Icons** — use [Lucide React](https://lucide.dev) throughout. Install if not already
-present: `npm install lucide-react`. Replace all emoji usage with Lucide icons across
-both session pages as well.
-
-| Location | Emoji removed | Lucide icon to use |
-|----------|-------------|-------------------|
-| Sidebar — Sessions group | - | `<Layers size={16} />` |
-| Sidebar — Contexts sub-item | - | `<FileStack size={16} />` |
-| Sidebar — Channels sub-item | - | `<MessagesSquare size={16} />` |
-| Sidebar — expand indicator | - | `<ChevronRight size={14} />` (rotates 90° when open) |
-| SessionContexts empty state | 💬 | `<MessageSquare size={40} strokeWidth={1.5} />` |
-| SessionContexts modal — shared | 🌐 | `<Globe size={14} />` |
-| SessionContexts modal — private | 🔒 | `<Lock size={14} />` |
-
-**Sidebar component changes** — replace the existing flat `Session Contexts` NavLink
-with a collapsible group. Adapt to whichever pattern the existing sidebar uses for
-active state and styling.
-
-```jsx
-import { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
-import { Layers, FileStack, MessagesSquare, ChevronRight } from 'lucide-react';
-
-function SessionsNavGroup() {
-  const location = useLocation();
-  const isSessionRoute = location.pathname.startsWith('/session');
-  const [open, setOpen] = useState(isSessionRoute); // auto-open when on a session page
-
-  return (
-    <div className="nav-group">
-      <button
-        className={`nav-group-header ${isSessionRoute ? 'active' : ''}`}
-        onClick={() => setOpen(o => !o)}
-      >
-        <Layers size={16} />
-        <span>Sessions</span>
-        <ChevronRight
-          size={14}
-          className="nav-group-chevron"
-          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
-        />
-      </button>
-
-      {open && (
-        <div className="nav-group-children">
-          <NavLink to="/session-contexts" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            <FileStack size={16} />
-            <span>Contexts</span>
-          </NavLink>
-          <NavLink to="/session-channels" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            <MessagesSquare size={16} />
-            <span>Channels</span>
-          </NavLink>
-        </div>
-      )}
-    </div>
-  );
-}
-```
-
-**CSS additions** in `client/src/index.css`:
-
-```css
-/* Collapsible nav group */
-.nav-group-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 8px 12px;
-  color: var(--text-light);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-align: left;
-  border-radius: 6px;
-}
-.nav-group-header:hover,
-.nav-group-header.active { color: var(--text); background: var(--surface-hover); }
-
-.nav-group-chevron { margin-left: auto; transition: transform 0.15s ease; }
-
-.nav-group-children { padding-left: 12px; }
-.nav-group-children .nav-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  color: var(--text-light);
-  text-decoration: none;
-}
-.nav-group-children .nav-link:hover,
-.nav-group-children .nav-link.active { color: var(--text); background: var(--surface-hover); }
-```
-
----
-
-#### 7. End-to-end test (manual)
-
-1. Open two Claude Code sessions both connected to the same MCPConnect instance.
-2. In Session A: *"Post to channel 'test-channel': I found that X causes Y."*
-   - Claude calls `append-to-channel({ channel: 'test-channel', message: 'I found that X causes Y.' })`
-3. In Session B: *"Read channel 'test-channel'."*
-   - Claude calls `read-channel({ channel: 'test-channel' })`
-   - Response shows the message Session A posted.
-4. In Session A: post a second message.
-5. In Session B: *"Anything new since [timestamp from step 3]?"*
-   - Claude calls `read-channel({ channel: 'test-channel', since: '<timestamp>' })`
-   - Response shows only the second message.
-6. In the admin UI, navigate to Channels, select `test-channel`, confirm both messages appear in the timeline.
-7. Clear the channel via the UI and confirm the list empties.
-
----
-
 ## Feature 03 — MCPConnect Sessions: split session tools into a separate disableable integration
 
 **Status:** Implemented
@@ -1496,126 +243,6 @@ when Claude surfaces the integration name.
 
 ---
 
-### Implementation Guide
-
-#### Files to update
-
-| File | What to change |
-|------|---------------|
-| `server/src/config/database.js` | Add `MCPConnect Sessions` integration creation and migrate the 8 session tools to it |
-
-No schema changes, no new migrations, no route changes needed. This is purely a
-data re-organisation: create a new integration row and update the `integrationId`
-on the 8 affected tool rows.
-
----
-
-#### Changes to `server/src/config/database.js`
-
-The `createDefaultTool` function currently does two things:
-
-1. On first startup (`!mcpconnectIntegration`): creates the `MCPConnect` integration
-   and seeds `hello`, `list-tools`, `fetch-url`, `list-skills`.
-2. On subsequent startups (the `else` branch): uses `Tool.findOrCreate` to add any
-   missing tools, including the 8 session tools, all under `mcpconnectIntegration.id`.
-
-The changes needed:
-
-**Step 1 — Create (or find) the `MCPConnect Sessions` integration** after the main
-one is resolved, in both the `if` and `else` branches.
-
-```js
-// After mcpconnectIntegration is created or found:
-let sessionsIntegration = await Integration.findOne({ where: { name: 'MCPConnect Sessions' } });
-
-if (!sessionsIntegration) {
-  sessionsIntegration = await Integration.create({
-    userId,
-    type: 'custom',
-    name: 'MCPConnect Sessions',
-    description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
-    config: {
-      baseUrl: 'http://localhost:3000',
-      auth: { type: 'none' }
-    },
-    isActive: true
-  });
-  logger.info('MCPConnect Sessions integration created.\n');
-}
-```
-
-**Step 2 — Move the 8 session tools to `MCPConnect Sessions`.**
-
-For new installations, seed them under `sessionsIntegration.id` instead of
-`mcpconnectIntegration.id`.
-
-For existing installations (the `else` branch), after resolving `sessionsIntegration`,
-add a migration step that moves any already-created session tools over:
-
-```js
-// Migration: move session tools from MCPConnect to MCPConnect Sessions
-const sessionToolNames = [
-  'store-session-context', 'get-session-context',
-  'list-session-contexts', 'delete-session-context',
-  'append-to-channel', 'read-channel',
-  'list-channels', 'clear-channel'
-];
-
-await Tool.update(
-  { integrationId: sessionsIntegration.id },
-  { where: { name: sessionToolNames, integrationId: mcpconnectIntegration.id } }
-);
-```
-
-This `update` is idempotent — if the tools are already under `sessionsIntegration.id`
-(e.g. after a second restart), the `WHERE integrationId = mcpconnectIntegration.id`
-condition matches nothing and nothing changes.
-
-**Step 3 — Seed the 8 session tools under `sessionsIntegration.id`.**
-
-In the `toolsToCreate` array (the `else` branch), remove the 8 session tool
-definitions and move them into a separate `sessionToolsToCreate` array that uses
-`sessionsIntegration.id`:
-
-```js
-const sessionToolsToCreate = [
-  {
-    name: 'store-session-context',
-    description: 'Save a named context to MCPConnect ...',
-    endpoint: { /* same as current */ }
-  },
-  // ... get-session-context, list-session-contexts, delete-session-context,
-  //     append-to-channel, read-channel, list-channels, clear-channel
-];
-
-for (const toolDef of sessionToolsToCreate) {
-  await Tool.findOrCreate({
-    where: { name: toolDef.name },
-    defaults: {
-      userId,
-      integrationId: sessionsIntegration.id,
-      ...toolDef,
-      isActive: true
-    }
-  });
-}
-```
-
-The first-startup branch (`!mcpconnectIntegration`) should also seed the 8 session
-tools using `sessionsIntegration.id` rather than `mcpconnectIntegration.id`.
-
----
-
-#### End-to-end test (manual)
-
-1. Fresh install: confirm `MCPConnect` has 5 tools, `MCPConnect Sessions` has 8 tools.
-2. Existing install with restart: confirm the 8 session tools moved to `MCPConnect Sessions` and are no longer listed under `MCPConnect`.
-3. Disable `MCPConnect Sessions` in the admin UI. Reconnect Claude. Confirm `list-tools` (or `tools/list` response) no longer includes any session tool.
-4. Re-enable `MCPConnect Sessions`. Reconnect Claude. Confirm all 8 session tools return.
-5. Call `store-session-context` from Claude after re-enabling — confirm it still works (the endpoint path and auth are unchanged).
-
----
-
 ## Feature 04 — Dashboard: Sessions stat card and Quick Action shortcut
 
 **Status:** Implemented
@@ -1639,7 +266,7 @@ the optional path, which undersells Sessions as a beginner-friendly alternative.
 
 Three small, targeted changes — no structural rework needed.
 
-**Change 1 — Add a Sessions stat card (third or fourth position in the grid):**
+**Change 1 — Add a Sessions stat card (fourth position in the grid):**
 
 Fetch from `/session-contexts` and `/session-channels` and display:
 
@@ -1683,103 +310,291 @@ Updated text:
 
 ---
 
-### Implementation Guide
+## Feature 05 — Single npm package: run MCPConnect with one command
 
-#### Files to update
+**Status:** Implemented
 
-| File | What to change |
-|------|---------------|
-| `client/src/pages/Dashboard.jsx` | Add Sessions fetch, stat card, quick action, updated step 3 |
+**The problem:**
 
----
+Setting up MCPConnect currently requires cloning the repository, understanding the
+Docker Compose setup, and manually configuring the MCP client to point at the
+running server. For a first-time user this is a significant barrier — especially
+compared to tools like n8n, where `npx n8n` is all that is needed to get started.
 
-#### Changes to `Dashboard.jsx`
+**The proposed solution:**
 
-**Step 1 — Fetch session stats** alongside the existing fetches:
+Publish MCPConnect as a single npm package that starts everything with one command:
 
-```js
-const contextsRes = await api.get('/session-contexts').catch(() => ({ data: [] }));
-const contexts = contextsRes.data || [];
-const sharedContexts = contexts.filter(c => c.isShared).length;
-
-const channelsRes = await api.get('/session-channels').catch(() => ({ data: [] }));
-const channels = channelsRes.data || [];
+```sh
+npx mcpconnect
 ```
 
-Add to `stats` state:
+The package starts the Postgres database, the Express server, and serves the
+pre-built React client. The MCP client config entry becomes a single
+`npx mcpconnect --mcp` command that starts only the stdio MCP wrapper.
 
-```js
-sessions: {
-  contexts: contexts.length,
-  shared: sharedContexts,
-  channels: channels.length
+| Command | What it starts |
+|---------|---------------|
+| `npx mcpconnect` | Full stack: DB, server, client UI |
+| `npx mcpconnect --mcp` | stdio MCP wrapper only (for MCP client config) |
+| `npx mcpconnect --server` | Server and DB only (headless, no client) |
+
+**User experience (getting started in under 5 minutes):**
+
+```sh
+# Terminal 1 — start MCPConnect
+npx mcpconnect
+# Admin UI: http://localhost:5173
+
+# Claude Code settings.json
+{
+  "mcpServers": {
+    "mcpconnect": {
+      "command": "npx",
+      "args": ["mcpconnect", "--mcp"]
+    }
+  }
 }
 ```
 
-Initial state default:
+No git clone, no Docker Compose knowledge, no manual `.env` setup. Share
+`npx mcpconnect` with a teammate and they are running in minutes.
+
+**Why this is worth building:**
+
+- **Adoption** — removes the single biggest barrier to first use. The current
+  setup requires Docker knowledge and repo familiarity that most users do not have
+  before they have seen the product work.
+- **Proven model** — n8n runs this way at scale. The npm package is how most
+  self-hosted n8n users run it locally.
+- **The pieces already exist** — the Express server, the React build, and the
+  `mcp-connect` stdio wrapper are all already written. The work is packaging and
+  a CLI entry point.
+- **Team sharing** — a team evaluating MCPConnect internally can share one command
+  rather than a multi-step setup document.
+
+**Key design decisions:**
+
+- Ship the React client as a pre-built static `dist/` bundle inside the npm
+  package. The server serves it directly — no Vite or build step at runtime.
+- **Database: SQLite by default, Postgres when `DATABASE_URL` is set.** Sequelize
+  supports both dialects with the same models and queries — no code changes needed
+  beyond the connection config. The launcher auto-detects:
+  ```js
+  const db = process.env.DATABASE_URL
+    ? new Sequelize(process.env.DATABASE_URL)
+    : new Sequelize({ dialect: 'sqlite', storage: path.join(os.homedir(), '.mcpconnect', 'data.db') });
+  ```
+  SQLite data is stored in `~/.mcpconnect/data.db` — no server process, no install.
+- **Existing Docker/Postgres setup is completely unaffected.** `DATABASE_URL` is
+  always injected by `docker-compose.yml`, so the SQLite fallback never triggers
+  in the current deployment. Both paths coexist with no conflicts.
+- Version the npm package independently of the Docker Compose setup so teams can
+  choose whichever deployment path fits them.
+
+**Effort estimate:** Medium — the individual pieces exist. The work is: npm
+package scaffolding, a CLI entry point (`bin/mcpconnect.js`), serving the
+pre-built client from Express, and adding the SQLite dialect + `sqlite3` dependency
+for the zero-config case.
+
+---
+
+### Implementation Guide
+
+#### New files to create
+
+| File | Purpose |
+|------|---------|
+| `bin/cli.js` | CLI entry point — parses flags, starts the right services |
+| `package.json` (root) | npm package manifest with `bin`, `files`, and `scripts` |
+
+#### Files to modify
+
+| File | Change |
+|------|--------|
+| `server/src/config/database.js` | Add SQLite fallback when `DATABASE_URL` is not set |
+| `server/src/server.js` | Serve pre-built client `dist/` as static files when `SERVE_CLIENT=true` |
+
+---
+
+#### 1. Root `package.json`
+
+Create a root-level `package.json` that ties everything together:
+
+```json
+{
+  "name": "mcpconnect",
+  "version": "1.0.0",
+  "description": "Self-hosted MCP server — connect Claude to your APIs and platforms",
+  "bin": {
+    "mcpconnect": "./bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "server/src/",
+    "client/dist/"
+  ],
+  "scripts": {
+    "build:client": "cd client && npm run build",
+    "prepublish": "npm run build:client"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.7"
+  }
+}
+```
+
+The `files` array controls what gets published to npm — only the built client
+(`client/dist/`), the server source, and the CLI entry point. Node modules,
+Docker files, and source maps are excluded automatically.
+
+---
+
+#### 2. CLI entry point — `bin/cli.js`
 
 ```js
-sessions: { contexts: 0, shared: 0, channels: 0 }
+#!/usr/bin/env node
+'use strict';
+
+const path = require('path');
+const args = process.argv.slice(2);
+
+if (args.includes('--mcp')) {
+  // stdio MCP wrapper — used in Claude Code settings.json
+  require('../server/src/mcp/server.js');
+
+} else {
+  // Full stack: DB + Express server (+ static client if not --server-only)
+  const serveClient = !args.includes('--server');
+  process.env.SERVE_CLIENT = serveClient ? 'true' : 'false';
+
+  // Ensure data directory exists for SQLite
+  if (!process.env.DATABASE_URL) {
+    const os = require('os');
+    const fs = require('fs');
+    const dataDir = path.join(os.homedir(), '.mcpconnect');
+    fs.mkdirSync(dataDir, { recursive: true });
+    process.env.SQLITE_PATH = path.join(dataDir, 'data.db');
+  }
+
+  require('../server/src/server.js');
+
+  const port = process.env.PORT || 3000;
+  const uiPort = 3000;
+  console.log(`MCPConnect running at http://localhost:${uiPort}`);
+  if (!process.env.DATABASE_URL) {
+    console.log(`Database: SQLite (~/.mcpconnect/data.db)`);
+  }
+}
 ```
 
-**Step 2 — Add the Sessions stat card** after the External MCP card:
+Make it executable after creating: `chmod +x bin/cli.js` (not needed on Windows,
+but required for Linux/Mac users running via `npx`).
 
-```jsx
-<div className="stat-card">
-  <div className="stat-card-icon"><Layers size={20} /></div>
-  <div className="stat-card-value">{stats.sessions.contexts + stats.sessions.channels}</div>
-  <div className="stat-card-label">Sessions</div>
-  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.75rem' }}>
-    <span style={{ color: 'var(--text-light)' }}>{stats.sessions.contexts} contexts</span>
-    <span style={{ color: 'var(--text-light)' }}>{stats.sessions.channels} channels</span>
-  </div>
-  {stats.sessions.shared > 0 && (
-    <div style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.25rem' }}>
-      {stats.sessions.shared} shared
-    </div>
-  )}
-  <Link to="/session-contexts" className="btn btn-primary btn-small" style={{ marginTop: '0.5rem' }}>
-    View
-  </Link>
-</div>
+---
+
+#### 3. SQLite fallback — `server/src/config/database.js`
+
+Find where `new Sequelize(process.env.DATABASE_URL, ...)` is called and wrap it:
+
+```js
+const { Sequelize } = require('sequelize');
+const path = require('path');
+
+let sequelize;
+
+if (process.env.DATABASE_URL) {
+  sequelize = new Sequelize(process.env.DATABASE_URL, {
+    dialect: 'postgres',
+    logging: false
+  });
+} else {
+  const storagePath = process.env.SQLITE_PATH || path.join(__dirname, '../../data.db');
+  sequelize = new Sequelize({
+    dialect: 'sqlite',
+    storage: storagePath,
+    logging: false
+  });
+}
 ```
 
-Add `Layers` to the lucide-react import line.
+No changes to models, associations, or queries — Sequelize handles both dialects
+transparently. `sequelize.sync()` works the same way for both.
 
-Note: the stat grid uses `className="grid-3"` — change to `"grid-4"` or use a 4-column
-CSS grid style if `grid-4` is not defined. Alternatively keep `grid-3` and place the
-Sessions card below as its own row. Match whichever pattern fits the existing CSS.
+Also add `sqlite3` to server dependencies (or rely on the root `package.json`
+dependency — either works since npm hoists it).
 
-**Step 3 — Add Quick Action:**
+---
 
-Add `MessagesSquare` to the lucide import, then add to the quick actions list:
+#### 4. Serve pre-built client — `server/src/server.js`
 
-```jsx
-<Link to="/session-contexts" className="quick-action">
-  <div className="quick-action-icon"><MessagesSquare size={16} /></div>
-  <div className="quick-action-label">Browse Sessions</div>
-</Link>
+Add static file serving after the existing route registration, gated on the
+`SERVE_CLIENT` env var:
+
+```js
+const express = require('express');
+const path = require('path');
+
+// ... existing setup ...
+
+if (process.env.SERVE_CLIENT === 'true') {
+  const distPath = path.join(__dirname, '../../client/dist');
+  app.use(express.static(distPath));
+  // SPA fallback — serve index.html for any non-API route
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 ```
 
-**Step 4 — Update Getting Started step 3:**
+When running via Docker the existing setup serves client and server separately
+on different ports — `SERVE_CLIENT` is not set there, so this block is skipped.
 
-```jsx
-<div>
-  <strong>Explore Optional Features</strong>
-  <p style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
-    Connect external MCP servers for more tools, or use Session Contexts &amp; Channels
-    to share AI working state across sessions and teammates
-  </p>
-</div>
+---
+
+#### 5. Claude Code config (what users add to `settings.json`)
+
+```json
+{
+  "mcpServers": {
+    "mcpconnect": {
+      "command": "npx",
+      "args": ["mcpconnect", "--mcp"]
+    }
+  }
+}
+```
+
+The `--mcp` flag starts only the stdio MCP wrapper process — no HTTP server,
+no client. This is the mode Claude Code calls on every session.
+
+---
+
+#### 6. Build and publish
+
+```sh
+# Build the React client (produces client/dist/)
+npm run build:client
+
+# Test locally before publishing
+node bin/cli.js              # full stack on SQLite
+node bin/cli.js --mcp        # MCP wrapper only
+node bin/cli.js --server     # headless server only
+
+# Publish to npm
+npm publish
 ```
 
 ---
 
 #### End-to-end test (manual)
 
-1. Store 2 contexts (1 shared, 1 private) and create 1 channel via Claude.
-2. Open Dashboard — confirm Sessions card shows `2 contexts · 1 channel` and `1 shared`.
-3. Click "View" on the Sessions card — confirm it navigates to `/session-contexts`.
-4. Confirm "Browse Sessions" appears in Quick Actions and navigates correctly.
-5. Disable `MCPConnect Sessions` integration — Sessions card counts should still show
-   (the dashboard reads the data directly, not via MCP tools).
+1. Run `npx mcpconnect` on a machine with no Postgres installed.
+   - Confirm admin UI loads at `http://localhost:3000`.
+   - Confirm `~/.mcpconnect/data.db` was created.
+2. Add the `--mcp` config to Claude Code `settings.json`. Reconnect.
+   - Confirm `list-tools` returns MCPConnect tools.
+   - Confirm `hello` tool responds.
+3. Run `npx mcpconnect` on a machine with `DATABASE_URL` set to a Postgres URL.
+   - Confirm it connects to Postgres (not SQLite).
+4. Run the existing Docker Compose setup alongside — confirm it is completely unaffected.

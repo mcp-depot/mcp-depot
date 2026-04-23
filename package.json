@@ -1,0 +1,23 @@
+{
+  "name": "mcpconnect",
+  "version": "1.0.0",
+  "description": "Self-hosted MCP server — connect Claude to your APIs and platforms",
+  "bin": {
+    "mcpconnect": "./bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "server/src/",
+    "client/dist/"
+  ],
+  "scripts": {
+    "build:client": "cd client && npm run build",
+    "prepublish": "npm run build:client"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.7"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

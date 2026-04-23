@@ -1,18 +1,30 @@
 const { Sequelize } = require('sequelize');
+const path = require('path');
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const logger = require('../services/logger');
 
-const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  logging: false,
-  dialect: 'postgres',
-  pool: {
-    max: 5,
-    min: 0,
-    acquire: 30000,
-    idle: 10000
-  }
-});
+let sequelize;
+
+if (process.env.DATABASE_URL) {
+  sequelize = new Sequelize(process.env.DATABASE_URL, {
+    logging: false,
+    dialect: 'postgres',
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    }
+  });
+} else {
+  const storagePath = process.env.SQLITE_PATH || path.join(__dirname, '../../data.db');
+  sequelize = new Sequelize({
+    dialect: 'sqlite',
+    storage: storagePath,
+    logging: false
+  });
+}
 
 const IS_DEV = process.env.NODE_ENV !== 'production';
 let associationsDefined = false;

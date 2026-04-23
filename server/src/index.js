@@ -115,6 +115,15 @@ app.get('/metrics', async (req, res) => {
 
 logger.info('Routes loaded: auth, integrations, consume, jira, jenkins, bitbucket, github, gitlab, workflows, mcp, external-mcp');
 
+if (process.env.SERVE_CLIENT === 'true') {
+  const path = require('path');
+  const distPath = path.join(__dirname, '../../client/dist');
+  app.use(express.static(distPath));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
+
 app.use((err, req, res, next) => {
   logger.error({ err: err.message, stack: err.stack, path: req.path }, 'Request error');
   const status = err.status || err.statusCode || 500;
