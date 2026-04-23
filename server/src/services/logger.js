@@ -6,7 +6,7 @@ const logger = pino({
     level: (label) => ({ level: label })
   },
   timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
-  transport: process.env.NODE_ENV !== 'production' ? {
+  transport: process.env.NODE_ENV === 'development' ? {
     target: 'pino-pretty',
     options: {
       colorize: true,
