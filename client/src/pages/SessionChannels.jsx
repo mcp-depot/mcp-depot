@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import { RefreshCw, Trash2 } from 'lucide-react';
 
 function SessionChannels() {
   const { token } = useAuth();
@@ -91,8 +92,12 @@ function SessionChannels() {
               <div className="panel-header">
                 <h2>{selected}</h2>
                 <div className="panel-actions">
-                  <button className="btn-secondary btn-sm" onClick={handleRefresh}>Refresh</button>
-                  <button className="btn-danger btn-sm" onClick={() => handleClear(selected)}>Clear</button>
+                  <button className="btn-secondary btn-sm" onClick={handleRefresh} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <RefreshCw size={13} /> Refresh
+                  </button>
+                  <button className="btn-danger btn-sm" onClick={() => handleClear(selected)} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Trash2 size={13} /> Clear
+                  </button>
                 </div>
               </div>
               {loadingMessages && <p>Loading messages...</p>}

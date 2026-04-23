@@ -68,6 +68,8 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 55 | `SessionChannels.jsx` — messages panel shows empty after fix 54 — `res?.messages` is still wrong, must use `res?.data` | `f32ba48` |
 | 56 | `ttlHours` column missing on existing production `SessionContext` tables | latest |
 | 57 | `SessionChannels.jsx` uses wrong container class — page starts flush against the sidebar | latest |
+| 58 | `SessionChannels.jsx` Refresh and Clear buttons have no icons — look inconsistent with rest of UI | latest |
+| 59 | Dashboard stat grid wraps to two rows with 4 cards — needs `grid-4` class to keep all cards in one row | latest |
 
 ---
 
@@ -77,43 +79,75 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 
 ---
 
-### Issue 57 — `SessionChannels.jsx` uses wrong container class
-
-**What is broken:**
-
-The Channels page starts flush against the sidebar with no left padding or top
-spacing. Every other page (Dashboard, Tools, Integrations, Session Contexts, etc.)
-has consistent spacing from the sidebar and a page title area.
-
-**Why it is broken:**
-
-`SessionChannels.jsx` wraps its content in `<div className="page-container">` and
-uses `<p className="page-subtitle">` for the description. These are non-standard
-classes — no styles are defined for them. The correct classes used across all other
-pages are `container` (outer wrapper) and `page-header` (title + subtitle block).
-
 **The fix — `client/src/pages/SessionChannels.jsx`:**
 
-Change the outer wrapper and title structure to match every other page:
+Add Lucide imports:
+
+```jsx
+import { RefreshCw, Trash2 } from 'lucide-react';
+```
+
+Update the two buttons:
 
 ```jsx
 // Before
-<div className="page-container">
-  <h1>Session Channels</h1>
-  <p className="page-subtitle">
-    Append-only logs shared across AI sessions...
-  </p>
+<button className="btn-secondary btn-sm" onClick={handleRefresh}>Refresh</button>
+<button className="btn-danger btn-sm" onClick={() => handleClear(selected)}>Clear</button>
 
 // After
-<div className="container">
-  <div className="page-header">
-    <h1>Session Channels</h1>
-    <p>Append-only logs shared across AI sessions...</p>
-  </div>
+<button className="btn-secondary btn-sm" onClick={handleRefresh}>
+  <RefreshCw size={13} /> Refresh
+</button>
+<button className="btn-danger btn-sm" onClick={() => handleClear(selected)}>
+  <Trash2 size={13} /> Clear
+</button>
 ```
 
-No CSS changes needed — `container` and `page-header` are already defined and used
-by all other pages.
+If the button's flex layout doesn't already centre icon + text, add
+`style={{ display: 'flex', alignItems: 'center', gap: '4px' }}` to each button.
+
+---
+
+### Issue 59 — Dashboard stat grid wraps to two rows with 4 cards
+
+**What is broken:**
+
+With the Sessions stat card added (Feature 04), the Dashboard now has 4 stat cards
+but the grid uses `grid-3` (3 columns). The fourth card drops to a second row, leaving
+two-thirds of that row empty.
+
+**The fix — two files:**
+
+**1. `client/src/index.css`** — add a `grid-4` class alongside the existing `grid-2`
+and `grid-3` definitions:
+
+```css
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+```
+
+The responsive breakpoint at 768px collapses to 2 columns (2×2) rather than 1
+column — 4 stat cards stacked singly on mobile is too tall.
+
+**2. `client/src/pages/Dashboard.jsx`** — change `grid-3` to `grid-4` on the stat
+card container:
+
+```jsx
+// Before
+<div className="grid-3" style={{ marginBottom: '2rem' }}>
+
+// After
+<div className="grid-4" style={{ marginBottom: '2rem' }}>
+```
 
 ---
 

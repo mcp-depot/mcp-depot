@@ -113,7 +113,7 @@ function Dashboard() {
           <div className="loading-overlay"><div className="spinner"></div></div>
         ) : (
           <>
-            <div className="grid-3" style={{ marginBottom: '2rem' }}>
+            <div className="grid-4" style={{ marginBottom: '2rem' }}>
               <div className="stat-card">
                 <div className="stat-card-icon"><Plug size={20} /></div>
                 <div className="stat-card-value">{stats.integrations.total}</div>
