@@ -66,12 +66,54 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 53 | Dead code in `SessionChannels.jsx` — `messages.messages?.map(...)` branch unreachable; unused `Database` import in `Sidebar.jsx` | `716ec76` |
 | 54 | `SessionChannels.jsx` — selecting a channel crashes with `TypeError: a.map is not a function` — `loadMessages` sets state to full axios object, not the data array | `b5c5e94` |
 | 55 | `SessionChannels.jsx` — messages panel shows empty after fix 54 — `res?.messages` is still wrong, must use `res?.data` | `f32ba48` |
+| 56 | `ttlHours` column missing on existing production `SessionContext` tables | latest |
+| 57 | `SessionChannels.jsx` uses wrong container class — page starts flush against the sidebar | latest |
 
 ---
 
 ## Open Issues
 
 (None)
+
+---
+
+### Issue 57 — `SessionChannels.jsx` uses wrong container class
+
+**What is broken:**
+
+The Channels page starts flush against the sidebar with no left padding or top
+spacing. Every other page (Dashboard, Tools, Integrations, Session Contexts, etc.)
+has consistent spacing from the sidebar and a page title area.
+
+**Why it is broken:**
+
+`SessionChannels.jsx` wraps its content in `<div className="page-container">` and
+uses `<p className="page-subtitle">` for the description. These are non-standard
+classes — no styles are defined for them. The correct classes used across all other
+pages are `container` (outer wrapper) and `page-header` (title + subtitle block).
+
+**The fix — `client/src/pages/SessionChannels.jsx`:**
+
+Change the outer wrapper and title structure to match every other page:
+
+```jsx
+// Before
+<div className="page-container">
+  <h1>Session Channels</h1>
+  <p className="page-subtitle">
+    Append-only logs shared across AI sessions...
+  </p>
+
+// After
+<div className="container">
+  <div className="page-header">
+    <h1>Session Channels</h1>
+    <p>Append-only logs shared across AI sessions...</p>
+  </div>
+```
+
+No CSS changes needed — `container` and `page-header` are already defined and used
+by all other pages.
 
 ---
 

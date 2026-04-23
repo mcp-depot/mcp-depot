@@ -58,12 +58,12 @@ function SessionChannels() {
   };
 
   return (
-    <div className="page-container">
-      <h1>Session Channels</h1>
-      <p className="page-subtitle">
-        Append-only logs shared across AI sessions. Sessions post as they work;
-        others read at any time to catch up without interrupting.
-      </p>
+    <div className="container">
+      <div className="page-header">
+        <h1>Session Channels</h1>
+        <p>Append-only logs shared across AI sessions. Sessions post as they work;
+          others read at any time to catch up without interrupting.</p>
+      </div>
 
       <div className="two-panel">
         <div className="panel-left">

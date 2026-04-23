@@ -1613,3 +1613,173 @@ tools using `sessionsIntegration.id` rather than `mcpconnectIntegration.id`.
 3. Disable `MCPConnect Sessions` in the admin UI. Reconnect Claude. Confirm `list-tools` (or `tools/list` response) no longer includes any session tool.
 4. Re-enable `MCPConnect Sessions`. Reconnect Claude. Confirm all 8 session tools return.
 5. Call `store-session-context` from Claude after re-enabling — confirm it still works (the endpoint path and auth are unchanged).
+
+---
+
+## Feature 04 — Dashboard: Sessions stat card and Quick Action shortcut
+
+**Status:** Proposed
+
+**The problem:**
+
+The Dashboard was designed around the original MCPConnect use case: connect an API,
+create tools, consume from Claude. It shows stat cards for Integrations, Tools, and
+External MCP. Since Features 01-02, Session Contexts and Channels are first-class
+features — but they are completely invisible on the Dashboard. A user has no idea
+how many contexts exist, whether any are shared, or how active the channels are,
+without navigating away.
+
+The Quick Actions panel also has no shortcut into the Sessions area, treating it as
+a secondary concern even though it is now a core part of what MCPConnect offers.
+
+Additionally, the Getting Started guide's step 3 points only to External MCP as
+the optional path, which undersells Sessions as a beginner-friendly alternative.
+
+**The proposed solution:**
+
+Three small, targeted changes — no structural rework needed.
+
+**Change 1 — Add a Sessions stat card (third or fourth position in the grid):**
+
+Fetch from `/session-contexts` and `/session-channels` and display:
+
+| Stat | Detail |
+|------|--------|
+| Contexts | total count, with shared count as sub-label |
+| Channels | total count |
+
+Example card appearance:
+
+```
+[Layers icon]
+  3
+Sessions
+  2 contexts · 1 channel
+  1 shared
+[View →]
+```
+
+Link the card to `/session-contexts`.
+
+**Change 2 — Add a Quick Action for Sessions:**
+
+Add a fourth quick action alongside Add Integration / Create Skill / API Settings:
+
+```
+[MessagesSquare icon]  Browse Sessions
+```
+
+Links to `/session-contexts`.
+
+**Change 3 — Update Getting Started step 3:**
+
+Current text:
+> **Configure External MCP (Optional)**
+> Connect to external MCP servers for additional tools
+
+Updated text:
+> **Explore Optional Features**
+> Connect external MCP servers for more tools, or use Session Contexts & Channels to share AI working state across sessions and teammates
+
+---
+
+### Implementation Guide
+
+#### Files to update
+
+| File | What to change |
+|------|---------------|
+| `client/src/pages/Dashboard.jsx` | Add Sessions fetch, stat card, quick action, updated step 3 |
+
+---
+
+#### Changes to `Dashboard.jsx`
+
+**Step 1 — Fetch session stats** alongside the existing fetches:
+
+```js
+const contextsRes = await api.get('/session-contexts').catch(() => ({ data: [] }));
+const contexts = contextsRes.data || [];
+const sharedContexts = contexts.filter(c => c.isShared).length;
+
+const channelsRes = await api.get('/session-channels').catch(() => ({ data: [] }));
+const channels = channelsRes.data || [];
+```
+
+Add to `stats` state:
+
+```js
+sessions: {
+  contexts: contexts.length,
+  shared: sharedContexts,
+  channels: channels.length
+}
+```
+
+Initial state default:
+
+```js
+sessions: { contexts: 0, shared: 0, channels: 0 }
+```
+
+**Step 2 — Add the Sessions stat card** after the External MCP card:
+
+```jsx
+<div className="stat-card">
+  <div className="stat-card-icon"><Layers size={20} /></div>
+  <div className="stat-card-value">{stats.sessions.contexts + stats.sessions.channels}</div>
+  <div className="stat-card-label">Sessions</div>
+  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.75rem' }}>
+    <span style={{ color: 'var(--text-light)' }}>{stats.sessions.contexts} contexts</span>
+    <span style={{ color: 'var(--text-light)' }}>{stats.sessions.channels} channels</span>
+  </div>
+  {stats.sessions.shared > 0 && (
+    <div style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.25rem' }}>
+      {stats.sessions.shared} shared
+    </div>
+  )}
+  <Link to="/session-contexts" className="btn btn-primary btn-small" style={{ marginTop: '0.5rem' }}>
+    View
+  </Link>
+</div>
+```
+
+Add `Layers` to the lucide-react import line.
+
+Note: the stat grid uses `className="grid-3"` — change to `"grid-4"` or use a 4-column
+CSS grid style if `grid-4` is not defined. Alternatively keep `grid-3` and place the
+Sessions card below as its own row. Match whichever pattern fits the existing CSS.
+
+**Step 3 — Add Quick Action:**
+
+Add `MessagesSquare` to the lucide import, then add to the quick actions list:
+
+```jsx
+<Link to="/session-contexts" className="quick-action">
+  <div className="quick-action-icon"><MessagesSquare size={16} /></div>
+  <div className="quick-action-label">Browse Sessions</div>
+</Link>
+```
+
+**Step 4 — Update Getting Started step 3:**
+
+```jsx
+<div>
+  <strong>Explore Optional Features</strong>
+  <p style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
+    Connect external MCP servers for more tools, or use Session Contexts &amp; Channels
+    to share AI working state across sessions and teammates
+  </p>
+</div>
+```
+
+---
+
+#### End-to-end test (manual)
+
+1. Store 2 contexts (1 shared, 1 private) and create 1 channel via Claude.
+2. Open Dashboard — confirm Sessions card shows `2 contexts · 1 channel` and `1 shared`.
+3. Click "View" on the Sessions card — confirm it navigates to `/session-contexts`.
+4. Confirm "Browse Sessions" appears in Quick Actions and navigates correctly.
+5. Disable `MCPConnect Sessions` integration — Sessions card counts should still show
+   (the dashboard reads the data directly, not via MCP tools).
