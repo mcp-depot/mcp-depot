@@ -18,7 +18,7 @@ if (args.includes('--mcp')) {
     process.env.SQLITE_PATH = path.join(dataDir, 'data.db');
   }
 
-  require('../server/src/server.js');
+  require('../server/src/index.js');
 
   const port = process.env.PORT || 3000;
   console.log(`MCPConnect running at http://localhost:${port}`);
