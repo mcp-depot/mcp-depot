@@ -60,7 +60,7 @@ function startMcpProxy() {
 
     const headers = { 'Content-Type': 'application/json' };
     if (AUTH_TOKEN) {
-      headers['Authorization'] = `Bearer ${AUTH_TOKEN}`;
+      headers['x-api-key'] = AUTH_TOKEN;
     }
 
     try {
@@ -169,7 +169,7 @@ function startMcpProxy() {
 
     const headers = { 'Content-Type': 'application/json' };
     if (AUTH_TOKEN) {
-      headers['Authorization'] = `Bearer ${AUTH_TOKEN}`;
+      headers['x-api-key'] = AUTH_TOKEN;
     }
 
     const response = await fetch(`${MCP_DEPOT_URL}/execute`, {
