@@ -1,5 +1,6 @@
 const { Sequelize } = require('sequelize');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const logger = require('../services/logger');
@@ -18,7 +19,15 @@ if (process.env.DATABASE_URL) {
     }
   });
 } else {
-  const storagePath = process.env.SQLITE_PATH || path.join(__dirname, '../../data.db');
+  const os = require('os');
+  const storagePath = process.env.SQLITE_PATH
+    || path.join(os.homedir(), '.mcpconnect', 'data.db');
+
+  const dataDir = path.dirname(storagePath);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
   sequelize = new Sequelize({
     dialect: 'sqlite',
     storage: storagePath,

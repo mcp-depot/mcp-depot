@@ -26,7 +26,8 @@ if (args.includes('--login')) {
   const port = process.env.PORT || 3000;
   console.log(`MCP Depot running at http://localhost:${port}`);
   if (!process.env.DATABASE_URL) {
-    console.log(`Database: SQLite (~/.mcpconnect/data.db)`);
+    const dbPath = process.env.SQLITE_PATH || path.join(os.homedir(), '.mcpconnect', 'data.db');
+    console.log(`Database: SQLite (${dbPath})`);
   }
 }
 
