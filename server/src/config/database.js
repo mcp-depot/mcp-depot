@@ -200,6 +200,78 @@ const createDefaultTool = async () => {
     });
     
     logger.info('Default MCPConnect tools created!\n');
+
+    // Create MCPConnect Sessions integration (for session context + channel tools)
+    let sessionsIntegration = await Integration.findOne({
+      where: { name: 'MCPConnect Sessions' }
+    });
+
+    if (!sessionsIntegration) {
+      sessionsIntegration = await Integration.create({
+        userId: adminUser.id,
+        type: 'custom',
+        name: 'MCPConnect Sessions',
+        description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
+        config: {
+          baseUrl: 'http://localhost:3000',
+          auth: { type: 'none' }
+        },
+        isActive: true
+      });
+    }
+
+    // Seed session tools under MCPConnect Sessions
+    const sessionTools = [
+      {
+        name: 'store-session-context',
+        description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
+        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Default 168. Pass 0 to pin.' } }, headers: {} }
+      },
+      {
+        name: 'get-session-context',
+        description: 'Retrieve a named context previously stored in MCPConnect.',
+        endpoint: { path: '/api/mcp/session-contexts/get', method: 'GET', params: { name: { type: 'string', required: true, description: 'The context name' } }, headers: {} }
+      },
+      {
+        name: 'list-session-contexts',
+        description: 'List all named contexts stored in MCPConnect.',
+        endpoint: { path: '/api/mcp/session-contexts/list', method: 'GET', params: {}, headers: {} }
+      },
+      {
+        name: 'delete-session-context',
+        description: 'Delete a named context from MCPConnect.',
+        endpoint: { path: '/api/mcp/session-contexts/delete', method: 'DELETE', params: { name: { type: 'string', required: true, description: 'The context name' } }, headers: {} }
+      },
+      {
+        name: 'append-to-channel',
+        description: 'Post a message to a named session channel.',
+        endpoint: { path: '/api/mcp/session-channels', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' }, message: { type: 'string', required: true, description: 'The message' } }, headers: {} }
+      },
+      {
+        name: 'read-channel',
+        description: 'Read messages from a session channel.',
+        endpoint: { path: '/api/mcp/session-channels/read', method: 'GET', params: { channel: { type: 'string', required: true, description: 'Channel name' }, since: { type: 'string', required: false, description: 'ISO timestamp for incremental reads' } }, headers: {} }
+      },
+      {
+        name: 'list-channels',
+        description: 'List all active session channels.',
+        endpoint: { path: '/api/mcp/session-channels', method: 'GET', params: {}, headers: {} }
+      },
+      {
+        name: 'clear-channel',
+        description: 'Delete all messages in a session channel.',
+        endpoint: { path: '/api/mcp/session-channels/clear', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      }
+    ];
+
+    for (const toolDef of sessionTools) {
+      await Tool.findOrCreate({
+        where: { name: toolDef.name },
+        defaults: { userId: adminUser.id, integrationId: sessionsIntegration.id, ...toolDef, isActive: true }
+      });
+    }
+
+    logger.info('MCPConnect Sessions tools created!\n');
   } else {
     userId = mcpconnectIntegration.userId;
     
@@ -207,6 +279,85 @@ const createDefaultTool = async () => {
       { name: 'list-skills', description: 'List all available skills that AI assistants can invoke' },
       { where: { name: 'list-prompts' } }
     );
+
+    // Find or create MCPConnect Sessions integration
+    let sessionsIntegration = await Integration.findOne({
+      where: { name: 'MCPConnect Sessions' }
+    });
+
+    if (!sessionsIntegration) {
+      sessionsIntegration = await Integration.create({
+        userId,
+        type: 'custom',
+        name: 'MCPConnect Sessions',
+        description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
+        config: { baseUrl: 'http://localhost:3000', auth: { type: 'none' } },
+        isActive: true
+      });
+    }
+
+    // Migration: move existing session tools from MCPConnect to MCPConnect Sessions
+    const sessionToolNames = [
+      'store-session-context', 'get-session-context',
+      'list-session-contexts', 'delete-session-context',
+      'append-to-channel', 'read-channel',
+      'list-channels', 'clear-channel'
+    ];
+    await Tool.update(
+      { integrationId: sessionsIntegration.id },
+      { where: { name: sessionToolNames, integrationId: mcpconnectIntegration.id } }
+    );
+
+    // Seed session tools under MCPConnect Sessions
+    const sessionToolsToCreate = [
+      {
+        name: 'store-session-context',
+        description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
+        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Pass 0 to pin.' } }, headers: {} }
+      },
+      {
+        name: 'get-session-context',
+        description: 'Retrieve a named context previously stored in MCPConnect.',
+        endpoint: { path: '/api/mcp/session-contexts/get', method: 'GET', params: { name: { type: 'string', required: true, description: 'The context name' } }, headers: {} }
+      },
+      {
+        name: 'list-session-contexts',
+        description: 'List all named contexts stored in MCPConnect.',
+        endpoint: { path: '/api/mcp/session-contexts/list', method: 'GET', params: {}, headers: {} }
+      },
+      {
+        name: 'delete-session-context',
+        description: 'Delete a named context from MCPConnect.',
+        endpoint: { path: '/api/mcp/session-contexts/delete', method: 'DELETE', params: { name: { type: 'string', required: true, description: 'The context name' } }, headers: {} }
+      },
+      {
+        name: 'append-to-channel',
+        description: 'Post a message to a named session channel.',
+        endpoint: { path: '/api/mcp/session-channels', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' }, message: { type: 'string', required: true, description: 'The message' } }, headers: {} }
+      },
+      {
+        name: 'read-channel',
+        description: 'Read messages from a session channel.',
+        endpoint: { path: '/api/mcp/session-channels/read', method: 'GET', params: { channel: { type: 'string', required: true, description: 'Channel name' }, since: { type: 'string', required: false, description: 'ISO timestamp' } }, headers: {} }
+      },
+      {
+        name: 'list-channels',
+        description: 'List all active session channels.',
+        endpoint: { path: '/api/mcp/session-channels', method: 'GET', params: {}, headers: {} }
+      },
+      {
+        name: 'clear-channel',
+        description: 'Delete all messages in a session channel.',
+        endpoint: { path: '/api/mcp/session-channels/clear', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      }
+    ];
+
+    for (const toolDef of sessionToolsToCreate) {
+      await Tool.findOrCreate({
+        where: { name: toolDef.name },
+        defaults: { userId, integrationId: sessionsIntegration.id, ...toolDef, isActive: true }
+      });
+    }
 
     const toolsToCreate = [
       {
@@ -252,104 +403,6 @@ const createDefaultTool = async () => {
           path: '/api/mcp/skills/{name}',
           method: 'GET',
           params: {},
-          headers: {}
-        }
-      },
-      {
-        name: 'store-session-context',
-        description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
-        endpoint: {
-          path: '/api/mcp/session-contexts/store',
-          method: 'POST',
-          params: {
-            name: { type: 'string', required: true, description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
-            content: { type: 'string', required: true, description: 'The context to store — markdown, JSON, bullet list, anything' },
-            shared: { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read this context. Default false.' },
-            ttlHours: { type: 'number', required: false, description: 'Hours until this context expires. Default 168 (7 days). Pass 0 to pin permanently (never expires).' }
-          },
-          headers: {}
-        }
-      },
-      {
-        name: 'get-session-context',
-        description: 'Retrieve a named context previously stored in MCPConnect and inject it into the current session.',
-        endpoint: {
-          path: '/api/mcp/session-contexts/get',
-          method: 'GET',
-          params: {
-            name: { type: 'string', required: true, description: 'The name of the context to retrieve' }
-          },
-          headers: {}
-        }
-      },
-      {
-        name: 'list-session-contexts',
-        description: 'List all named contexts stored in MCPConnect, with name, creator, and timestamps.',
-        endpoint: {
-          path: '/api/mcp/session-contexts/list',
-          method: 'GET',
-          params: {},
-          headers: {}
-        }
-      },
-      {
-        name: 'delete-session-context',
-        description: 'Delete a named context from MCPConnect.',
-        endpoint: {
-          path: '/api/mcp/session-contexts/delete',
-          method: 'DELETE',
-          params: {
-            name: { type: 'string', required: true, description: 'The name of the context to delete' }
-          },
-          headers: {}
-        }
-      },
-      // Session Channel tools
-      {
-        name: 'append-to-channel',
-        description: 'Post a message to a named session channel. Use this to share findings, decisions, or progress as you work — other sessions can read the channel at any time to catch up.',
-        endpoint: {
-          path: '/api/mcp/session-channels',
-          method: 'POST',
-          params: {
-            channel: { type: 'string', required: true, description: 'Channel name, e.g. "pool-api" or "auth-debug"' },
-            message: { type: 'string', required: true, description: 'The message to post — a finding, decision, error, or note' }
-          },
-          headers: {}
-        }
-      },
-      {
-        name: 'read-channel',
-        description: 'Read messages from a named session channel. Pass a since timestamp (ISO 8601) to get only new messages since the last check — useful for polling in long sessions.',
-        endpoint: {
-          path: '/api/mcp/session-channels/read',
-          method: 'GET',
-          params: {
-            channel: { type: 'string', required: true, description: 'The channel name to read' },
-            since: { type: 'string', required: false, description: 'ISO 8601 timestamp — only return messages after this time' }
-          },
-          headers: {}
-        }
-      },
-      {
-        name: 'list-channels',
-        description: 'List all active session channels with message count and last activity time.',
-        endpoint: {
-          path: '/api/mcp/session-channels',
-          method: 'GET',
-          params: {},
-          headers: {}
-        }
-      },
-      {
-        name: 'clear-channel',
-        description: 'Delete all messages in a session channel. Use this when the channel is no longer needed.',
-        endpoint: {
-          path: '/api/mcp/session-channels/clear',
-          method: 'DELETE',
-          params: {
-            channel: { type: 'string', required: true, description: 'The channel name to clear' }
-          },
           headers: {}
         }
       }

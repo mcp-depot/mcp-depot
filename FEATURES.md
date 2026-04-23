@@ -7,7 +7,7 @@
 
 ## Feature 01 — Session Context Store: share AI session context across sessions, tools, and teammates
 
-**Status:** Ownership + sharing implemented — TTL pending
+**Status:** Implemented
 
 **The problem:**
 
@@ -111,13 +111,7 @@ job. No new dependencies.
 
 ---
 
-### Implementation Guide
-
-This section gives the developer exact code to write. All patterns follow existing
-MCPConnect conventions observed in the codebase.
-
-> **Note for the developer:** Ownership + sharing (`isShared`) is fully implemented
-> as of commit `44d8cc5`. The remaining work is TTL only:
+## Feature 02 — Session Channels: live append-only log shared across sessions
 > 1. Add `ttlHours` column via a new migration
 > 2. Update model and routes to persist `ttlHours`
 > 3. Add `ttlHours` param to the `store-session-context` DB seed record
@@ -1456,3 +1450,166 @@ function SessionsNavGroup() {
    - Response shows only the second message.
 6. In the admin UI, navigate to Channels, select `test-channel`, confirm both messages appear in the timeline.
 7. Clear the channel via the UI and confirm the list empties.
+
+---
+
+## Feature 03 — MCPConnect Sessions: split session tools into a separate disableable integration
+
+**Status:** Implemented
+
+**The problem:**
+
+All 8 session persistence tools (`store-session-context`, `get-session-context`,
+`list-session-contexts`, `delete-session-context`, `append-to-channel`,
+`read-channel`, `list-channels`, `clear-channel`) currently live inside the main
+`MCPConnect` integration. This means:
+
+- Users who do not use Contexts or Channels still get all 8 tools advertised to
+  Claude on every session. More tools = more tokens consumed on the tools/list
+  response and more noise in Claude's tool selection.
+- There is no way to turn off just the session tools without deleting them, which
+  would break them for users who do want them.
+- Every session reconnect re-queries all tools, including the 8 session tools,
+  even if they are never called.
+
+**The proposed solution:**
+
+Create a second built-in integration called **MCPConnect Sessions** that owns the
+8 session tools. The main `MCPConnect` integration keeps only the core tools:
+`hello`, `list-tools`, `fetch-url`, `list-skills`, `get-skill`.
+
+Users who do not need session persistence can disable `MCPConnect Sessions` from
+the admin UI. Claude will no longer see those 8 tools, the tools/list response is
+shorter, and the reconnect query is faster.
+
+**Tool split:**
+
+| Integration | Tools |
+|---|---|
+| `MCPConnect` (core, always-on) | `hello`, `list-tools`, `fetch-url`, `list-skills`, `get-skill` |
+| `MCPConnect Sessions` (optional, enabled by default) | `store-session-context`, `get-session-context`, `list-session-contexts`, `delete-session-context`, `append-to-channel`, `read-channel`, `list-channels`, `clear-channel` |
+
+**Name rationale:** "Sessions" matches the sidebar group already introduced in
+Feature 02 (`Sessions > Contexts` and `Sessions > Channels`). It describes what
+the tools do — not that they are optional — so it reads well both in the UI and
+when Claude surfaces the integration name.
+
+---
+
+### Implementation Guide
+
+#### Files to update
+
+| File | What to change |
+|------|---------------|
+| `server/src/config/database.js` | Add `MCPConnect Sessions` integration creation and migrate the 8 session tools to it |
+
+No schema changes, no new migrations, no route changes needed. This is purely a
+data re-organisation: create a new integration row and update the `integrationId`
+on the 8 affected tool rows.
+
+---
+
+#### Changes to `server/src/config/database.js`
+
+The `createDefaultTool` function currently does two things:
+
+1. On first startup (`!mcpconnectIntegration`): creates the `MCPConnect` integration
+   and seeds `hello`, `list-tools`, `fetch-url`, `list-skills`.
+2. On subsequent startups (the `else` branch): uses `Tool.findOrCreate` to add any
+   missing tools, including the 8 session tools, all under `mcpconnectIntegration.id`.
+
+The changes needed:
+
+**Step 1 — Create (or find) the `MCPConnect Sessions` integration** after the main
+one is resolved, in both the `if` and `else` branches.
+
+```js
+// After mcpconnectIntegration is created or found:
+let sessionsIntegration = await Integration.findOne({ where: { name: 'MCPConnect Sessions' } });
+
+if (!sessionsIntegration) {
+  sessionsIntegration = await Integration.create({
+    userId,
+    type: 'custom',
+    name: 'MCPConnect Sessions',
+    description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
+    config: {
+      baseUrl: 'http://localhost:3000',
+      auth: { type: 'none' }
+    },
+    isActive: true
+  });
+  logger.info('MCPConnect Sessions integration created.\n');
+}
+```
+
+**Step 2 — Move the 8 session tools to `MCPConnect Sessions`.**
+
+For new installations, seed them under `sessionsIntegration.id` instead of
+`mcpconnectIntegration.id`.
+
+For existing installations (the `else` branch), after resolving `sessionsIntegration`,
+add a migration step that moves any already-created session tools over:
+
+```js
+// Migration: move session tools from MCPConnect to MCPConnect Sessions
+const sessionToolNames = [
+  'store-session-context', 'get-session-context',
+  'list-session-contexts', 'delete-session-context',
+  'append-to-channel', 'read-channel',
+  'list-channels', 'clear-channel'
+];
+
+await Tool.update(
+  { integrationId: sessionsIntegration.id },
+  { where: { name: sessionToolNames, integrationId: mcpconnectIntegration.id } }
+);
+```
+
+This `update` is idempotent — if the tools are already under `sessionsIntegration.id`
+(e.g. after a second restart), the `WHERE integrationId = mcpconnectIntegration.id`
+condition matches nothing and nothing changes.
+
+**Step 3 — Seed the 8 session tools under `sessionsIntegration.id`.**
+
+In the `toolsToCreate` array (the `else` branch), remove the 8 session tool
+definitions and move them into a separate `sessionToolsToCreate` array that uses
+`sessionsIntegration.id`:
+
+```js
+const sessionToolsToCreate = [
+  {
+    name: 'store-session-context',
+    description: 'Save a named context to MCPConnect ...',
+    endpoint: { /* same as current */ }
+  },
+  // ... get-session-context, list-session-contexts, delete-session-context,
+  //     append-to-channel, read-channel, list-channels, clear-channel
+];
+
+for (const toolDef of sessionToolsToCreate) {
+  await Tool.findOrCreate({
+    where: { name: toolDef.name },
+    defaults: {
+      userId,
+      integrationId: sessionsIntegration.id,
+      ...toolDef,
+      isActive: true
+    }
+  });
+}
+```
+
+The first-startup branch (`!mcpconnectIntegration`) should also seed the 8 session
+tools using `sessionsIntegration.id` rather than `mcpconnectIntegration.id`.
+
+---
+
+#### End-to-end test (manual)
+
+1. Fresh install: confirm `MCPConnect` has 5 tools, `MCPConnect Sessions` has 8 tools.
+2. Existing install with restart: confirm the 8 session tools moved to `MCPConnect Sessions` and are no longer listed under `MCPConnect`.
+3. Disable `MCPConnect Sessions` in the admin UI. Reconnect Claude. Confirm `list-tools` (or `tools/list` response) no longer includes any session tool.
+4. Re-enable `MCPConnect Sessions`. Reconnect Claude. Confirm all 8 session tools return.
+5. Call `store-session-context` from Claude after re-enabling — confirm it still works (the endpoint path and auth are unchanged).
