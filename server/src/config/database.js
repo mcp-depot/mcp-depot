@@ -437,6 +437,20 @@ const connectDB = async (retries = 5, delay = 3000) => {
         logger.warn('Production mode: running sequelize.sync({ force: false }) to create missing tables');
         await sequelize.sync({ force: false });
         logger.info('Database synchronized');
+
+        // Migration: add ttlHours column to existing SessionContext table
+        try {
+          await sequelize.query(`
+            ALTER TABLE "SessionContext" ADD COLUMN IF NOT EXISTS "ttlHours" INTEGER NULL
+          `);
+          logger.info('Migration: added ttlHours column to SessionContext');
+        } catch (e) {
+          if (e.message.includes('ttlHours')) {
+            logger.info('Migration: ttlHours column already exists');
+          } else {
+            logger.warn({ err: e.message }, 'Migration: could not add ttlHours column');
+          }
+        }
       }
       
       break;

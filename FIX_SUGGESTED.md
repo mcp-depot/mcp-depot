@@ -71,7 +71,51 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 
 ## Open Issues
 
-No open issues at this time.
+(None)
+
+---
+
+### Issue 56 — `ttlHours` missing on existing production databases
+
+**What is broken:**
+
+TTL expiry is silently non-functional on any deployment where the `SessionContext`
+table existed before `ttlHours` was added to the model. The column is not in the
+table, so `store-session-context` never persists a TTL value and the cleanup job
+never expires any context.
+
+**Why it is broken:**
+
+The app uses `sequelize.sync({ force: false })` in production, which only creates
+tables that do not yet exist. It does NOT add columns to existing tables. Development
+uses `sync({ alter: true })` which does add columns automatically — so the bug is
+invisible in dev and only surfaces in production upgrades.
+
+The migration files in `server/src/migrations/` are not run at server startup
+(no Umzug or sequelize-cli wiring in `index.js` or `database.js`). They exist for
+reference only. So there is no automatic path for the column to be added on upgrade.
+
+**Who is affected:**
+
+Any instance where `SessionContext` was created (i.e. the table already exists)
+before `ttlHours` was added to the model. Fresh installs are fine — `sync({ force: false })`
+creates the full table including `ttlHours` on first run.
+
+**The fix — two options:**
+
+Option A (recommended): run a one-time manual SQL on existing databases:
+```sql
+ALTER TABLE SessionContext ADD COLUMN ttlHours INTEGER NULL;
+```
+
+Option B: wire the migration files into server startup using Umzug so future schema
+changes are applied automatically on upgrade. This is the proper long-term fix but
+is a larger change. See the existing migration files in `server/src/migrations/` for
+the pattern — they already implement `up` and `down`.
+
+**Verification:** after applying the fix, call `store-session-context` with a short
+`ttlHours` value (e.g. `1`), then check the database row — `ttlHours` should be `1`,
+not `NULL`.
 
 ---
 
