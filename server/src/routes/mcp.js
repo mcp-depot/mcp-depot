@@ -681,6 +681,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
       where: { isActive: true },
       include: [{
         model: Integration,
+        as: 'integration',
         where: { isActive: true },
         attributes: []
       }],
