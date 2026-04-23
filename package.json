@@ -1,9 +1,9 @@
 {
-  "name": "mcpconnect",
+  "name": "mcp-depot",
   "version": "1.0.0",
   "description": "Self-hosted MCP server — connect Claude to your APIs and platforms",
   "bin": {
-    "mcpconnect": "./bin/cli.js"
+    "mcp-depot": "./bin/cli.js"
   },
   "files": [
     "bin/",
