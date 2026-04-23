@@ -21,7 +21,10 @@ MCPConnect is an API gateway that exposes your integrations (JIRA, GitHub, Confl
 ## Quick Start
 
 ```bash
-# 1. Clone and start
+# Option 1 — npm (zero config)
+npx mcpconnect
+
+# Option 2 — Docker
 git clone https://github.com/mcpconnect/mcpconnect.git
 cd mcpconnect
 docker-compose up -d
@@ -38,6 +41,73 @@ docker-compose logs server | grep "Password:"
 ```
 
 That's it! Add integrations, create tools, and connect to your AI assistant.
+
+---
+
+## Getting Started
+
+### Option 1 — npm (zero config)
+
+```bash
+npx mcpconnect
+```
+
+Opens the admin UI at http://localhost:3000. Data is stored in ~/.mcpconnect/data.db (SQLite). No database setup, no Docker required.
+
+### Option 2 — Docker Compose (recommended for teams)
+
+```bash
+docker compose up
+```
+
+Runs with Postgres. Admin UI at http://localhost:5173, server at http://localhost:3000.
+
+---
+
+## Connecting to Claude Code
+
+Add this to your Claude Code settings.json:
+
+```json
+{
+  "mcpServers": {
+    "mcpconnect": {
+      "command": "npx",
+      "args": ["mcpconnect", "--mcp"]
+    }
+  }
+}
+```
+
+---
+
+## CLI flags
+
+| Command | What it does |
+|---------|-------------|
+| `npx mcpconnect` | Full stack — server + admin UI + SQLite |
+| `npx mcpconnect --mcp` | MCP stdio wrapper only (for Claude Code) |
+| `npx mcpconnect --server` | Server only, no UI |
+
+---
+
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| DATABASE_URL | (not set) | Postgres connection string. When set, SQLite is not used. |
+| SQLITE_PATH | ~/.mcpconnect/data.db | Override SQLite file location. Ignored if DATABASE_URL is set. |
+| PORT | 3000 | Port the server listens on. |
+| JWT_SECRET | (required) | Secret for signing auth tokens. Set this in production. |
+
+---
+
+## Upgrading from Docker to npm
+
+If you were running via Docker and want to switch to npx mcpconnect:
+
+- Set DATABASE_URL to your existing Postgres URL — data is preserved
+- Remove the Claude Code MCP config pointing at mcp-connect and replace with the npx mcpconnect --mcp entry above
 
 ---
 
