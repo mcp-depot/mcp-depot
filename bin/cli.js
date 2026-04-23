@@ -3,9 +3,12 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const args = process.argv.slice(2);
 
-if (args.includes('--mcp')) {
+if (args.includes('--login')) {
+  runLogin();
+} else if (args.includes('--mcp')) {
   startMcpProxy();
 } else {
   const serveClient = !args.includes('--server');
@@ -37,8 +40,9 @@ function startMcpProxy() {
 
   console.error(banner);
 
-  const MCP_DEPOT_URL = process.env.MCP_DEPOT_URL || 'http://localhost:3000/api/mcp';
-  const AUTH_TOKEN = process.env.MCP_DEPOT_TOKEN || '';
+  const config = loadConfig();
+  const MCP_DEPOT_URL = config.url || 'http://localhost:3000/api/mcp';
+  const AUTH_TOKEN = config.apiKey || '';
 
   let tools = [];
 
@@ -50,7 +54,7 @@ function startMcpProxy() {
       console.error('');
       console.error('[MCP Depot] ERROR: API key required but not configured!');
       console.error('');
-      console.error('Set MCP_DEPOT_TOKEN environment variable.');
+      console.error('Run: mcp-depot --login');
       process.exit(1);
     }
 
@@ -187,4 +191,41 @@ function startMcpProxy() {
     console.error('[MCP Depot] Failed to start:', err.message);
     process.exit(1);
   });
+}
+
+function runLogin() {
+  const readline = require('readline');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+
+  const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
+
+  (async () => {
+    console.error('\n=== MCP Depot Login ===\n');
+    const url = await ask('Server URL [http://localhost:3000]: ');
+    const apiKey = await ask('API key: ');
+    rl.close();
+
+    const configDir = path.join(os.homedir(), '.mcpconnect');
+    const configFile = path.join(configDir, 'config.json');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(configFile, JSON.stringify({
+      url: url.trim() || 'http://localhost:3000',
+      apiKey: apiKey.trim()
+    }, null, 2));
+
+    console.error(`\nConfig saved to ${configFile}`);
+    console.error('Run: claude mcp add mcp-depot -- mcp-depot --mcp');
+  })();
+}
+
+function loadConfig() {
+  const configFile = path.join(os.homedir(), '.mcpconnect', 'config.json');
+  if (fs.existsSync(configFile)) {
+    try {
+      return JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+    } catch (e) {
+      return {};
+    }
+  }
+  return {};
 }
