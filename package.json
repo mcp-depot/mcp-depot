@@ -15,8 +15,8 @@
     "prepublish": "npm run build:client"
   },
   "dependencies": {
-    "sqlite3": "^5.1.7",
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "sqlite3": "^5.1.7"
   },
   "engines": {
     "node": ">=18"
