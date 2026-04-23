@@ -201,7 +201,7 @@ function runLogin() {
 
   (async () => {
     console.error('\n=== MCP Depot Login ===\n');
-    const url = await ask('Server URL [http://localhost:3000]: ');
+    const url = await ask('Server URL [http://localhost:3000/api/mcp]: ');
     const apiKey = await ask('API key: ');
     rl.close();
 
@@ -209,7 +209,7 @@ function runLogin() {
     const configFile = path.join(configDir, 'config.json');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(configFile, JSON.stringify({
-      url: url.trim() || 'http://localhost:3000',
+      url: url.trim() || 'http://localhost:3000/api/mcp',
       apiKey: apiKey.trim()
     }, null, 2));
 
