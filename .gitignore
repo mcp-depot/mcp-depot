@@ -13,3 +13,6 @@ Thumbs.db
 *.iml
 coverage/
 .nyc_output/
+scripts/backups/
+*.sql
+*.sql.gz
