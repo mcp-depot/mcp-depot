@@ -16,3 +16,4 @@ coverage/
 scripts/backups/
 *.sql
 *.sql.gz
+internal/
