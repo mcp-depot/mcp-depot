@@ -125,7 +125,7 @@ router.post('/export', auth, async (req, res) => {
     }
     
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', 'attachment; filename=mcpconnect-export.json');
+    res.setHeader('Content-Disposition', 'attachment; filename=mcp-depot-export.json');
     res.json(exportData);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -166,7 +166,7 @@ function Workflows() {
   return (
     <div>
       <div className="navbar">
-        <Link to="/" className="navbar-brand" style={{ textDecoration: 'none' }}>MCPConnect</Link>
+        <Link to="/" className="navbar-brand" style={{ textDecoration: 'none' }}>MCP Depot</Link>
         <div className="navbar-menu">
           <Link to="/">Dashboard</Link>
           <Link to="/integrations">Integrations</Link>

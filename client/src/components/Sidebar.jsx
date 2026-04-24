@@ -65,7 +65,7 @@ function Sidebar() {
       <div className="sidebar-header">
         <Link to="/" className="sidebar-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Zap size={24} className="sidebar-logo" />
-          {!collapsed && <span className="sidebar-brand-text">MCPConnect</span>}
+          {!collapsed && <span className="sidebar-brand-text">MCP Depot</span>}
         </Link>
         <button 
           className="sidebar-toggle"

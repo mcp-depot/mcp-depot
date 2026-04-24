@@ -221,7 +221,7 @@ function Skills() {
             <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: '8px', borderLeft: '4px solid var(--primary)' }}>
               <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>How to use</h4>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-light)', marginBottom: '0.5rem' }}>
-                Connect to MCPConnect via MCP. Use the <code>list-skills</code> tool to see all available skills, then use <code>get-skill "{selectedSkill.name}"</code> to install it locally in your AI assistant.
+                Connect to MCP Depot via MCP. Use the <code>list-skills</code> tool to see all available skills, then use <code>get-skill "{selectedSkill.name}"</code> to install it locally in your AI assistant.
               </p>
               <p style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>
                 Once installed, the skill will be available as <code>/{selectedSkill.name}</code> and your AI can use it directly.

@@ -21,7 +21,7 @@ if (process.env.DATABASE_URL) {
 } else {
   const os = require('os');
   const storagePath = process.env.SQLITE_PATH
-    || path.join(os.homedir(), '.mcpconnect', 'data.db');
+    || path.join(os.homedir(), '.mcp-depot', 'data.db');
 
   const dataDir = path.dirname(storagePath);
   if (!fs.existsSync(dataDir)) {
@@ -83,7 +83,7 @@ const generatePassword = () => {
 const createDefaultUser = async () => {
   const User = require('../models/User');
   
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcpconnect.io';
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.io';
   const adminExists = await User.findOne({ where: { email: adminEmail } });
   
   if (!adminExists) {
@@ -119,14 +119,14 @@ const createDefaultTool = async () => {
   const Integration = require('../models/Integration');
   const Tool = require('../models/Tool');
   
-  let mcpconnectIntegration = await Integration.findOne({
-    where: { name: 'MCPConnect' }
+  let mcpDepotIntegration = await Integration.findOne({
+    where: { name: 'MCP Depot' }
   });
   
   let userId;
   
-  if (!mcpconnectIntegration) {
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcpconnect.io';
+  if (!mcpDepotIntegration) {
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.io';
     const adminUser = await User.findOne({ where: { email: adminEmail } });
     
     if (!adminUser) {
@@ -136,11 +136,11 @@ const createDefaultTool = async () => {
     
     userId = adminUser.id;
     
-    mcpconnectIntegration = await Integration.create({
+    mcpDepotIntegration = await Integration.create({
       userId: adminUser.id,
       type: 'custom',
-      name: 'MCPConnect',
-      description: 'Built-in MCPConnect API',
+      name: 'MCP Depot',
+      description: 'Built-in MCP Depot API',
       config: {
         baseUrl: 'http://localhost:3000',
         auth: { type: 'none' }
@@ -150,9 +150,9 @@ const createDefaultTool = async () => {
     
     await Tool.create({
       userId: adminUser.id,
-      integrationId: mcpconnectIntegration.id,
+      integrationId: mcpDepotIntegration.id,
       name: 'hello',
-      description: 'Returns a hello world message from MCPConnect',
+      description: 'Returns a hello world message from MCP Depot',
       endpoint: {
         path: '/api/mcp/hello',
         method: 'GET',
@@ -164,9 +164,9 @@ const createDefaultTool = async () => {
     
     await Tool.create({
       userId: adminUser.id,
-      integrationId: mcpconnectIntegration.id,
+      integrationId: mcpDepotIntegration.id,
       name: 'list-tools',
-      description: 'List all available MCPConnect tools',
+      description: 'List all available MCP Depot tools',
       endpoint: {
         path: '/api/mcp/tools',
         method: 'GET',
@@ -178,7 +178,7 @@ const createDefaultTool = async () => {
     
     await Tool.create({
       userId: adminUser.id,
-      integrationId: mcpconnectIntegration.id,
+      integrationId: mcpDepotIntegration.id,
       name: 'fetch-url',
       description: 'Fetch content from any URL and return as text. Supports HTML, JSON, XML, plain text. Use for: reading docs, fetching APIs, scraping web pages.',
       endpoint: {
@@ -208,7 +208,7 @@ const createDefaultTool = async () => {
 
     await Tool.create({
       userId: adminUser.id,
-      integrationId: mcpconnectIntegration.id,
+      integrationId: mcpDepotIntegration.id,
       name: 'list-skills',
       description: 'List all available skills that AI assistants can invoke',
       endpoint: {
@@ -220,18 +220,18 @@ const createDefaultTool = async () => {
       isActive: true
     });
     
-    logger.info('Default MCPConnect tools created!\n');
+    logger.info('Default MCP Depot tools created!\n');
 
-    // Create MCPConnect Sessions integration (for session context + channel tools)
+    // Create MCP Depot Sessions integration (for session context + channel tools)
     let sessionsIntegration = await Integration.findOne({
-      where: { name: 'MCPConnect Sessions' }
+      where: { name: 'MCP Depot Sessions' }
     });
 
     if (!sessionsIntegration) {
       sessionsIntegration = await Integration.create({
         userId: adminUser.id,
         type: 'custom',
-        name: 'MCPConnect Sessions',
+        name: 'MCP Depot Sessions',
         description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
         config: {
           baseUrl: 'http://localhost:3000',
@@ -241,26 +241,26 @@ const createDefaultTool = async () => {
       });
     }
 
-    // Seed session tools under MCPConnect Sessions
+    // Seed session tools under MCP Depot Sessions
     const sessionTools = [
       {
         name: 'store-session-context',
-        description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
-        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any MCPConnect user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Default 168. Pass 0 to pin.' } }, headers: {} }
+        description: 'Save a named context to MCP Depot. Private by default — set shared=true to make it readable by any MCP Depot user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
+        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any MCP Depot user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Default 168. Pass 0 to pin.' } }, headers: {} }
       },
       {
         name: 'get-session-context',
-        description: 'Retrieve a named context previously stored in MCPConnect.',
+        description: 'Retrieve a named context previously stored in MCP Depot.',
         endpoint: { path: '/api/mcp/session-contexts/get', method: 'GET', params: { name: { type: 'string', required: true, description: 'The context name' } }, headers: {} }
       },
       {
         name: 'list-session-contexts',
-        description: 'List all named contexts stored in MCPConnect.',
+        description: 'List all named contexts stored in MCP Depot.',
         endpoint: { path: '/api/mcp/session-contexts/list', method: 'GET', params: {}, headers: {} }
       },
       {
         name: 'delete-session-context',
-        description: 'Delete a named context from MCPConnect.',
+        description: 'Delete a named context from MCP Depot.',
         endpoint: { path: '/api/mcp/session-contexts/delete', method: 'DELETE', params: { name: { type: 'string', required: true, description: 'The context name' } }, headers: {} }
       },
       {
@@ -292,32 +292,32 @@ const createDefaultTool = async () => {
       });
     }
 
-    logger.info('MCPConnect Sessions tools created!\n');
+    logger.info('MCP Depot Sessions tools created!\n');
   } else {
-    userId = mcpconnectIntegration.userId;
+    userId = mcpDepotIntegration.userId;
     
     await Tool.update(
       { name: 'list-skills', description: 'List all available skills that AI assistants can invoke' },
       { where: { name: 'list-prompts' } }
     );
 
-    // Find or create MCPConnect Sessions integration
+    // Find or create MCP Depot Sessions integration
     let sessionsIntegration = await Integration.findOne({
-      where: { name: 'MCPConnect Sessions' }
+      where: { name: 'MCP Depot Sessions' }
     });
 
     if (!sessionsIntegration) {
       sessionsIntegration = await Integration.create({
         userId,
         type: 'custom',
-        name: 'MCPConnect Sessions',
+        name: 'MCP Depot Sessions',
         description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
         config: { baseUrl: 'http://localhost:3000', auth: { type: 'none' } },
         isActive: true
       });
     }
 
-    // Migration: move existing session tools from MCPConnect to MCPConnect Sessions
+    // Migration: move existing session tools from MCP Depot to MCP Depot Sessions
     const sessionToolNames = [
       'store-session-context', 'get-session-context',
       'list-session-contexts', 'delete-session-context',
@@ -326,29 +326,29 @@ const createDefaultTool = async () => {
     ];
     await Tool.update(
       { integrationId: sessionsIntegration.id },
-      { where: { name: sessionToolNames, integrationId: mcpconnectIntegration.id } }
+      { where: { name: sessionToolNames, integrationId: mcpDepotIntegration.id } }
     );
 
-    // Seed session tools under MCPConnect Sessions
+    // Seed session tools under MCP Depot Sessions
     const sessionToolsToCreate = [
       {
         name: 'store-session-context',
-        description: 'Save a named context to MCPConnect. Private by default — set shared=true to make it readable by any MCPConnect user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
+        description: 'Save a named context to MCP Depot. Private by default — set shared=true to make it readable by any MCP Depot user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
         endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Pass 0 to pin.' } }, headers: {} }
       },
       {
         name: 'get-session-context',
-        description: 'Retrieve a named context previously stored in MCPConnect.',
+        description: 'Retrieve a named context previously stored in MCP Depot.',
         endpoint: { path: '/api/mcp/session-contexts/get', method: 'GET', params: { name: { type: 'string', required: true, description: 'The context name' } }, headers: {} }
       },
       {
         name: 'list-session-contexts',
-        description: 'List all named contexts stored in MCPConnect.',
+        description: 'List all named contexts stored in MCP Depot.',
         endpoint: { path: '/api/mcp/session-contexts/list', method: 'GET', params: {}, headers: {} }
       },
       {
         name: 'delete-session-context',
-        description: 'Delete a named context from MCPConnect.',
+        description: 'Delete a named context from MCP Depot.',
         endpoint: { path: '/api/mcp/session-contexts/delete', method: 'DELETE', params: { name: { type: 'string', required: true, description: 'The context name' } }, headers: {} }
       },
       {
@@ -434,14 +434,14 @@ const createDefaultTool = async () => {
         where: { name: toolDef.name },
         defaults: {
           userId,
-          integrationId: mcpconnectIntegration.id,
+          integrationId: mcpDepotIntegration.id,
           ...toolDef,
           isActive: true
         }
       });
     }
 
-    logger.info('Additional MCPConnect tools added!\n');
+    logger.info('Additional MCP Depot tools added!\n');
   }
 };
 

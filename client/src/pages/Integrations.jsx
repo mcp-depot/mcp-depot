@@ -341,7 +341,7 @@ function Integrations() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `mcpconnect-integrations-${Date.now()}.json`;
+      a.download = `mcp-depot-integrations-${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
       setShowExportModal(false);
@@ -712,9 +712,9 @@ function Integrations() {
                       <button 
                         className="btn btn-icon btn-danger" 
                         onClick={() => handleDelete(integration._id)} 
-                        title={integration.name === 'MCPConnect' ? 'Cannot delete default integration' : 'Delete integration'}
-                        disabled={integration.name === 'MCPConnect'}
-                        style={{ opacity: integration.name === 'MCPConnect' ? 0.5 : 1, cursor: integration.name === 'MCPConnect' ? 'not-allowed' : 'pointer' }}
+                        title={integration.name === 'MCP Depot' ? 'Cannot delete default integration' : 'Delete integration'}
+                        disabled={integration.name === 'MCP Depot'}
+                        style={{ opacity: integration.name === 'MCP Depot' ? 0.5 : 1, cursor: integration.name === 'MCP Depot' ? 'not-allowed' : 'pointer' }}
                       >
                         Del
                       </button>

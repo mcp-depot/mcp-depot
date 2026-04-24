@@ -44,7 +44,7 @@ function Register() {
         <div className="login-card">
           <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
             <div style={{ width: '48px', height: '48px', background: 'var(--surface-hover)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', fontSize: '1rem', color: 'var(--text-dim)', fontWeight: '500' }}>MC</div>
-            <h2>MCPConnect</h2>
+            <h2>MCP Depot</h2>
             <p className="login-subtitle">Registration is disabled</p>
           </div>
           
@@ -65,7 +65,7 @@ function Register() {
       <div className="login-card">
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{ width: '48px', height: '48px', background: 'var(--surface-hover)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', fontSize: '1rem', color: 'var(--text-dim)', fontWeight: '500' }}>MC</div>
-          <h2>MCPConnect</h2>
+          <h2>MCP Depot</h2>
           <p className="login-subtitle">Create your account</p>
         </div>
         

@@ -47,7 +47,7 @@ function buildZodSchema(schema, required = []) {
   return shape;
 }
 
-class MCPConnectServer {
+class MCPDepotServer {
   constructor() {
     this.server = null;
     this.toolsMap = new Map();
@@ -63,7 +63,7 @@ class MCPConnectServer {
 
     if (!this.server) {
       this.server = new McpServer({
-        name: 'mcpconnect',
+        name: 'mcp-depot',
         version: '1.0.0'
       });
     }
@@ -434,7 +434,7 @@ class MCPConnectServer {
   }
 }
 
-const mcpServerInstance = new MCPConnectServer();
+const mcpServerInstance = new MCPDepotServer();
 
 async function refreshToolsIfEnabled() {
   if (process.env.MCP_ENABLED === 'true') {

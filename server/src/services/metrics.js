@@ -1,6 +1,6 @@
 const promClient = require('prom-client');
 
-promClient.register.setDefaultLabels({ app: 'mcpconnect' });
+promClient.register.setDefaultLabels({ app: 'mcp-depot' });
 
 const httpRequestDuration = new promClient.Histogram({
   name: 'http_request_duration_seconds',

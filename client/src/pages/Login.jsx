@@ -54,7 +54,7 @@ function Login() {
           }}>
             <Network size={28} color="white" />
           </div>
-          <h2>MCPConnect</h2>
+          <h2>MCP Depot</h2>
           <p className="login-subtitle">Sign in to your account</p>
         </div>
         

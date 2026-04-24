@@ -5,7 +5,7 @@ const Tool = require('./models/Tool');
 const AdapterFactory = require('./adapters');
 const logger = require('./services/logger');
 
-class MCPConnectClient {
+class MCPDepotClient {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
     this.tools = [];
@@ -84,4 +84,4 @@ class MCPConnectClient {
   }
 }
 
-module.exports = MCPConnectClient;
+module.exports = MCPDepotClient;

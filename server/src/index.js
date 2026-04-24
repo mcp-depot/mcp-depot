@@ -27,7 +27,7 @@ const oauthRoutes = require('./routes/oauth');
 
 const app = express();
 
-promClient.register.setDefaultLabels({ app: 'mcpconnect' });
+promClient.register.setDefaultLabels({ app: 'mcp-depot' });
 
 app.set('trust proxy', 1);
 app.use(helmet());
@@ -164,7 +164,7 @@ const startServer = async () => {
     }
     
     const server = app.listen(config.port, () => {
-      logger.info({ port: config.port }, 'MCPConnect Server started');
+      logger.info({ port: config.port }, 'MCP Depot Server started');
     });
     
     const gracefulShutdown = async (signal) => {

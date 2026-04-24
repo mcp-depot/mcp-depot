@@ -1,7 +1,7 @@
 {
-  "name": "mcpconnect-server",
+  "name": "mcp-depot-server",
   "version": "1.0.0",
-  "description": "MCPConnect - API Gateway for integrating and orchestrating multiple third-party APIs",
+  "description": "MCP Depot - API Gateway for integrating and orchestrating multiple third-party APIs",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

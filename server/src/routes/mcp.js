@@ -105,7 +105,7 @@ async function setupAssociations() {
 
 router.get('/hello', async (req, res) => {
   res.json({
-    message: 'Hello from MCPConnect!',
+    message: 'Hello from MCP Depot!',
     version: '1.0.0',
     status: 'running',
     timestamp: new Date().toISOString()
@@ -343,7 +343,7 @@ router.get('/fetch-url', optionalAuth, async (req, res) => {
       maxContentLength: maxSizeBytes,
       maxBodyLength: maxSizeBytes,
       headers: {
-        'User-Agent': 'MCPConnect/1.0',
+        'User-Agent': 'MCP-Depot/1.0',
         'Accept': 'text/html,application/json,application/xml,text/plain,*/*',
         ...parsedHeaders
       },
@@ -957,9 +957,9 @@ router.get('/endpoints', checkMcpAuth, async (req, res) => {
   const baseUrl = req.protocol + '://' + req.get('host') + '/api/mcp';
   
   res.json({
-    name: 'MCPConnect API',
+    name: 'MCP Depot API',
     version: '1.0.0',
-    description: 'MCPConnect - Connect your integrations to Claude Code',
+    description: 'MCP Depot - Connect your integrations to Claude Code',
     endpoints: [
       {
         path: '/api/mcp/hello',
@@ -1207,7 +1207,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
           maxContentLength: parseInt(mergedParams.maxSize) || 5 * 1024 * 1024,
           maxBodyLength: parseInt(mergedParams.maxSize) || 5 * 1024 * 1024,
           headers: {
-            'User-Agent': 'MCPConnect/1.0',
+            'User-Agent': 'MCP-Depot/1.0',
             'Accept': 'text/html,application/json,application/xml,text/plain,*/*'
           },
           validateStatus: () => true,

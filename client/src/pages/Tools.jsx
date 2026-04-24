@@ -1268,7 +1268,7 @@ function Tools({ all: isAllTools }) {
                         
                         switch (selectedPromptTemplate) {
                           case 'full-cycle':
-                            return `Using MCPConnect tools, please:
+                            return `Using MCP Depot tools, please:
 1. Fetch JIRA ticket ${t || 'PROJ-123'} and show me the description
 2. ${c ? `Fetch Confluence page: ${c}` : 'Skip Confluence (no page provided)'}
 3. ${d ? `Add comment "${d}" to ${t || 'PROJ-123'}` : 'Start working on the implementation'}
@@ -1278,19 +1278,19 @@ function Tools({ all: isAllTools }) {
 7. If build is FAILURE: Get build logs, post "❌ Build failed" comment, and wait for me to fix and push again
 8. Repeat steps 4-7 until build is successful (max 5 attempts)`;
                           case 'jira-only':
-                            return `Using MCPConnect JIRA tools, please:
+                            return `Using MCP Depot JIRA tools, please:
 1. Fetch JIRA ticket ${t || 'PROJ-123'}
 2. ${d ? `Add comment "${d}"` : 'Add a comment that work is starting'}
 3. Transition to ${f || 'In Progress'}
 4. After I complete the work, transition to ${f || 'Done'}`;
                           case 'jenkins-only':
-                            return `Using MCPConnect Jenkins tools, please:
+                            return `Using MCP Depot Jenkins tools, please:
 1. Trigger Jenkins job "${j || 'PR-build'}"
 2. Poll for build status every 10 seconds
 3. Report the final result (SUCCESS/FAILURE)
 4. If FAILED, get the console output and report the error`;
                           case 'github-commit':
-                            return `Using MCPConnect GitHub tools, please:
+                            return `Using MCP Depot GitHub tools, please:
 1. Show me the current git status
 2. Stage all changes
 3. Create a commit with message "Fix ${t || 'PROJ-123'}"
@@ -1314,7 +1314,7 @@ function Tools({ all: isAllTools }) {
                         let prompt = '';
                         switch (selectedPromptTemplate) {
                           case 'full-cycle':
-                            prompt = `Using MCPConnect tools, please:
+                            prompt = `Using MCP Depot tools, please:
 1. Fetch JIRA ticket ${t || 'PROJ-123'} and show me the description
 2. ${c ? `Fetch Confluence page: ${c}` : 'Skip Confluence (no page provided)'}
 3. ${d ? `Add comment "${d}" to ${t || 'PROJ-123'}` : 'Start working on the implementation'}
@@ -1325,21 +1325,21 @@ function Tools({ all: isAllTools }) {
 8. Repeat steps 4-7 until build is successful (max 5 attempts)`;
                             break;
                           case 'jira-only':
-                            prompt = `Using MCPConnect JIRA tools, please:
+                            prompt = `Using MCP Depot JIRA tools, please:
 1. Fetch JIRA ticket ${t || 'PROJ-123'}
 2. ${d ? `Add comment "${d}"` : 'Add a comment that work is starting'}
 3. Transition to ${f || 'In Progress'}
 4. After I complete the work, transition to ${f || 'Done'}`;
                             break;
                           case 'jenkins-only':
-                            prompt = `Using MCPConnect Jenkins tools, please:
+                            prompt = `Using MCP Depot Jenkins tools, please:
 1. Trigger Jenkins job "${j || 'PR-build'}"
 2. Poll for build status every 10 seconds
 3. Report the final result (SUCCESS/FAILURE)
 4. If FAILED, get the console output and report the error`;
                             break;
                           case 'github-commit':
-                            prompt = `Using MCPConnect GitHub tools, please:
+                            prompt = `Using MCP Depot GitHub tools, please:
 1. Show me the current git status
 2. Stage all changes
 3. Create a commit with message "Fix ${t || 'PROJ-123'}"

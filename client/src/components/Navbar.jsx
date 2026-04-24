@@ -18,8 +18,8 @@ function Navbar() {
   return (
     <div className="navbar">
       <Link to="/" className="navbar-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <img src="/logo.png" alt="MCPConnect Logo" width="32" height="32" style={{ borderRadius: '6px', filter: themeName === 'dark' ? 'brightness(0.9)' : 'none' }} />
-        MCPConnect
+        <img src="/logo.png" alt="MCP Depot Logo" width="32" height="32" style={{ borderRadius: '6px', filter: themeName === 'dark' ? 'brightness(0.9)' : 'none' }} />
+        MCP Depot
       </Link>
       <div className="navbar-menu">
         <Link to="/" className={isActive('/')}>Dashboard</Link>

@@ -105,7 +105,7 @@ function MCPServerSettings() {
           <h4 style={{ marginBottom: '0.5rem' }}>Step 1: Configure Connection</h4>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Run this command in terminal to set up URL and API key:</p>
           <pre style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '4px', fontSize: '0.8rem' }}>
-mcp-connect --login
+mcp-depot --login
           </pre>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
             This will ask for your MCP server URL and API key, then save to config.json
@@ -117,27 +117,27 @@ mcp-connect --login
           
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}><strong>Claude Code:</strong></p>
           <pre style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-claude mcp add mcpconnect -- mcp-connect
+claude mcp add mcp-depot -- mcp-depot
           </pre>
           
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}><strong>OpenCode:</strong></p>
           <pre style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-opencode mcp add mcpconnect -- mcp-connect
+opencode mcp add mcp-depot -- mcp-depot
           </pre>
           
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}><strong>Cursor / Other MCP Clients:</strong></p>
           <pre style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '4px', fontSize: '0.8rem' }}>
-mcp-connect
+mcp-depot
           </pre>
         </div>
 
         <div style={{ marginBottom: '1rem' }}>
           <h4 style={{ marginBottom: '0.5rem' }}>Troubleshooting</h4>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            If you see "API key required" error, run: <code>mcp-connect --login</code> to configure
+            If you see "API key required" error, run: <code>mcp-depot --login</code> to configure
           </p>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-            Config file location: <code>C:\nvm4w\nodejs\node_modules\mcp-connect\config.json</code>
+            Config file location: <code>C:\nvm4w\nodejs\node_modules\mcp-depot\config.json</code>
           </p>
         </div>
       </div>
@@ -386,10 +386,10 @@ function Settings() {
             {activeTab === 'api' && (
               <div>
                 <h2 className="card-title" style={{ marginBottom: '1.5rem' }}>My API Access</h2>
-                <p style={{ color: 'var(--text-light)', marginBottom: '1rem' }}>Generate an API key to access MCPConnect programmatically (for your own applications).</p>
+                <p style={{ color: 'var(--text-light)', marginBottom: '1rem' }}>Generate an API key to access MCP Depot programmatically (for your own applications).</p>
                 <div style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: 'var(--radius)', marginBottom: '1rem' }}>
                   <code style={{ fontSize: '0.85rem' }}>POST /api/consume/trigger</code>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', marginTop: '0.25rem' }}>Execute any API endpoint via MCPConnect</p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', marginTop: '0.25rem' }}>Execute any API endpoint via MCP Depot</p>
                 </div>
                 <div style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: 'var(--radius)' }}>
                   <code style={{ fontSize: '0.85rem' }}>POST /api/consume/tools/:toolId/execute</code>
@@ -714,7 +714,7 @@ function Settings() {
               <div>
                 <h2 className="card-title" style={{ marginBottom: '1rem' }}>Import / Export</h2>
                 <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-                  Export your configuration to a JSON file for backup, or import configurations from other MCPConnect instances.
+                  Export your configuration to a JSON file for backup, or import configurations from other MCP Depot instances.
                 </p>
                 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -751,7 +751,7 @@ function Settings() {
                         const url = window.URL.createObjectURL(res.data);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = `mcpconnect-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+                        a.download = `mcp-depot-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
                         a.click();
                         window.URL.revokeObjectURL(url);
                       } catch (err) {
