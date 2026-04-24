@@ -16,7 +16,7 @@ if (args.includes('--login')) {
 
   if (!process.env.DATABASE_URL) {
     const os = require('os');
-    const dataDir = path.join(os.homedir(), '.mcpconnect');
+    const dataDir = path.join(os.homedir(), '.mcp-depot');
     fs.mkdirSync(dataDir, { recursive: true });
     process.env.SQLITE_PATH = path.join(dataDir, 'data.db');
   }
@@ -26,17 +26,17 @@ if (args.includes('--login')) {
   const port = process.env.PORT || 3000;
   console.log(`MCP Depot running at http://localhost:${port}`);
   if (!process.env.DATABASE_URL) {
-    const dbPath = process.env.SQLITE_PATH || path.join(os.homedir(), '.mcpconnect', 'data.db');
+    const dbPath = process.env.SQLITE_PATH || path.join(os.homedir(), '.mcp-depot', 'data.db');
     console.log(`Database: SQLite (${dbPath})`);
   }
 }
 
 function startMcpProxy() {
   const banner = `
-┌───────────────────────────────┐
-│         MCP Depot           │
-│   connect • sync • control  │
-└───────────────────────────────┘
+┌────────────────────────────────┐
+│           mcp-depot            │
+│    connect · sync · control   │
+└────────────────────────────────┘
 `;
 
   console.error(banner);
@@ -209,7 +209,7 @@ function runLogin() {
     const apiKey = await ask('API key: ');
     rl.close();
 
-    const configDir = path.join(os.homedir(), '.mcpconnect');
+    const configDir = path.join(os.homedir(), '.mcp-depot');
     const configFile = path.join(configDir, 'config.json');
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(configFile, JSON.stringify({
@@ -223,7 +223,7 @@ function runLogin() {
 }
 
 function loadConfig() {
-  const configFile = path.join(os.homedir(), '.mcpconnect', 'config.json');
+  const configFile = path.join(os.homedir(), '.mcp-depot', 'config.json');
   if (fs.existsSync(configFile)) {
     try {
       return JSON.parse(fs.readFileSync(configFile, 'utf-8'));
