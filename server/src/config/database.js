@@ -35,7 +35,7 @@ if (process.env.DATABASE_URL) {
   });
 }
 
-const IS_DEV = process.env.NODE_ENV !== 'production';
+const IS_DEV = process.env.NODE_ENV === 'development';
 let associationsDefined = false;
 
 const loadModels = () => {
@@ -472,7 +472,7 @@ const connectDB = async (retries = 5, delay = 3000) => {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       await sequelize.authenticate();
-      logger.info('PostgreSQL connected successfully');
+      logger.info(`${sequelize.getDialect().toUpperCase()} connected successfully`);
 
       loadModels();
 
