@@ -8,7 +8,18 @@ function startContextCleanup(getModels) {
   const runCleanup = async () => {
     try {
       const { SessionContext } = getModels();
-      if (!SessionContext) return;
+      if (!SessionContext) {
+        console.log('[context-cleanup] SessionContext table not found, skipping');
+        return;
+      }
+
+      // Verify table exists
+      try {
+        await SessionContext.findOne({ attributes: ['id'], limit: 1 });
+      } catch (tableErr) {
+        console.log('[context-cleanup] SessionContext table not ready, skipping');
+        return;
+      }
 
       const now = new Date();
       const contexts = await SessionContext.findAll({

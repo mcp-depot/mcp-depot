@@ -174,6 +174,7 @@ router.post('/admin-reset', auth, requireAdmin, async (req, res) => {
     }
     
     user.password = newPassword;
+    user.changed('password', true);  // Force trigger hook
     user.mustResetPassword = false;
     await user.save();
     
