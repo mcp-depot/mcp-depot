@@ -148,7 +148,7 @@ const createDefaultTool = async () => {
       name: 'MCP Depot',
       description: 'Built-in MCP Depot API',
       config: {
-        baseUrl: 'http://localhost:3000',
+        baseUrl: `http://localhost:${process.env.PORT || 3000}`,
         auth: { type: 'none' }
       },
       isActive: true
@@ -240,7 +240,7 @@ const createDefaultTool = async () => {
         name: 'MCP Depot Sessions',
         description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
         config: {
-          baseUrl: 'http://localhost:3000',
+          baseUrl: `http://localhost:${process.env.PORT || 3000}`,
           auth: { type: 'none' }
         },
         isActive: true
@@ -318,9 +318,26 @@ const createDefaultTool = async () => {
         type: 'custom',
         name: 'MCP Depot Sessions',
         description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
-        config: { baseUrl: 'http://localhost:3000', auth: { type: 'none' } },
+        config: { baseUrl: `http://localhost:${process.env.PORT || 3000}`, auth: { type: 'none' } },
         isActive: true
       });
+    }
+
+    // Migration: update baseUrl for MCP Depot integration if port has changed
+    const actualBaseUrl = `http://localhost:${process.env.PORT || 3000}`;
+    if (mcpDepotIntegration.config?.baseUrl !== actualBaseUrl) {
+      await mcpDepotIntegration.update({
+        config: { ...mcpDepotIntegration.config, baseUrl: actualBaseUrl }
+      });
+      logger.info(`Updated MCP Depot integration baseUrl to ${actualBaseUrl}`);
+    }
+
+    // Migration: update baseUrl for MCP Depot Sessions integration if port has changed
+    if (sessionsIntegration.config?.baseUrl !== actualBaseUrl) {
+      await sessionsIntegration.update({
+        config: { ...sessionsIntegration.config, baseUrl: actualBaseUrl }
+      });
+      logger.info(`Updated MCP Depot Sessions integration baseUrl to ${actualBaseUrl}`);
     }
 
     // Migration: move existing session tools from MCP Depot to MCP Depot Sessions

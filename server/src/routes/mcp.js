@@ -1177,6 +1177,16 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       config.auth = { ...integration.config.auth, credentials: userCreds };
     }
     
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+      const apiKey = req.headers['x-api-key'];
+      const jwt = req.headers['authorization'];
+      if (apiKey) {
+        config = { ...config, headers: { ...config.headers, 'x-api-key': apiKey } };
+      } else if (jwt) {
+        config = { ...config, headers: { ...config.headers, 'Authorization': jwt } };
+      }
+    }
+    
     const adapter = AdapterFactory.create(integration.type, {
       ...config,
       integrationId: integration.id
