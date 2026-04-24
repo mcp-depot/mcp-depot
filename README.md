@@ -29,37 +29,70 @@ npx mcp-depot
 
 Opens the admin UI at `http://localhost:3000`. Data stored in `~/.mcp-depot/data.db` (SQLite). No database setup, no Docker required.
 
+Admin credentials are printed to the console on first run. Look for the startup log block:
+
+```
+DEFAULT ADMIN USER CREATED
+Email:    admin@mcp-depot.io
+Password: <generated>
+API Key:  <generated>
+```
+
 ### Option 2 — Docker Compose (recommended for teams)
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/mcp-depot/mcp-depot
 cd mcp-depot
 docker compose up -d
 
-# Get admin password from logs
-docker compose logs server | grep "Password:"
+# Get admin credentials from logs
+docker compose logs server | grep -E "Email:|Password:|API Key:"
 
 # Login at http://localhost:5173
-# Email: admin@mcpdepot.io
-# Password: (from logs above)
 ```
 
 ---
 
 ## Connecting to Claude Code
 
-Add this to your Claude Code `settings.json`:
+### stdio (recommended for npm installs)
+
+1. Install and authenticate:
+
+```bash
+npm install -g mcp-depot
+mcp-depot --login
+```
+
+Follow the prompts to enter your server URL and API key.
+
+2. Add to `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "mcp-depot": {
-      "command": "npx",
-      "args": ["mcp-depot", "--mcp"]
+      "command": "mcp-depot",
+      "args": ["--mcp"]
     }
   }
 }
 ```
+
+### HTTP (Docker / server with MCP_ENABLED=true)
+
+```json
+{
+  "mcpServers": {
+    "mcp-depot": {
+      "type": "http",
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+See [docs/connect/claude-code.md](./docs/connect/claude-code.md) for full setup guide.
 
 ---
 
@@ -67,9 +100,11 @@ Add this to your Claude Code `settings.json`:
 
 | Command | What it does |
 |---------|-------------|
-| `npx mcp-depot` | Full stack — server + admin UI + SQLite |
-| `npx mcp-depot --mcp` | MCP stdio wrapper only (for Claude Code) |
-| `npx mcp-depot --server` | Server only, no UI |
+| `mcp-depot` | Full stack — server + admin UI + SQLite |
+| `mcp-depot --server` | Server only, no UI |
+| `mcp-depot --port 8080` | Run on a custom port |
+| `mcp-depot --login` | Save server URL and API key for stdio transport |
+| `mcp-depot --mcp` | MCP stdio wrapper (used by AI clients) |
 
 ---
 
@@ -81,6 +116,8 @@ Add this to your Claude Code `settings.json`:
 | `SQLITE_PATH` | `~/.mcp-depot/data.db` | Override SQLite file location. Ignored if `DATABASE_URL` is set. |
 | `PORT` | `3000` | Port the server listens on. |
 | `JWT_SECRET` | *(required)* | Secret for signing auth tokens. Set this in production. |
+| `MCP_ENABLED` | `false` | Set to `true` to enable the HTTP MCP transport at `/mcp`. Docker Compose sets this automatically. |
+| `ADMIN_EMAIL` | `admin@mcp-depot.io` | Admin account email created on first run. |
 
 ---
 

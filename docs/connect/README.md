@@ -1,14 +1,47 @@
 # Connect MCP Depot to Your AI Client
 
-MCP Depot exposes tools via the [Model Context Protocol (MCP)](https://spec.modelcontextprotocol.io/), allowing you to use integrations (JIRA, GitHub, Jenkins, etc.) directly from your AI assistant.
+MCP Depot exposes tools via the [Model Context Protocol (MCP)](https://spec.modelcontextprotocol.io/), allowing you to use integrations (Jira, GitHub, Jenkins, etc.) directly from your AI assistant.
 
 ---
 
-## Quick Start
+## Which Transport Should I Use?
 
-### HTTP Transport (Recommended)
+| Deployment | Recommended transport |
+|------------|----------------------|
+| npm install (`mcp-depot`) | stdio |
+| Docker Compose | HTTP |
+| Remote server | HTTP |
 
-Most clients support HTTP transport - no local process needed.
+---
+
+## stdio Transport
+
+For clients that connect via a local process. Works with any npm install.
+
+**Prerequisite:** Run `mcp-depot --login` once to save your server URL and API key to `~/.mcp-depot/config.json`.
+
+```json
+{
+  "mcpServers": {
+    "mcp-depot": {
+      "command": "mcp-depot",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+---
+
+## HTTP Transport
+
+Requires the server to be running with `MCP_ENABLED=true`. Docker Compose sets this automatically. For npm installs, start with:
+
+```bash
+MCP_ENABLED=true mcp-depot
+```
+
+**Get your API key:** Log in to MCP Depot → **Settings** → **API Key Authentication** → **Generate New Key**.
 
 ```json
 {
@@ -17,29 +50,14 @@ Most clients support HTTP transport - no local process needed.
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
+        "X-API-Key": "YOUR_API_KEY"
       }
     }
   }
 }
 ```
 
-### stdio Transport
-
-For clients that only support stdio (Zed, some VS Code extensions):
-
-```json
-{
-  "mcpServers": {
-    "mcp-depot": {
-      "command": "npx",
-      "args": ["mcp-depot", "--mcp"]
-    }
-  }
-}
-```
-
-> Run `mcp-depot --login` once before using stdio transport to save your server URL and API key.
+Replace `localhost:3000` with your server's host and port if running remotely.
 
 ---
 
@@ -56,44 +74,18 @@ For clients that only support stdio (Zed, some VS Code extensions):
 
 ---
 
-## Getting Your API Key
-
-1. Log in to MCP Depot at `http://localhost:3000`
-2. Go to **Settings** → **API Keys**
-3. Click **Generate API Key**
-4. Copy the key (it won't be shown again)
-
----
-
-## Server Requirements
-
-- MCP Depot server running (Docker Compose or standalone)
-- At least one integration configured with tools
-- API key generated for authentication
-
-### Docker Compose Setup
-
-```yaml
-# In docker-compose.yml
-environment:
-  - MCP_ENABLED=true
-  - MCP_TRANSPORT=http
-```
-
----
-
 ## Troubleshooting
 
 ### Connection Refused
-- Ensure MCP Depot server is running: `curl http://localhost:3000/health`
+- Ensure MCP Depot is running: `curl http://localhost:3000/health`
 - Check the URL is correct (no trailing slash)
 
 ### 401 Unauthorized
 - Verify your API key is correct
-- Check the `Authorization` header format: `Bearer YOUR_KEY`
+- Check the `X-API-Key` header (not `Authorization: Bearer`)
 
 ### Tools Not Appearing
-- Ensure at least one integration is created with tools
+- Ensure at least one integration is created with active tools
 - Try refreshing the MCP connection in your client
 
 ---

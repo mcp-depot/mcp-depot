@@ -4,26 +4,17 @@ Cursor supports MCP servers via settings. Both HTTP and stdio transports work.
 
 ---
 
-## HTTP Transport (Recommended)
+## HTTP Transport (Recommended for Docker / MCP_ENABLED=true)
+
+The HTTP MCP transport requires the server to be running with `MCP_ENABLED=true`. Docker Compose sets this automatically.
 
 ### Step 1: Get Your API Key
 
-1. Log in to MCP Depot at `http://localhost:3000`
-2. Go to **Settings** → **API Keys**
-3. Click **Generate API Key**
-4. Copy the key
+Log in to MCP Depot → go to **Settings** → scroll to the **API Key Authentication** section → click **Generate New Key**.
 
 ### Step 2: Configure Cursor
 
-1. Open Cursor → **Settings** (or `Cmd+,`)
-2. Go to **MCP Servers**
-3. Click **Add MCP Server**
-4. Enter:
-   - **Name**: `mcp-depot`
-   - **URL**: `http://localhost:3000/mcp`
-   - **Headers**: `Authorization: Bearer YOUR_API_KEY`
-
-Or edit `~/.cursor/mcp.json`:
+Edit `~/.cursor/mcp.json` (create it if it doesn't exist):
 
 ```json
 {
@@ -32,7 +23,7 @@ Or edit `~/.cursor/mcp.json`:
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
-        "Authorization": "Bearer YOUR_API_KEY"
+        "X-API-Key": "YOUR_API_KEY"
       }
     }
   }
@@ -45,28 +36,43 @@ Restart Cursor. You should see MCP Depot tools available in the AI chat.
 
 ---
 
-## stdio Transport
+## stdio Transport (Recommended for npm installs)
 
-For older Cursor versions:
+### Step 1: Install and Login
+
+```bash
+npm install -g mcp-depot
+mcp-depot --login
+```
+
+Follow the prompts to save your server URL and API key.
+
+### Step 2: Configure Cursor
+
+Edit `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "mcp-depot": {
-      "command": "npx",
-      "args": ["mcp-depot", "--mcp"]
+      "command": "mcp-depot",
+      "args": ["--mcp"]
     }
   }
 }
 ```
-
-> Run `mcp-depot --login` once first to save your server URL and API key.
 
 ---
 
 ## Troubleshooting
 
 ### Server Not Showing
-- Restart Cursor after adding the server
-- Check the URL is accessible
-- Verify your API key is valid
+- Restart Cursor after editing the config
+- Verify the server is accessible: `curl http://localhost:3000/health`
+
+### 401 Unauthorized (HTTP)
+- Regenerate your API key in Settings → API Key Authentication
+- Confirm the `X-API-Key` header value is correct
+
+### stdio Not Working
+- Re-run `mcp-depot --login` to refresh credentials

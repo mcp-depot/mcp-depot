@@ -3,34 +3,34 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15
-    container_name: mcpconnect-postgres
+    container_name: mcp-depot-postgres
     restart: unless-stopped
     ports:
       - "5433:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
-      POSTGRES_DB: ${POSTGRES_DB:-mcpconnect}
+      POSTGRES_DB: ${POSTGRES_DB:-mcp-depot}
       PGTZ: UTC
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     networks:
-      - mcpconnect-network
+      - mcp-depot-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d mcpconnect"]
+      test: ["CMD-SHELL", "pg_isready -U admin -d mcp-depot"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   valkey:
     image: valkey/valkey:8
-    container_name: mcpconnect-valkey
+    container_name: mcp-depot-valkey
     restart: unless-stopped
     expose:
       - "6379"
     networks:
-      - mcpconnect-network
+      - mcp-depot-network
     profiles:
       - secret-store
 
@@ -38,17 +38,17 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: mcpconnect-server
+    container_name: mcp-depot-server
     restart: unless-stopped
     ports:
       - "3000:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-      - "mcpconnect.local:host-gateway"
+      - "mcp-depot.local:host-gateway"
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcpconnect
+      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcp-depot
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       - JWT_EXPIRE=15m
@@ -64,19 +64,19 @@ services:
       - SECRET_STORE_CLIENT_SECRET=${SECRET_STORE_CLIENT_SECRET}
       - SECRET_STORE_WORKSPACE_ID=${SECRET_STORE_WORKSPACE_ID}
       - SECRET_STORE_ENVIRONMENT=${SECRET_STORE_ENVIRONMENT:-dev}
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@mcpconnect.io}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@mcp-depot.io}
       - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-false}
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - mcpconnect-network
+      - mcp-depot-network
 
   client:
     build:
       context: ./client
       dockerfile: Dockerfile
-    container_name: mcpconnect-client
+    container_name: mcp-depot-client
     restart: unless-stopped
     ports:
       - "5173:5173"
@@ -85,11 +85,11 @@ services:
     depends_on:
       - server
     networks:
-      - mcpconnect-network
+      - mcp-depot-network
 
   demo-mcp:
     image: node:20-alpine
-    container_name: mcpconnect-demo-mcp
+    container_name: mcp-depot-demo-mcp
     restart: unless-stopped
     working_dir: /app
     command: ["node", "demo-mcp-server.js"]
@@ -98,11 +98,11 @@ services:
     volumes:
       - ./demo-mcp:/app
     networks:
-      - mcpconnect-network
+      - mcp-depot-network
 
   infisical:
     image: infisical/infisical:latest-postgres
-    container_name: mcpconnect-infisical
+    container_name: mcp-depot-infisical
     restart: unless-stopped
     ports:
       - "8181:8080"
@@ -118,14 +118,14 @@ services:
       valkey:
         condition: service_started
     networks:
-      - mcpconnect-network
+      - mcp-depot-network
     profiles:
       - secret-store
 
 volumes:
   postgres_data:
-    name: mcpconnect_postgres_data
+    name: mcp-depot_postgres_data
 
 networks:
-  mcpconnect-network:
+  mcp-depot-network:
     driver: bridge

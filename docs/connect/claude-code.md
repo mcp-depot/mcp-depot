@@ -1,31 +1,32 @@
 # Connect MCP Depot to Claude Code
 
-Claude Code supports both HTTP and stdio transports. HTTP is recommended.
+Claude Code supports both HTTP and stdio transports.
 
 ---
 
-## Option 1: HTTP Transport (Recommended)
+## Option 1: stdio Transport (Recommended for npm installs)
 
-### Step 1: Get Your API Key
+### Step 1: Install and Login
 
-1. Log in to MCP Depot at `http://localhost:3000`
-2. Go to **Settings** → **API Keys**
-3. Click **Generate API Key**
-4. Copy the key
+```bash
+npm install -g mcp-depot
+mcp-depot --login
+```
+
+Follow the prompts to enter your server URL and API key. These are saved to `~/.mcp-depot/config.json`.
+
+**Where to get your API key:** Log in to MCP Depot → go to **Settings** → scroll to the **API Key Authentication** section → click **Generate New Key**.
 
 ### Step 2: Configure Claude Code
 
-Edit `~/.claude.json`:
+Add to `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "mcp-depot": {
-      "type": "http",
-      "url": "http://localhost:3000/mcp",
-      "headers": {
-        "Authorization": "Bearer YOUR_API_KEY_HERE"
-      }
+      "command": "mcp-depot",
+      "args": ["--mcp"]
     }
   }
 }
@@ -40,36 +41,40 @@ Restart Claude Code or reconnect to load the new MCP server.
 In a Claude Code conversation, type:
 
 ```
-/mcp list
+/mcp
 ```
 
-You should see your MCP Depot tools listed.
+You should see mcp-depot listed with your tools available.
 
 ---
 
-## Option 2: stdio Transport
+## Option 2: HTTP Transport (Docker or MCP_ENABLED=true)
 
-### Step 1: Install and Login
+The HTTP MCP transport is active when the server is started with `MCP_ENABLED=true`. Docker Compose sets this automatically. For npm installs, start the server with:
 
 ```bash
-npm install -g mcp-depot
-mcp-depot --login
+MCP_ENABLED=true mcp-depot
 ```
 
-Follow the prompts to enter your server URL and API key. These are saved to `~/.mcp-depot/config.json`.
+### Configure Claude Code
 
-### Step 2: Configure
+Add to `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "mcp-depot": {
-      "command": "mcp-depot",
-      "args": ["--mcp"]
+      "type": "http",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "X-API-Key": "YOUR_API_KEY_HERE"
+      }
     }
   }
 }
 ```
+
+**Where to get your API key:** Log in to MCP Depot → go to **Settings** → scroll to the **API Key Authentication** section → click **Generate New Key**.
 
 ---
 
@@ -83,10 +88,10 @@ Follow the prompts to enter your server URL and API key. These are saved to `~/.
 - Check MCP Depot is running: `curl http://localhost:3000/health`
 - Verify the URL in your config
 
-### "401 Unauthorized"
-- Regenerate your API key in MCP Depot
-- Check the Authorization header format
+### "401 Unauthorized" (stdio)
+- Re-run `mcp-depot --login` to refresh credentials in `~/.mcp-depot/config.json`
+- Check the API key is still active in Settings
 
 ### Tools Not Showing
-- Verify you have integrations with tools in MCP Depot
-- Type `/mcp list` to see all available tools
+- Verify you have integrations with active tools in MCP Depot
+- Use `/mcp` in Claude Code to see the current server status
