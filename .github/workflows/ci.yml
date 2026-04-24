@@ -15,7 +15,7 @@ jobs:
         image: postgres:15
         env:
           POSTGRES_PASSWORD: test
-          POSTGRES_DB: mcphub_test
+          POSTGRES_DB: mcp_depot_test
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -37,15 +37,15 @@ jobs:
           cd server
           npm ci
           
-      - name: Run server linter
+      - name: Run server tests
         run: |
           cd server
-          npm run lint || true
-          
-      - name: Build server
-        run: |
-          cd server
-          npm run build
+          npm test
+        env:
+          DATABASE_URL: postgres://postgres:test@localhost:5432/mcp_depot_test
+          JWT_SECRET: test-secret
+          ENCRYPTION_KEY: test-32-byte-encryption-key!!!!
+          NODE_ENV: test
           
       - name: Install client dependencies
         run: |
@@ -68,6 +68,9 @@ jobs:
         
       - name: Verify containers start
         run: |
+          ENCRYPTION_KEY=ci-test-32-byte-encryption-key!! \
+          JWT_SECRET=ci-test-secret \
           docker compose up -d
-          sleep 10
+          sleep 15
           docker compose ps
+          curl --fail http://localhost:3000/api/mcp/hello
