@@ -25,8 +25,12 @@ function Login() {
     setLoading(true);
     
     try {
-      await login(email, password);
-      navigate('/');
+      const userData = await login(email, password);
+      if (userData.requirePasswordReset) {
+        navigate('/reset-password');
+      } else {
+        navigate('/');
+      }
     } catch (err) {
       if (err.response?.data?.code === 'PASSWORD_RESET_REQUIRED') {
         navigate('/reset-password');

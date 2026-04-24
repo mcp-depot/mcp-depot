@@ -99,15 +99,16 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    const { accessToken, refreshToken } = generateTokens(user.id);
+
     if (user.mustResetPassword) {
-      return res.status(403).json({ 
-        error: 'Password reset required',
-        code: 'PASSWORD_RESET_REQUIRED',
-        userId: user.id
+      return res.json({
+        user: user.toJSON(),
+        accessToken,
+        refreshToken,
+        requirePasswordReset: true
       });
     }
-
-    const { accessToken, refreshToken } = generateTokens(user.id);
 
     res.json({
       user: user.toJSON(),
