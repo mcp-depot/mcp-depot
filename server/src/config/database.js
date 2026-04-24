@@ -456,6 +456,9 @@ const connectDB = async (retries = 5, delay = 3000) => {
     try {
       await sequelize.authenticate();
       logger.info('PostgreSQL connected successfully');
+
+      loadModels();
+
       if (IS_DEV) {
         logger.warn('Development mode: running sequelize.sync({ alter: true })');
         await sequelize.sync({ alter: true });
