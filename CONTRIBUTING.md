@@ -1,4 +1,4 @@
-# Contributing to MCPConnect
+# Contributing to MCP Depot
 
 Thank you for your interest in contributing!
 
@@ -6,8 +6,8 @@ Thank you for your interest in contributing!
 
 ```bash
 # Clone the repository
-git clone https://github.com/mcpconnect/mcpconnect.git
-cd mcpconnect
+git clone <repo-url>
+cd mcp-depot
 
 # Start the application
 docker compose up -d
@@ -15,7 +15,7 @@ docker compose up -d
 # Access the application
 # Server: http://localhost:3000
 # Client: http://localhost:5173
-# Admin: admin@mcpconnect.io / Demo@123
+# Admin: admin@mcpdepot.io / Demo@123
 ```
 
 ## Development
@@ -86,5 +86,5 @@ npm test
 
 ## Questions?
 
-- Open an issue: https://github.com/mcpconnect/mcpconnect/issues
-- Discussions: https://github.com/mcpconnect/mcpconnect/discussions
+- Open an issue: <repo-url>/issues
+- Discussions: <repo-url>/discussions

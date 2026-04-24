@@ -1,4 +1,4 @@
-# Connect MCPConnect to Claude Code
+# Connect MCP Depot to Claude Code
 
 Claude Code supports both HTTP and stdio transports. HTTP is recommended.
 
@@ -8,7 +8,7 @@ Claude Code supports both HTTP and stdio transports. HTTP is recommended.
 
 ### Step 1: Get Your API Key
 
-1. Log in to MCPConnect at `http://localhost:3000`
+1. Log in to MCP Depot at `http://localhost:3000`
 2. Go to **Settings** → **API Keys**
 3. Click **Generate API Key**
 4. Copy the key
@@ -20,7 +20,7 @@ Edit `~/.claude.json`:
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -43,32 +43,29 @@ In a Claude Code conversation, type:
 /mcp list
 ```
 
-You should see your MCPConnect tools listed.
+You should see your MCP Depot tools listed.
 
 ---
 
 ## Option 2: stdio Transport
 
-If you need stdio (less common for Claude Code):
-
-### Step 1: Install the CLI Wrapper
+### Step 1: Install and Login
 
 ```bash
-npm install -g mcpconnect-mcp
+npm install -g mcp-depot
+mcp-depot --login
 ```
+
+Follow the prompts to enter your server URL and API key. These are saved to `~/.mcp-depot/config.json`.
 
 ### Step 2: Configure
 
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
-      "command": "npx",
-      "args": [
-        "mcpconnect-mcp",
-        "--url", "http://localhost:3000",
-        "--api-key", "YOUR_API_KEY"
-      ]
+    "mcp-depot": {
+      "command": "mcp-depot",
+      "args": ["--mcp"]
     }
   }
 }
@@ -83,13 +80,13 @@ npm install -g mcpconnect-mcp
 - Restart Claude Code after editing
 
 ### "Connection refused"
-- Check MCPConnect is running: `curl http://localhost:3000/health`
+- Check MCP Depot is running: `curl http://localhost:3000/health`
 - Verify the URL in your config
 
 ### "401 Unauthorized"
-- Regenerate your API key in MCPConnect
+- Regenerate your API key in MCP Depot
 - Check the Authorization header format
 
 ### Tools Not Showing
-- Verify you have integrations with tools in MCPConnect
+- Verify you have integrations with tools in MCP Depot
 - Type `/mcp list` to see all available tools

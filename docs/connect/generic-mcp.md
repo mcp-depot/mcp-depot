@@ -1,4 +1,4 @@
-# Connect MCPConnect to Any MCP Client
+# Connect MCP Depot to Any MCP Client
 
 This guide covers the generic MCP configuration that works with most clients.
 
@@ -13,7 +13,7 @@ Most modern MCP clients support HTTP transport. This is the simplest setup.
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -49,31 +49,23 @@ Some clients use different header formats:
 
 For clients that only support stdio (legacy or limited clients).
 
+### Step 1: Install and Login
+
+```bash
+npm install -g mcp-depot
+mcp-depot --login
+```
+
+Follow the prompts to save your server URL and API key.
+
 ### Configuration
 
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
-      "command": "npx",
-      "args": [
-        "mcpconnect-mcp",
-        "--url", "http://localhost:3000",
-        "--api-key", "YOUR_API_KEY"
-      ]
-    }
-  }
-}
-```
-
-### With Custom Script
-
-```json
-{
-  "mcpServers": {
-    "mcpconnect": {
-      "command": "node",
-      "args": ["/path/to/mcpconnect-mcp.cjs", "--url", "http://localhost:3000"]
+    "mcp-depot": {
+      "command": "mcp-depot",
+      "args": ["--mcp"]
     }
   }
 }
@@ -90,7 +82,7 @@ Create `.vscode/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -106,9 +98,9 @@ Create `.vscode/mcp.json`:
 Add to `idea.properties` or use the MCP plugin settings:
 
 ```properties
-mcp.servers.mcpconnect.type=http
-mcp.servers.mcpconnect.url=http://localhost:3000/mcp
-mcp.servers.mcpconnect.headers.Authorization=Bearer YOUR_API_KEY
+mcp.servers.mcp-depot.type=http
+mcp.servers.mcp-depot.url=http://localhost:3000/mcp
+mcp.servers.mcp-depot.headers.Authorization=Bearer YOUR_API_KEY
 ```
 
 ### Ollama (with llama.cpp)
@@ -134,6 +126,6 @@ npx mcp-ollama --mcp-server http://localhost:3000/mcp
 - Ensure the key has proper permissions
 
 ### Tools Not Appearing
-- Verify integrations exist in MCPConnect
+- Verify integrations exist in MCP Depot
 - Check client MCP logs for errors
 - Try restarting the client

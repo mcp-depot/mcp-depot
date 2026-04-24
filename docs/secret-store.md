@@ -1,18 +1,18 @@
 # Secret Store Setup (Infisical)
 
-MCPConnect can integrate with [Infisical](https://infisical.com) to manage secrets externally. This allows you to store API tokens, keys, and other sensitive credentials in Infisical instead of directly in MCPConnect.
+MCP Depot can integrate with [Infisical](https://infisical.com) to manage secrets externally. This allows you to store API tokens, keys, and other sensitive credentials in Infisical instead of directly in MCP Depot.
 
 ## Why Use Infisical?
 
 - **Centralized secrets management** - One place for all your API credentials
 - **No secrets in database** - Credentials stored externally, referenced by path
-- **Rotation friendly** - Update secrets in Infisical without changing MCPConnect config
+- **Rotation friendly** - Update secrets in Infisical without changing MCP Depot config
 - **Audit trail** - Infisical logs who accessed which secrets
 
 ## Quick Start (Self-Hosted)
 
 ```bash
-# Start Infisical alongside MCPConnect
+# Start Infisical alongside MCP Depot
 docker-compose --profile secret-store up -d
 
 # Access at http://localhost:8080
@@ -27,7 +27,7 @@ docker-compose --profile secret-store up -d
 #### Step 1: Create Organization and Project
 
 1. Go to `http://localhost:8080` and create your admin account
-2. Click **Create Organization** → enter name (e.g., "MCPConnect")
+2. Click **Create Organization** → enter name (e.g., "MCP Depot")
 3. Inside the org, click **Create Project** → enter name (e.g., "API Keys")
 
 #### Step 2: Create Identity (Machine User)
@@ -35,7 +35,7 @@ docker-compose --profile secret-store up -d
 1. Navigate to **Organization Settings** → **Access Control** → **Identities**
 2. Click **Create identity**
 3. Enter details:
-   - **Name**: `MCPConnect`
+   - **Name**: `MCP Depot`
    - **Role**: `Admin` (or `Member`)
 4. Click **Create**
 
@@ -72,7 +72,7 @@ docker-compose --profile secret-store up -d
 
 ---
 
-## MCPConnect Configuration
+## MCP Depot Configuration
 
 Add to your `.env` file:
 
@@ -96,11 +96,11 @@ Then restart: `docker compose up -d server`
 
 ---
 
-## Using Secrets in MCPConnect
+## Using Secrets in MCP Depot
 
 ### In Integration Credentials
 
-When adding an integration in MCPConnect UI:
+When adding an integration in MCP Depot UI:
 
 1. Select **Auth Type** → **Infisical Secret**
 2. Enter **Secret Reference** in format:

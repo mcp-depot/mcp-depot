@@ -1,4 +1,4 @@
-# Connect MCPConnect to Zed
+# Connect MCP Depot to Zed
 
 Zed currently supports only stdio transport.
 
@@ -6,12 +6,14 @@ Zed currently supports only stdio transport.
 
 ## stdio Transport
 
-### Step 1: Get Your API Key
+### Step 1: Install and Login
 
-1. Log in to MCPConnect at `http://localhost:3000`
-2. Go to **Settings** → **API Keys**
-3. Click **Generate API Key**
-4. Copy the key
+```bash
+npm install -g mcp-depot
+mcp-depot --login
+```
+
+Follow the prompts to enter your server URL and API key. These are saved to `~/.mcp-depot/config.json`.
 
 ### Step 2: Configure Zed
 
@@ -22,13 +24,9 @@ Zed currently supports only stdio transport.
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
-      "command": "npx",
-      "args": [
-        "mcpconnect-mcp",
-        "--url", "http://localhost:3000",
-        "--api-key", "YOUR_API_KEY"
-      ]
+    "mcp-depot": {
+      "command": "mcp-depot",
+      "args": ["--mcp"]
     }
   }
 }

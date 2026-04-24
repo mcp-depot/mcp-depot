@@ -27,7 +27,7 @@ mcp-depot is a self-hosted MCP server that exposes your integrations (Jira, GitH
 npx mcp-depot
 ```
 
-Opens the admin UI at `http://localhost:3000`. Data stored in `~/.mcpconnect/data.db` (SQLite). No database setup, no Docker required.
+Opens the admin UI at `http://localhost:3000`. Data stored in `~/.mcp-depot/data.db` (SQLite). No database setup, no Docker required.
 
 ### Option 2 — Docker Compose (recommended for teams)
 
@@ -40,7 +40,7 @@ docker compose up -d
 docker compose logs server | grep "Password:"
 
 # Login at http://localhost:5173
-# Email: admin@mcpconnect.io
+# Email: admin@mcpdepot.io
 # Password: (from logs above)
 ```
 
@@ -78,7 +78,7 @@ Add this to your Claude Code `settings.json`:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | *(not set)* | Postgres connection string. When set, SQLite is not used. |
-| `SQLITE_PATH` | `~/.mcpconnect/data.db` | Override SQLite file location. Ignored if `DATABASE_URL` is set. |
+| `SQLITE_PATH` | `~/.mcp-depot/data.db` | Override SQLite file location. Ignored if `DATABASE_URL` is set. |
 | `PORT` | `3000` | Port the server listens on. |
 | `JWT_SECRET` | *(required)* | Secret for signing auth tokens. Set this in production. |
 

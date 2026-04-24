@@ -1,4 +1,4 @@
-# Connect MCPConnect to Windsurf
+# Connect MCP Depot to Windsurf
 
 Windsurf supports MCP via configuration file. Both transports work.
 
@@ -8,7 +8,7 @@ Windsurf supports MCP via configuration file. Both transports work.
 
 ### Step 1: Get Your API Key
 
-1. Log in to MCPConnect at `http://localhost:3000`
+1. Log in to MCP Depot at `http://localhost:3000`
 2. Go to **Settings** → **API Keys**
 3. Click **Generate API Key**
 4. Copy the key
@@ -20,7 +20,7 @@ Edit `~/.codeium/windsurf/mcp_config.json`:
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -44,13 +44,15 @@ Close and reopen Windsurf to load the MCP server.
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "command": "npx",
-      "args": ["mcpconnect-mcp", "--url", "http://localhost:3000"]
+      "args": ["mcp-depot", "--mcp"]
     }
   }
 }
 ```
+
+> Run `mcp-depot --login` once first to save your server URL and API key.
 
 ---
 

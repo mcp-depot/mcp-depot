@@ -1,4 +1,4 @@
-# Connect MCPConnect to Cursor
+# Connect MCP Depot to Cursor
 
 Cursor supports MCP servers via settings. Both HTTP and stdio transports work.
 
@@ -8,7 +8,7 @@ Cursor supports MCP servers via settings. Both HTTP and stdio transports work.
 
 ### Step 1: Get Your API Key
 
-1. Log in to MCPConnect at `http://localhost:3000`
+1. Log in to MCP Depot at `http://localhost:3000`
 2. Go to **Settings** → **API Keys**
 3. Click **Generate API Key**
 4. Copy the key
@@ -19,7 +19,7 @@ Cursor supports MCP servers via settings. Both HTTP and stdio transports work.
 2. Go to **MCP Servers**
 3. Click **Add MCP Server**
 4. Enter:
-   - **Name**: `mcpconnect`
+   - **Name**: `mcp-depot`
    - **URL**: `http://localhost:3000/mcp`
    - **Headers**: `Authorization: Bearer YOUR_API_KEY`
 
@@ -28,7 +28,7 @@ Or edit `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -41,7 +41,7 @@ Or edit `~/.cursor/mcp.json`:
 
 ### Step 3: Verify
 
-Restart Cursor. You should see MCPConnect tools available in the AI chat.
+Restart Cursor. You should see MCP Depot tools available in the AI chat.
 
 ---
 
@@ -52,13 +52,15 @@ For older Cursor versions:
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "command": "npx",
-      "args": ["mcpconnect-mcp", "--url", "http://localhost:3000"]
+      "args": ["mcp-depot", "--mcp"]
     }
   }
 }
 ```
+
+> Run `mcp-depot --login` once first to save your server URL and API key.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a new feature for MCPConnect
+about: Suggest a new feature for MCP Depot
 title: '[Feature] '
 labels: enhancement
 assignees: ''

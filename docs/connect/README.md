@@ -1,6 +1,6 @@
-# Connect MCPConnect to Your AI Client
+# Connect MCP Depot to Your AI Client
 
-MCPConnect exposes tools via the [Model Context Protocol (MCP)](https://spec.modelcontextprotocol.io/), allowing you to use integrations (JIRA, GitHub, Jenkins, etc.) directly from your AI assistant.
+MCP Depot exposes tools via the [Model Context Protocol (MCP)](https://spec.modelcontextprotocol.io/), allowing you to use integrations (JIRA, GitHub, Jenkins, etc.) directly from your AI assistant.
 
 ---
 
@@ -13,7 +13,7 @@ Most clients support HTTP transport - no local process needed.
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "type": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -31,13 +31,15 @@ For clients that only support stdio (Zed, some VS Code extensions):
 ```json
 {
   "mcpServers": {
-    "mcpconnect": {
+    "mcp-depot": {
       "command": "npx",
-      "args": ["mcpconnect-mcp", "--url", "http://localhost:3000"]
+      "args": ["mcp-depot", "--mcp"]
     }
   }
 }
 ```
+
+> Run `mcp-depot --login` once before using stdio transport to save your server URL and API key.
 
 ---
 
@@ -56,7 +58,7 @@ For clients that only support stdio (Zed, some VS Code extensions):
 
 ## Getting Your API Key
 
-1. Log in to MCPConnect at `http://localhost:3000`
+1. Log in to MCP Depot at `http://localhost:3000`
 2. Go to **Settings** → **API Keys**
 3. Click **Generate API Key**
 4. Copy the key (it won't be shown again)
@@ -65,7 +67,7 @@ For clients that only support stdio (Zed, some VS Code extensions):
 
 ## Server Requirements
 
-- MCPConnect server running (Docker Compose or standalone)
+- MCP Depot server running (Docker Compose or standalone)
 - At least one integration configured with tools
 - API key generated for authentication
 
@@ -83,7 +85,7 @@ environment:
 ## Troubleshooting
 
 ### Connection Refused
-- Ensure MCPConnect server is running: `curl http://localhost:3000/health`
+- Ensure MCP Depot server is running: `curl http://localhost:3000/health`
 - Check the URL is correct (no trailing slash)
 
 ### 401 Unauthorized
