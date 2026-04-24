@@ -6,6 +6,14 @@ const fs = require('fs');
 const os = require('os');
 const args = process.argv.slice(2);
 
+const portFlagIndex = args.findIndex(a => a === '--port');
+const portFlagValue = args.find(a => a.startsWith('--port='));
+const portArg = portFlagValue
+  ? portFlagValue.split('=')[1]
+  : portFlagIndex !== -1 ? args[portFlagIndex + 1] : null;
+
+if (portArg) process.env.PORT = portArg;
+
 if (args.includes('--login')) {
   runLogin();
 } else if (args.includes('--mcp')) {

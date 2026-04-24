@@ -89,7 +89,7 @@ const createDefaultUser = async () => {
   if (!adminExists) {
     const defaultPassword = process.env.ADMIN_PASSWORD || generatePassword();
     
-    await User.create({
+    const adminUser = await User.create({
       email: adminEmail,
       password: defaultPassword,
       name: 'Administrator',
@@ -97,14 +97,20 @@ const createDefaultUser = async () => {
       mustResetPassword: !process.env.ADMIN_PASSWORD
     });
     
+    const apiKey = adminUser.generateApiKey();
+    adminUser.apiKeyEnabled = true;
+    await adminUser.save();
+    
     logger.info('\n===========================================');
     logger.info('DEFAULT ADMIN USER CREATED');
     logger.info('===========================================');
-    logger.info(`Email: ${adminEmail}`);
+    logger.info(`Email:    ${adminEmail}`);
     logger.info(`Password: ${defaultPassword}`);
+    logger.info(`API Key:  ${apiKey}`);
     logger.info('===========================================');
     if (!process.env.ADMIN_PASSWORD) {
       logger.info('IMPORTANT: Change this password after first login!');
+      logger.info('Use the API Key above for MCP client config or mcp-depot --login.');
       logger.info('===========================================\n');
     }
     
