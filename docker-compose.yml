@@ -87,19 +87,18 @@ services:
     networks:
       - mcp-depot-network
 
-  # Uncomment when demo-mcp-server.js exists
-#   demo-mcp:
-#     image: node:20-alpine
-#     container_name: mcp-depot-demo-mcp
-#     restart: unless-stopped
-#     working_dir: /app
-#     command: ["node", "demo-mcp-server.js"]
-#     ports:
-#       - "3001:3001"
-#     volumes:
-#       - ./demo-mcp:/app
-#     networks:
-#       - mcp-depot-network
+  demo-mcp:
+    image: node:20-alpine
+    container_name: mcp-depot-demo-mcp
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "demo-mcp-server.js"]
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./examples/demo-mcp:/app
+    networks:
+      - mcp-depot-network
 
   infisical:
     image: infisical/infisical:latest-postgres
