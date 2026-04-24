@@ -675,6 +675,7 @@ function Workflows() {
                     🖱️ Drag to pan • Click node for details • Scroll to zoom
                   </div>
                 </div>
+                  {selectedNode && (
                   <div style={{ width: '350px', background: 'var(--surface)', borderLeft: '1px solid var(--border)', padding: '1.5rem', overflow: 'auto' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)' }}>
                       <div style={{ 
