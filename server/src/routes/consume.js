@@ -191,6 +191,16 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       }
     }
     
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+      const apiKey = req.headers['x-api-key'];
+      const jwt = req.headers['authorization'];
+      if (apiKey) {
+        config = { ...config, headers: { ...config.headers, 'x-api-key': apiKey } };
+      } else if (jwt) {
+        config = { ...config, headers: { ...config.headers, 'Authorization': jwt } };
+      }
+    }
+    
     const adapter = AdapterFactory.create(integration.type, {
       ...config,
       integrationId: integration.id
@@ -368,7 +378,18 @@ router.post('/trigger', optionalApiKey, async (req, res) => {
       return res.status(400).json({ error: 'Integration is not active' });
     }
 
-    const adapter = AdapterFactory.create(integration.type, integration.config);
+    let config = { ...integration.config };
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+      const apiKey = req.headers['x-api-key'];
+      const jwt = req.headers['authorization'];
+      if (apiKey) {
+        config = { ...config, headers: { ...config.headers, 'x-api-key': apiKey } };
+      } else if (jwt) {
+        config = { ...config, headers: { ...config.headers, 'Authorization': jwt } };
+      }
+    }
+
+    const adapter = AdapterFactory.create(integration.type, config);
     
     let result;
     const reqMethod = (method || 'GET').toUpperCase();
