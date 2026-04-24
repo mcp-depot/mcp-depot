@@ -1,12 +1,21 @@
 const express = require('express');
 const Joi = require('joi');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { auth, requireAdmin } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
 
 const router = express.Router();
+
+function isCommandAvailable(cmd) {
+  try {
+    execSync(`${process.platform === 'win32' ? 'where' : 'which'} ${cmd}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 let clearToolsCache = null;
 
@@ -66,13 +75,14 @@ async function callStdioMcp(command, args, envVars, method, params = {}, runtime
     let cmdArgs = argsArray;
     
     if (runtime === 'python') {
-      cmd = 'python3';
+      cmd = process.platform === 'win32' ? 'python' : 'python3';
       cmdArgs = ['-m', 'mcp', ...argsArray];
     }
     
     const proc = spawn(cmd, cmdArgs, {
       env: fullEnv,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true
     });
     
     let stdout = '';
@@ -383,7 +393,20 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Package name is required' });
     }
     
-    const { spawn } = require('child_process');
+    if (runtime === 'python') {
+      if (!isCommandAvailable('pip') && !isCommandAvailable('pip3')) {
+        return res.status(422).json({
+          error: 'pip is not installed or not on PATH. Please install Python from https://python.org and restart MCP Depot.'
+        });
+      }
+    } else {
+      if (!isCommandAvailable('npm')) {
+        return res.status(422).json({
+          error: 'npm is not installed or not on PATH. Please install Node.js from https://nodejs.org and restart MCP Depot.'
+        });
+      }
+    }
+    
     const pkgName = packageName.trim();
     
     return new Promise((resolve, reject) => {
@@ -398,7 +421,8 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
       }
       
       const proc = spawn(cmd, args, {
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true
       });
       
       let stdout = '';
