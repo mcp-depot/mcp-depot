@@ -209,6 +209,30 @@ function runLogin() {
     const apiKey = await ask('API key: ');
     rl.close();
 
+    console.error('\nTesting connection...');
+    try {
+      const testUrl = (url.trim() || 'http://localhost:3000/api/mcp') + '/tools';
+      const res = await fetch(testUrl, {
+        headers: { 'x-api-key': apiKey.trim() }
+      });
+      if (res.status === 401) {
+        console.error('Login failed: invalid API key.');
+        process.exit(1);
+      }
+      if (res.status === 404) {
+        console.error('Login failed: server not found at that URL. Check the URL and try again.');
+        process.exit(1);
+      }
+      if (!res.ok) {
+        console.error(`Login failed: server returned ${res.status}.`);
+        process.exit(1);
+      }
+      console.error('Connection successful.');
+    } catch (e) {
+      console.error('Login failed: could not reach server.', e.message);
+      process.exit(1);
+    }
+
     const configDir = path.join(os.homedir(), '.mcp-depot');
     const configFile = path.join(configDir, 'config.json');
     fs.mkdirSync(configDir, { recursive: true });
