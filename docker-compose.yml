@@ -16,7 +16,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d mcp-depot"]
       interval: 10s
@@ -30,7 +32,9 @@ services:
     expose:
       - "6379"
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
     profiles:
       - secret-store
 
@@ -44,11 +48,11 @@ services:
       - "3000:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-      - "mcp-depot.local:host-gateway"
+      - "mcpdepot.local:host-gateway"
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcp-depot
+      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcpconnect
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       - JWT_EXPIRE=15m
@@ -70,7 +74,9 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
 
   client:
     build:
@@ -85,7 +91,9 @@ services:
     depends_on:
       - server
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
 
   demo-mcp:
     image: node:20-alpine
@@ -98,7 +106,9 @@ services:
     volumes:
       - ./examples/demo-mcp:/app
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
 
   infisical:
     image: infisical/infisical:latest-postgres
@@ -118,7 +128,9 @@ services:
       valkey:
         condition: service_started
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
     profiles:
       - secret-store
 
