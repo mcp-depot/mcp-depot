@@ -9,14 +9,12 @@ function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [allowRegistration, setAllowRegistration] = useState(true);
-  const { login } = useAuth();
-  const navigate = useNavigate();
+const [allowRegistration, setAllowRegistration] = useState(false);
 
   useEffect(() => {
     api.get('/auth/config')
-      .then(res => setAllowRegistration(res.data.allowRegistration))
-      .catch(() => {});
+      .then(res => setAllowRegistration(res.data.allowRegistration === true))
+      .catch(() => setAllowRegistration(false));
   }, []);
 
   const handleSubmit = async (e) => {
