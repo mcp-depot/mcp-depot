@@ -1,6 +1,6 @@
 {
   "name": "mcp-depot",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Self-hosted MCP server — connect AI assistants to your APIs and platforms",
   "bin": {
     "mcp-depot": "bin/cli.js"
@@ -39,6 +39,7 @@
     "uuid": "^9.0.1",
     "zod": "^3.25.1"
   },
+  "preferGlobal": true,
   "engines": {
     "node": ">=18"
   }
