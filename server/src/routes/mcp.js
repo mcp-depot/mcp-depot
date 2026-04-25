@@ -730,15 +730,13 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
 
       const queryParams = t.endpoint.params || {};
       Object.entries(queryParams).forEach(([key, val]) => {
-        if (val.required) {
-          params.push({
-            name: key,
-            in: 'query',
-            required: true,
-            type: 'string',
-            description: val.description || `Query parameter: ${key}`
-          });
-        }
+        params.push({
+          name: key,
+          in: 'query',
+          required: val.required === true,
+          type: 'string',
+          description: val.description || `Query parameter: ${key}`
+        });
       });
 
       let inputSchema = t.inputSchema || {};

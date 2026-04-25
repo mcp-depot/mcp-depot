@@ -252,7 +252,17 @@ const createDefaultTool = async () => {
       {
         name: 'store-session-context',
         description: 'Save a named context to MCP Depot. Private by default — set shared=true to make it readable by any MCP Depot user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
-        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any MCP Depot user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Default 168. Pass 0 to pin.' } }, headers: {} }
+        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any MCP Depot user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Default 168. Pass 0 to pin.' } }, headers: {} },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name:     { type: 'string',  description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
+            content:  { type: 'string',  description: 'The context to store — markdown, JSON, bullet list, anything' },
+            shared:   { type: 'boolean', description: 'If true, any MCP Depot user can read this context. Default false.' },
+            ttlHours: { type: 'number',  description: 'Hours until expiry. Default 168 (7 days). Pass 0 to pin permanently with no expiry.' }
+          },
+          required: ['name', 'content']
+        }
       },
       {
         name: 'get-session-context',
@@ -357,7 +367,17 @@ const createDefaultTool = async () => {
       {
         name: 'store-session-context',
         description: 'Save a named context to MCP Depot. Private by default — set shared=true to make it readable by any MCP Depot user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
-        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Pass 0 to pin.' } }, headers: {} }
+        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Pass 0 to pin.' } }, headers: {} },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name:     { type: 'string',  description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
+            content:  { type: 'string',  description: 'The context to store — markdown, JSON, bullet list, anything' },
+            shared:   { type: 'boolean', description: 'If true, any MCP Depot user can read this context. Default false.' },
+            ttlHours: { type: 'number',  description: 'Hours until expiry. Default 168 (7 days). Pass 0 to pin permanently with no expiry.' }
+          },
+          required: ['name', 'content']
+        }
       },
       {
         name: 'get-session-context',
@@ -401,6 +421,15 @@ const createDefaultTool = async () => {
         where: { name: toolDef.name },
         defaults: { userId, integrationId: sessionsIntegration.id, ...toolDef, isActive: true }
       });
+    }
+
+    for (const toolDef of sessionToolsToCreate) {
+      if (toolDef.inputSchema) {
+        await Tool.update(
+          { inputSchema: toolDef.inputSchema, description: toolDef.description },
+          { where: { name: toolDef.name } }
+        );
+      }
     }
 
     const toolsToCreate = [
