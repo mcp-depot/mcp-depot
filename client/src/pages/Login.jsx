@@ -5,6 +5,8 @@ import { Network } from 'lucide-react';
 import api from '../services/api';
 
 function Login() {
+  const { login } = useAuth();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
