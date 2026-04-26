@@ -14,6 +14,54 @@ const portArg = portFlagValue
 
 if (portArg) process.env.PORT = portArg;
 
+const DATA_DIR = path.join(os.homedir(), '.mcp-depot');
+const PID_FILE = path.join(DATA_DIR, 'mcp-depot.pid');
+const LOG_FILE = path.join(DATA_DIR, 'mcp-depot.log');
+
+function daemonStart() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (fs.existsSync(PID_FILE)) {
+    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8'));
+    try { process.kill(pid, 0); console.log(`Already running (PID ${pid})`); return } catch {}
+    fs.unlinkSync(PID_FILE);
+  }
+  if (!process.env.DATABASE_URL) {
+    process.env.SQLITE_PATH = path.join(DATA_DIR, 'data.db');
+  }
+  const logHandle = fs.openSync(LOG_FILE, 'a');
+  const child = spawn(process.execPath, [__filename], {
+    detached: true,
+    stdio: ['ignore', logHandle, logHandle],
+    env: { ...process.env }
+  });
+  child.unref();
+  fs.writeFileSync(PID_FILE, String(child.pid));
+  console.log(`MCP Depot started (PID ${child.pid}) — logs: ${LOG_FILE}`);
+}
+
+function daemonStop() {
+  if (!fs.existsSync(PID_FILE)) { console.log('Not running'); return; }
+  const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8'));
+  try {
+    process.kill(pid, 'SIGTERM');
+    fs.unlinkSync(PID_FILE);
+    console.log(`Stopped (PID ${pid})`);
+  } catch { console.log('Process not found — removing stale PID file'); fs.unlinkSync(PID_FILE); }
+}
+
+function daemonStatus() {
+  if (!fs.existsSync(PID_FILE)) { console.log('Status: stopped'); return; }
+  const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8'));
+  try { process.kill(pid, 0); console.log(`Status: running (PID ${pid})`) }
+  catch { console.log(`Status: stopped (stale PID ${pid})`); fs.unlinkSync(PID_FILE); }
+}
+
+if (args.includes('--daemon')) { daemonStart(); process.exit(0); }
+if (args.includes('--stop')) { daemonStop(); process.exit(0); }
+if (args.includes('--status')) { daemonStatus(); process.exit(0); }
+
 if (args.includes('--login')) {
   runLogin();
 } else if (args.includes('--mcp')) {
