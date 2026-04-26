@@ -6,6 +6,12 @@ const fs = require('fs');
 const os = require('os');
 const args = process.argv.slice(2);
 
+const isGlobal = process.env.npm_config_global === 'true' || !__dirname.includes('node_modules');
+if (!isGlobal && !args.includes('--login') && !args.includes('--mcp')) {
+  console.warn('\x1b[33mWarning: mcp-depot is designed to be installed globally.\x1b[0m');
+  console.warn('\x1b[33mRun: npm install -g mcp-depot\x1b[0m\n');
+}
+
 const portFlagIndex = args.findIndex(a => a === '--port');
 const portFlagValue = args.find(a => a.startsWith('--port='));
 const portArg = portFlagValue
