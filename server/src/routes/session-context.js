@@ -111,6 +111,24 @@ router.patch('/:name/share', auth, async (req, res) => {
   }
 });
 
+router.patch('/:name', auth, async (req, res) => {
+  try {
+    const { SessionContext } = loadModels();
+    const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
+    if (!ctx) return res.status(404).json({ error: 'Context not found' });
+    if (ctx.createdBy !== req.user.id) {
+      return res.status(403).json({ error: 'You do not own this context' });
+    }
+    const updates = {};
+    if (typeof req.body.shared === 'boolean') updates.isShared = req.body.shared;
+    if (typeof req.body.ttlHours === 'number') updates.ttlHours = req.body.ttlHours === 0 ? null : req.body.ttlHours;
+    await ctx.update(updates);
+    res.json(ctx);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete('/:name', auth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();

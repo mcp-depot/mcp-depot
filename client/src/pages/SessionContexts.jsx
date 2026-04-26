@@ -76,6 +76,18 @@ function SessionContexts() {
     }
   };
 
+  const handleUpdateTtl = async (name, ttlHours) => {
+    try {
+      await api.patch(`/session-contexts/${encodeURIComponent(name)}`, token, { ttlHours });
+      loadContexts();
+      if (selected?.name === name) {
+        setSelected(s => ({ ...s, ttlHours }));
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update TTL');
+    }
+  };
+
   const isOwner = (ctx) => ctx.createdBy === user?.id;
 
   return (
@@ -114,10 +126,30 @@ function SessionContexts() {
                     {ctx.isShared ? 'Shared' : 'Private'}
                   </span>
                 </td>
-                <td>
-                  <span className={`expiry-${expiryInfo(ctx, now).urgency}`}>
-                    {expiryInfo(ctx, now).label}
-                  </span>
+                <td onClick={e => e.stopPropagation()}>
+                  {isOwner(ctx) ? (
+                    <select
+                      className="input-sm"
+                      value={ctx.ttlHours ?? -1}
+                      onChange={e => {
+                        e.stopPropagation();
+                        const val = parseInt(e.target.value);
+                        handleUpdateTtl(ctx.name, val === -1 ? 0 : val);
+                      }}
+                      onClick={e => e.stopPropagation()}
+                      style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+                    >
+                      <option value={-1}>Pin permanent</option>
+                      <option value={24}>1 day</option>
+                      <option value={168}>7 days</option>
+                      <option value={720}>30 days</option>
+                      <option value={2160}>90 days</option>
+                    </select>
+                  ) : (
+                    <span className={`expiry-${expiryInfo(ctx, now).urgency}`}>
+                      {expiryInfo(ctx, now).label}
+                    </span>
+                  )}
                 </td>
                 <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
                 <td>{ctx.content?.length ?? 0} chars</td>
