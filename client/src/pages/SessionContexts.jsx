@@ -129,22 +129,27 @@ function SessionContexts() {
                 </td>
                 <td onClick={e => e.stopPropagation()}>
                   {isOwner(ctx) ? (
-                    <select
-                      className="input-sm"
-                      value={ctx.ttlHours ?? -1}
-                      onChange={e => {
-                        e.stopPropagation();
-                        const val = parseInt(e.target.value);
-                        handleUpdateTtl(ctx.name, val === -1 ? 0 : val);
-                      }}
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <option value={-1}>Pin permanent</option>
-                      <option value={24}>1 day</option>
-                      <option value={168}>7 days</option>
-                      <option value={720}>30 days</option>
-                      <option value={2160}>90 days</option>
-                    </select>
+                    <>
+                      <span className={`expiry-${expiryInfo(ctx, now).urgency}`} style={{ marginRight: '6px' }}>
+                        {expiryInfo(ctx, now).label}
+                      </span>
+                      <select
+                        className="input-sm"
+                        value={ctx.ttlHours ?? -1}
+                        onChange={e => {
+                          e.stopPropagation();
+                          const val = parseInt(e.target.value);
+                          handleUpdateTtl(ctx.name, val === -1 ? 0 : val);
+                        }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <option value={-1}>Pin permanent</option>
+                        <option value={24}>1 day</option>
+                        <option value={168}>7 days</option>
+                        <option value={720}>30 days</option>
+                        <option value={2160}>90 days</option>
+                      </select>
+                    </>
                   ) : (
                     <span className={`expiry-${expiryInfo(ctx, now).urgency}`}>
                       {expiryInfo(ctx, now).label}
