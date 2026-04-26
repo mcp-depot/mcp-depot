@@ -89,7 +89,7 @@ function SessionContexts() {
     }
   };
 
-  const isOwner = (ctx) => ctx.createdBy === user?.id;
+  const isOwner = (ctx) => ctx.createdBy === user?.id || ctx.createdBy == null;
 
   return (
     <div className="container">
