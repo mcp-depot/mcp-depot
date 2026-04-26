@@ -138,7 +138,6 @@ function SessionContexts() {
                         handleUpdateTtl(ctx.name, val === -1 ? 0 : val);
                       }}
                       onClick={e => e.stopPropagation()}
-                      style={{ padding: '4px 8px', fontSize: '0.8rem' }}
                     >
                       <option value={-1}>Pin permanent</option>
                       <option value={24}>1 day</option>
