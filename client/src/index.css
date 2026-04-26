@@ -1102,7 +1102,7 @@ select.input-sm option,
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   width: 100%;
-  max-width: 560px;
+  max-width: 720px;
   max-height: 85vh;
   overflow-y: auto;
 }

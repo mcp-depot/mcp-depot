@@ -5,7 +5,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
 
 function expiryInfo(ctx, now) {
-  if (ctx.ttlHours == null) return { label: 'Pinned', urgency: 'pinned' };
+  if (ctx.ttlHours == null || ctx.ttlHours === 0) return { label: 'Pinned', urgency: 'pinned' };
   const expiresAt = new Date(ctx.updatedAt).getTime() + ctx.ttlHours * 3600000;
   const msLeft = expiresAt - now;
   if (msLeft <= 0) return { label: 'Expired', urgency: 'urgent' };
@@ -82,7 +82,7 @@ function SessionContexts() {
       await api.patch(`/session-contexts/${encodeURIComponent(name)}`, { ttlHours });
       loadContexts();
       if (selected?.name === name) {
-        setSelected(s => ({ ...s, ttlHours }));
+        setSelected(s => ({ ...s, ttlHours: ttlHours === 0 ? null : ttlHours }));
       }
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to update TTL');
@@ -135,7 +135,7 @@ function SessionContexts() {
                       </span>
                       <select
                         className="input-sm"
-                        value={ctx.ttlHours ?? -1}
+                        value={ctx.ttlHours == null || ctx.ttlHours === 0 ? -1 : ctx.ttlHours}
                         onChange={e => {
                           e.stopPropagation();
                           const val = parseInt(e.target.value);
