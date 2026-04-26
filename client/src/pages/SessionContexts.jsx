@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Layers, Globe, Lock, Trash2, Share2, MessageSquare } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import api from '../services/api';
 
 function expiryInfo(ctx, now) {
@@ -192,7 +193,9 @@ function SessionContexts() {
                 <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
                 <span>{selected.content?.length ?? 0} chars</span>
               </div>
-              <pre>{selected.content}</pre>
+              <div className="markdown-body">
+                <ReactMarkdown>{selected.content}</ReactMarkdown>
+              </div>
             </div>
             <div className="modal-footer">
               {isOwner(selected) && (
