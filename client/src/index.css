@@ -2163,6 +2163,31 @@ code {
 }
 
 /* Markdown rendering */
+.md-body { font-size: 0.88rem; line-height: 1.7; color: var(--text-light); }
+.md-h1 { font-size: 1.05rem; font-weight: 700; color: var(--text); margin: 1.1rem 0 0.45rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border-light); }
+.md-h2 { font-size: 0.95rem; font-weight: 700; color: var(--text); margin: 0.9rem 0 0.35rem; }
+.md-h3 { font-size: 0.88rem; font-weight: 600; color: var(--text-secondary); margin: 0.75rem 0 0.3rem; }
+.md-h4 { font-size: 0.85rem; font-weight: 600; color: var(--text-dim); margin: 0.6rem 0 0.25rem; }
+.md-p { color: var(--text-light); margin: 0.35rem 0; }
+.md-p:last-child { margin-bottom: 0; }
+.md-strong { color: var(--text); font-weight: 600; }
+.md-em { color: var(--text-secondary); font-style: italic; }
+.md-code-inline { background: var(--surface-hover); color: var(--primary); font-family: monospace; font-size: 0.8rem; padding: 2px 6px; border-radius: 4px; }
+.md-code-block { display: block; background: var(--surface-hover); border: 1px solid var(--border-light); border-radius: 8px; padding: 0.7rem 1rem; font-family: monospace; font-size: 0.78rem; color: var(--text-secondary); white-space: pre-wrap; overflow-x: auto; margin: 0.6rem 0; }
+.md-ul { list-style: disc; padding-left: 1.25rem; margin: 0.3rem 0; }
+.md-ol { list-style: decimal; padding-left: 1.25rem; margin: 0.3rem 0; }
+.md-li { color: var(--text-light); margin: 0.15rem 0; }
+.md-blockquote { border-left: 3px solid var(--primary); padding-left: 0.75rem; margin: 0.5rem 0; color: var(--text-dim); font-style: italic; }
+.md-hr { border: none; border-top: 1px solid var(--border-light); margin: 0.8rem 0; }
+.md-link { color: var(--primary); text-decoration: none; }
+.md-link:hover { text-decoration: underline; }
+.md-table-wrap { overflow-x: auto; margin: 0.6rem 0; }
+.md-table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+.md-thead { background: var(--surface-hover); }
+.md-th { border: 1px solid var(--border-light); padding: 0.35rem 0.7rem; text-align: left; font-weight: 600; color: var(--text); white-space: nowrap; }
+.md-td { border: 1px solid var(--border-light); padding: 0.35rem 0.7rem; color: var(--text-light); }
+.md-tr:nth-child(even) .md-td { background: var(--surface-hover); }
+
 .markdown-body {
   font-size: 0.9rem;
   line-height: 1.7;
