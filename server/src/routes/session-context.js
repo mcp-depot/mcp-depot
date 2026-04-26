@@ -83,7 +83,7 @@ router.post('/', auth, async (req, res) => {
     });
 
     if (!created) {
-      if (ctx.createdBy !== req.user.id) {
+      if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'You do not own this context' });
       }
       await ctx.update({ content: value.content, isShared: value.shared, ttlHours });
@@ -100,7 +100,7 @@ router.patch('/:name/share', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id) {
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not own this context' });
     }
     const isShared = typeof req.body.shared === 'boolean' ? req.body.shared : !ctx.isShared;
@@ -116,7 +116,7 @@ router.patch('/:name', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id) {
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not own this context' });
     }
     const updates = {};
@@ -134,7 +134,7 @@ router.delete('/:name', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id) {
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not own this context' });
     }
     await ctx.destroy();
