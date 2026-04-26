@@ -67,7 +67,7 @@ function SessionContexts() {
 
   const handleToggleShare = async (name, currentShared) => {
     try {
-      await api.patch(`/session-contexts/${encodeURIComponent(name)}/share`, token, { shared: !currentShared });
+      await api.patch(`/session-contexts/${encodeURIComponent(name)}/share`, { shared: !currentShared });
       loadContexts();
       if (selected?.name === name) {
         setSelected(s => ({ ...s, isShared: !currentShared }));
@@ -79,7 +79,7 @@ function SessionContexts() {
 
   const handleUpdateTtl = async (name, ttlHours) => {
     try {
-      await api.patch(`/session-contexts/${encodeURIComponent(name)}`, token, { ttlHours });
+      await api.patch(`/session-contexts/${encodeURIComponent(name)}`, { ttlHours });
       loadContexts();
       if (selected?.name === name) {
         setSelected(s => ({ ...s, ttlHours }));
