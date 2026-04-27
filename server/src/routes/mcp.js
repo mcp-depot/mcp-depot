@@ -124,7 +124,8 @@ router.post('/session-contexts/store', async (req, res) => {
     const callerId = req.user?.id ?? null;
     const ttlProvided = Object.prototype.hasOwnProperty.call(req.body, 'ttlHours');
     const rawTtl = ttlProvided ? req.body.ttlHours : undefined;
-    const ttlHours = rawTtl === 0 ? null : (rawTtl ?? DEFAULT_TTL_HOURS); // default applies on CREATE only
+    const rawNum = (rawTtl !== undefined && rawTtl !== null) ? Number(rawTtl) : DEFAULT_TTL_HOURS;
+    const ttlHours = rawNum === 0 ? null : rawNum;
 
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name },
@@ -1306,7 +1307,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
           }
           current[target[target.length - 1]] = value;
         } else if (!hasBodyTemplate && key !== 'workspace' && key !== 'repo_slug') {
-          bodyParams[key] = value;
+          bodyParams[key] = coerceParam(value, paramDefs, key);
         }
       } else {
         queryParams[key] = value;

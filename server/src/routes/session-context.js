@@ -69,7 +69,8 @@ router.post('/', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
 
-    const ttlHours = value.ttlHours === 0 ? null : value.ttlHours;
+    const rawNum = (value.ttlHours !== undefined && value.ttlHours !== null) ? Number(value.ttlHours) : value.ttlHours;
+    const ttlHours = rawNum === 0 ? null : rawNum;
 
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name: value.name },
