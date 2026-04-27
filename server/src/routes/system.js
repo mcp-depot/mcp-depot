@@ -193,7 +193,7 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
         const created = await Integration.create({
           name: int.name,
           type: int.type,
-          config: int.config,
+          config: int.config ?? {},
           userId: req.user.id,
           credentials: null
         });
@@ -321,7 +321,8 @@ router.post('/import-preview', auth, async (req, res) => {
     if (req.body.integrations) {
       preview.integrations = req.body.integrations.map(i => ({
         name: i.name,
-        type: i.type
+        type: i.type,
+        config: i.config ?? {}
       }));
     }
     
