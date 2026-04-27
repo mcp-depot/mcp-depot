@@ -738,13 +738,18 @@ function Settings() {
                         <input type="checkbox" id="exportWorkflows" />
                         Workflows
                       </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" id="exportSkills" defaultChecked />
+                        Skills
+                      </label>
                     </div>
                     <button className="btn btn-primary" onClick={async () => {
                       const data = {
                         externalMcp: document.getElementById('exportExternalMcp').checked,
                         integrations: document.getElementById('exportIntegrations').checked,
                         tools: document.getElementById('exportTools').checked,
-                        workflows: document.getElementById('exportWorkflows').checked
+                        workflows: document.getElementById('exportWorkflows').checked,
+                        skills: document.getElementById('exportSkills').checked
                       };
                       try {
                         const res = await api.post('/system/export', data, { responseType: 'blob' });
@@ -784,7 +789,8 @@ function Settings() {
                                 externalMcpServers: (res.data.externalMcpServers || []).map((_, i) => i),
                                 integrations: (res.data.integrations || []).map((_, i) => i),
                                 tools: (res.data.tools || []).map((_, i) => i),
-                                workflows: (res.data.workflows || []).map((_, i) => i)
+                                workflows: (res.data.workflows || []).map((_, i) => i),
+                                skills: (res.data.skills || []).map((_, i) => i)
                               });
                             } catch (err) {
                               alert('Invalid JSON file: ' + (err.message || 'Failed to parse'));
@@ -858,8 +864,22 @@ function Settings() {
                           )}
                         </div>
                         
+                        <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)' }}>
+                          <strong>Skills ({importPreview.skills?.length || 0})</strong>
+                          {importPreview.skills?.length > 0 && (
+                            <div style={{ marginTop: '0.5rem', marginLeft: '0.5rem' }}>
+                              {importPreview.skills.map((s, idx) => (
+                                <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                                  <input type="checkbox" checked={selectedForImport.skills.includes(idx)} onChange={(e) => setSelectedForImport({ ...selectedForImport, skills: e.target.checked ? [...selectedForImport.skills, idx] : selectedForImport.skills.filter(x => x !== idx) })} />
+                                  {s.name} <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>({s.description})</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        
                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                          <button className="btn btn-secondary" onClick={() => { setImportPreview(null); setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [] }); document.getElementById('importFile').value = ''; }}>
+                          <button className="btn btn-secondary" onClick={() => { setImportPreview(null); setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [], skills: [] }); document.getElementById('importFile').value = ''; }}>
                             Cancel
                           </button>
                           <button className="btn btn-primary" onClick={async () => {
@@ -868,12 +888,13 @@ function Settings() {
                                 externalMcpServers: selectedForImport.externalMcpServers.map(i => importPreview.externalMcpServers[i]),
                                 integrations: selectedForImport.integrations.map(i => importPreview.integrations[i]),
                                 tools: selectedForImport.tools.map(i => importPreview.tools[i]),
-                                workflows: selectedForImport.workflows.map(i => importPreview.workflows[i])
+                                workflows: selectedForImport.workflows.map(i => importPreview.workflows[i]),
+                                skills: selectedForImport.skills.map(i => importPreview.skills[i])
                               };
                               const res = await api.post('/system/import', payload);
-                              alert(`Import complete!\n\nImported:\n- External MCP: ${res.data.externalMcp || 0}\n- Integrations: ${res.data.integrations || 0}\n- Tools: ${res.data.tools || 0}\n- Workflows: ${res.data.workflows || 0}`);
+                              alert(`Import complete!\n\nImported:\n- External MCP: ${res.data.externalMcp || 0}\n- Integrations: ${res.data.integrations || 0}\n- Tools: ${res.data.tools || 0}\n- Workflows: ${res.data.workflows || 0}\n- Skills: ${res.data.skills || 0}`);
                               setImportPreview(null);
-                              setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [] });
+                              setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [], skills: [] });
                               document.getElementById('importFile').value = '';
                             } catch (err) {
                               alert('Import failed: ' + (err.response?.data?.error || err.message));
