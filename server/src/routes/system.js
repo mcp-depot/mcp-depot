@@ -183,25 +183,27 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
 
     const { loadModels } = require('../config/database');
     const result = { externalMcp: 0, integrations: 0, tools: 0, skills: 0, workflows: 0, sessionContexts: 0 };
-    const integrationIdMap = new Map();
-    const createdIntegrations = [];
     
     if (value.integrations) {
       const { Integration } = loadModels();
       for (let i = 0; i < value.integrations.length; i++) {
         const int = value.integrations[i];
-        const created = await Integration.create({
-          name: int.name,
-          type: int.type,
-          config: int.config ?? {},
-          userId: req.user.id,
-          credentials: null
+        const [created] = await Integration.findOrCreate({
+          where: { name: int.name, userId: req.user.id },
+          defaults: {
+            type: int.type,
+            config: int.config ?? {},
+            credentials: null
+          }
         });
-        integrationIdMap.set(i, created.id);
-        createdIntegrations.push({ name: int.name, id: created.id });
         result.integrations++;
       }
     }
+
+    // Build a complete name→id map from ALL of the user's integrations (imported + pre-existing)
+    const { Integration } = loadModels();
+    const allIntegrations = await Integration.findAll({ where: { userId: req.user.id } });
+    const integrationNameToId = new Map(allIntegrations.map(i => [i.name, i.id]));
     
     if (value.externalMcpServers) {
       const { ExternalMcpServer } = loadModels();
@@ -217,7 +219,6 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
     
     if (value.tools) {
       const Tool = require('../models/Tool');
-      const Integration = require('../models/Integration');
       for (const tool of value.tools) {
         const toolData = {
           name: tool.name,
@@ -226,18 +227,17 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
           inputSchema: tool.inputSchema,
           userId: req.user.id
         };
-        // Prefer integrationName (new), fall back to integrationId (old UUID format)
-        if (tool.integrationName) {
-          const match = createdIntegrations.find(i => i.name === tool.integrationName);
-          if (match) toolData.integrationId = match.id;
-        } else if (tool.integrationId != null && integrationIdMap.has(tool.integrationId)) {
-          toolData.integrationId = integrationIdMap.get(tool.integrationId);
+        if (tool.integrationName && integrationNameToId.has(tool.integrationName)) {
+          toolData.integrationId = integrationNameToId.get(tool.integrationName);
         }
         if (!toolData.integrationId) {
           console.warn(`Skipping tool "${tool.name}" — no linked integration found`);
           continue;
         }
-        await Tool.create(toolData);
+        await Tool.findOrCreate({
+          where: { name: tool.name, userId: req.user.id },
+          defaults: toolData
+        });
         result.tools++;
       }
     }
