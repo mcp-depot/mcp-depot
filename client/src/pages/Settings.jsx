@@ -879,7 +879,7 @@ function Settings() {
                         </div>
                         
                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                          <button className="btn btn-secondary" onClick={() => { setImportPreview(null); setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [], skills: [] }); document.getElementById('importFile').value = ''; }}>
+                          <button className="btn btn-secondary" onClick={() => { setImportPreview(null); setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [], skills: [] }); }}>
                             Cancel
                           </button>
                           <button className="btn btn-primary" onClick={async () => {
@@ -895,7 +895,6 @@ function Settings() {
                               alert(`Import complete!\n\nImported:\n- External MCP: ${res.data.externalMcp || 0}\n- Integrations: ${res.data.integrations || 0}\n- Tools: ${res.data.tools || 0}\n- Workflows: ${res.data.workflows || 0}\n- Skills: ${res.data.skills || 0}`);
                               setImportPreview(null);
                               setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [], skills: [] });
-                              document.getElementById('importFile').value = '';
                             } catch (err) {
                               alert('Import failed: ' + (err.response?.data?.error || err.message));
                             }
