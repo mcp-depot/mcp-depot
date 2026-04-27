@@ -233,6 +233,10 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
         } else if (tool.integrationId != null && integrationIdMap.has(tool.integrationId)) {
           toolData.integrationId = integrationIdMap.get(tool.integrationId);
         }
+        if (!toolData.integrationId) {
+          console.warn(`Skipping tool "${tool.name}" — no linked integration found`);
+          continue;
+        }
         await Tool.create(toolData);
         result.tools++;
       }
@@ -331,8 +335,11 @@ router.post('/import-preview', auth, async (req, res) => {
         name: t.name,
         description: t.description || '',
         endpoint: t.endpoint,
+        inputSchema: t.inputSchema,
+        integrationName: t.integrationName || null,
         integrationId: t.integrationId,
-        integrationRef: t.integrationId != null ? `Integration #${t.integrationId}` : null
+        integrationRef: t.integrationName
+          || (t.integrationId != null ? `Integration #${t.integrationId}` : null)
       }));
     }
     
