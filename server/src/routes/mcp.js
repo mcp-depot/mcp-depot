@@ -134,7 +134,10 @@ router.post('/session-contexts/store', async (req, res) => {
       }
       await ctx.update({ content, isShared: shared, ttlHours });
     }
-    res.json({ success: true, name, chars: content.length, shared, ttlHours, created });
+    const expiresAt = ttlHours != null
+      ? new Date(Date.now() + ttlHours * 3600000).toISOString()
+      : 'never';
+    res.json({ success: true, name, chars: content.length, shared, ttlHours, expiresAt, created });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
