@@ -117,12 +117,14 @@ const DEFAULT_TTL_HOURS = 168; // 7 days
 
 router.post('/session-contexts/store', async (req, res) => {
   try {
-    const { name, content, shared = false, ttlHours: rawTtl = DEFAULT_TTL_HOURS } = req.body;
+    const { name, content, shared = false } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
     const callerId = req.user?.id ?? null;
-    const ttlHours = rawTtl === 0 ? null : rawTtl; // 0 = pin forever
+    const ttlProvided = Object.prototype.hasOwnProperty.call(req.body, 'ttlHours');
+    const rawTtl = ttlProvided ? req.body.ttlHours : undefined;
+    const ttlHours = rawTtl === 0 ? null : (rawTtl ?? DEFAULT_TTL_HOURS); // default applies on CREATE only
 
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name },
@@ -132,7 +134,9 @@ router.post('/session-contexts/store', async (req, res) => {
       if (ctx.createdBy !== null && ctx.createdBy !== callerId) {
         return res.status(403).json({ error: 'You do not own this context' });
       }
-      await ctx.update({ content, isShared: shared, ttlHours });
+      const updateFields = { content, isShared: shared };
+      if (ttlProvided) updateFields.ttlHours = ttlHours;
+      await ctx.update(updateFields);
     }
     const expiresAt = ttlHours != null
       ? new Date(Date.now() + ttlHours * 3600000).toISOString()

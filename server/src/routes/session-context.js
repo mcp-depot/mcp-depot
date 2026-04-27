@@ -61,6 +61,7 @@ const upsertSchema = Joi.object({
 });
 
 router.post('/', auth, async (req, res) => {
+  const ttlProvided = Object.prototype.hasOwnProperty.call(req.body, 'ttlHours');
   const { error, value } = upsertSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
 
@@ -86,7 +87,9 @@ router.post('/', auth, async (req, res) => {
       if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'You do not own this context' });
       }
-      await ctx.update({ content: value.content, isShared: value.shared, ttlHours });
+      const updateData = { content: value.content, isShared: value.shared };
+      if (ttlProvided) updateData.ttlHours = ttlHours;
+      await ctx.update(updateData);
     }
 
     res.status(created ? 201 : 200).json(ctx);
