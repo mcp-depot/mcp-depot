@@ -608,7 +608,7 @@ inside `mcp-depot` itself.
 
 ## Feature 09 — Built-in integration UX: lock indicators, disable instead of delete, guided extension
 
-**Status:** Proposed
+**Status:** Implemented
 
 **The problem:**
 
@@ -1435,7 +1435,7 @@ MCP Depot stays client-agnostic. Cursor users, opencode users, and any future MC
 
 ## Feature 16 — AI-driven integration builder: create tools and integrations from chat
 
-**Status:** Proposed
+**Status:** Implemented
 
 **The problem:**
 
@@ -2303,7 +2303,7 @@ Add a Prompts registry to MCP Depot. Prompts are stored as named templates with 
 
 ## Feature 31 — Rate limiting per integration and per tool
 
-**Status:** Proposed
+**Status:** Implemented
 
 **Inspired by:** [IBM/mcp-context-forge](https://github.com/IBM/mcp-context-forge) (enterprise MCP gateway)
 
@@ -2525,7 +2525,7 @@ A client connecting to the hub sees tools like `platform/search_issues`, `platfo
 
 ## Feature 34 — Generic async watcher: long-running tool calls that wait for external systems
 
-**Status:** Proposed
+**Status:** Implemented
 
 **The problem:**
 
@@ -2687,3 +2687,183 @@ watch_until_done({
 8. **Composability** - The watcher integrates naturally with Feature 22 (composite tool builder). A composite could chain: `create_pull_request` → `watch_until_done(source=jenkins, trigger=$step1.buildId)` → `post_comment(body=$step2.summary)` — push code, wait for CI, post result as a PR comment, all as one composite tool.
 
 **Effort estimate:** Medium-High — watcher engine + tool handler ~200 lines, Jenkins adapter ~150 lines (the most detailed one — failure stage extraction from wfapi is the tricky part), remaining adapters ~50 lines each, UI live panel ~100 lines.
+
+---
+
+## Feature 35 — MCP client identity: capture which AI tool made each call
+
+**Status:** Proposed
+
+**The problem:**
+
+Every tool call in MCPHUB is currently logged with `callerType: 'mcp'` regardless of which AI client made it. Claude Code, opencode, Cursor, Zed, and any other MCP client are completely indistinguishable in the audit log, analytics, and monitoring UI. This makes it impossible to answer questions like "which tools does Claude Code use most?", "are opencode users hitting different errors?", or "can I apply a higher rate limit to automated agents vs. interactive users?"
+
+**The proposed solution:**
+
+Capture the `clientInfo` object from the MCP `initialize` handshake — which every compliant MCP client sends when it first connects — and attach the client name and version to every subsequent tool call logged from that session.
+
+**What the MCP protocol provides:**
+
+Every MCP client sends an `initialize` request on connect with a `clientInfo` block:
+
+```json
+{
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2025-03-26",
+    "clientInfo": { "name": "claude-code", "version": "1.5.0" },
+    "capabilities": { ... }
+  }
+}
+```
+
+**Known client names:**
+
+| Client | `clientInfo.name` |
+|--------|------------------|
+| Claude Code | `claude-code` |
+| Cursor | `cursor` |
+| opencode | `opencode` |
+| Zed | `zed` |
+| Continue | `continue` |
+| Windsurf | `windsurf` |
+| Unknown / custom | *(absent or arbitrary string)* |
+
+**Implementation guide for developers:**
+
+1. **Session→clientInfo map** - Add a `Map` at the `MCPDepotServer` class level to hold session identity. Populate it by intercepting the `initialize` request before the SDK's default handler runs:
+
+   ```js
+   // mcp/server.js — in initialize(), after creating this.server
+   this._sessionClientMap = new Map();
+
+   this.server.server.setRequestHandler(InitializeRequestSchema, async (req, extra) => {
+     const clientInfo = req.params?.clientInfo ?? { name: 'unknown' };
+     const sessionId = extra?.sessionId;
+     if (sessionId) this._sessionClientMap.set(sessionId, clientInfo);
+     // delegate to SDK default handler
+     return { protocolVersion: LATEST_PROTOCOL_VERSION, serverInfo: { name: 'mcp-depot', version: '1.0.0' }, capabilities: this.server.server.getCapabilities() };
+   });
+   ```
+
+2. **Pass clientInfo into tool handlers** - The MCP SDK passes an `extra` context object as the second argument to tool handlers. Extract the session ID from it and resolve clientInfo:
+
+   ```js
+   this.server.tool(toolName, schema, async (params, extra) => {
+     const clientInfo = this._sessionClientMap.get(extra?.sessionId) ?? { name: 'unknown' };
+     const result = await this.executeTool(tool, params, clientInfo);
+     ...
+   });
+   ```
+
+3. **Update `logToolCall`** - Replace the hardcoded `callerType: 'mcp'` with the resolved client name, and add `callerVersion`:
+
+   ```js
+   await logToolCall({
+     ...existingFields,
+     callerType:    clientInfo.name    ?? 'mcp',
+     callerVersion: clientInfo.version ?? null,
+   });
+   ```
+
+   Add `callerVersion` as a nullable STRING column to `ToolCalls` via a migration if it does not already exist.
+
+4. **stdio transport fallback** - For stdio, there is no `sessionId` per-call. Capture `clientInfo` once at connect time and store as `this._stdioClientInfo`. Use it for all tool calls on that transport:
+
+   ```js
+   // In startStdio(), after connect:
+   this.server.server.oninitialized = () => {
+     this._stdioClientInfo = this.server.server.getClientVersion() ?? { name: 'unknown' };
+   };
+   ```
+
+5. **Session cleanup** - Remove entries from `_sessionClientMap` when a session ends to avoid unbounded growth. Hook into the transport's session-close event, or run a periodic cleanup that removes entries older than the session timeout.
+
+6. **User-Agent fallback** - For HTTP transport requests where `clientInfo` is absent (non-compliant clients), fall back to the `User-Agent` request header. Pass it through from the Express request context into the tool handler via `extra` metadata if the SDK supports it, or capture it in the transport layer.
+
+7. **Analytics UI update** - Extend the Feature 19 analytics dashboard with a "By client" breakdown: a bar chart of call volume grouped by `callerType`. Add a `callerType` filter dropdown to the tool call log table. This answers at a glance which AI clients use MCPHUB most.
+
+8. **Rate limiting integration** - Feed `clientInfo.name` into the rate limiter (Feature 31) as an additional key dimension: `${toolId}:${userId}:${clientName}`. This allows different limits for interactive Claude Code sessions vs. automated agent pipelines connecting as the same user.
+
+**Effort estimate:** Small — session map + initialize intercept ~50 lines, tool handler threading ~20 lines per handler, migration + logToolCall update ~20 lines, analytics UI addition ~60 lines. The SDK already delivers `clientInfo` — this is purely a capture-and-forward problem.
+
+---
+
+## Feature 36 — Connected clients panel: live view of active MCP sessions
+
+**Status:** Proposed
+
+**Depends on:** Feature 35 / Issue 115 (session→clientInfo map must be in place first)
+
+**The problem:**
+
+There is no way to see which AI clients are currently connected to MCP Depot. The dashboard shows a static "MCP enabled / disabled" indicator but gives no insight into who is connected, how long they have been connected, or what they last called. When something goes wrong — a tool hangs, a client sends unexpected calls, an agent goes rogue — there is no live view to diagnose it.
+
+**The proposed solution:**
+
+Add a **Connected Clients** panel to the dashboard (and a dedicated section in the Monitoring page) that shows all active MCP sessions in real time, streamed via Server-Sent Events.
+
+**What the panel shows:**
+
+```
+Connected Clients  ● 2 active
+┌─────────────────┬──────────┬──────────────┬──────────────────┬──────────┐
+│ Client          │ Version  │ Connected    │ Last call        │ Calls    │
+├─────────────────┼──────────┼──────────────┼──────────────────┼──────────┤
+│ claude-code     │ 1.5.0    │ 4 mins ago   │ search_issues    │ 12       │
+│ cursor          │ 0.42.1   │ 22 mins ago  │ get_sprint       │ 3        │
+└─────────────────┴──────────┴──────────────┴──────────────────┴──────────┘
+```
+
+For stdio transport (single client): a single row with the connected client's identity and uptime.
+
+**Session record structure** (held in `_sessionClientMap`, extended from Feature 35):
+
+```js
+{
+  sessionId:    "abc123",
+  clientName:   "claude-code",
+  clientVersion:"1.5.0",
+  connectedAt:  1234567890000,
+  lastCallAt:   1234567891000,
+  lastTool:     "search_issues",
+  callCount:    12
+}
+```
+
+**Implementation guide for developers:**
+
+1. **Extend `_sessionClientMap`** - When `initialize` is received (Feature 35 step 1), store the full session record including `connectedAt: Date.now()` and `callCount: 0`. Update `lastCallAt`, `lastTool`, and `callCount` inside each tool handler after a successful call.
+
+2. **Track disconnects** - Hook into the `StreamableHTTPServerTransport` session lifecycle to remove entries on close. If the SDK does not expose a close event, run a periodic sweep that removes sessions with `lastCallAt` older than a configurable `SESSION_IDLE_TIMEOUT_MINUTES` (default: 30):
+
+   ```js
+   setInterval(() => {
+     const cutoff = Date.now() - (SESSION_IDLE_TIMEOUT_MINUTES * 60 * 1000);
+     for (const [id, session] of this._sessionClientMap) {
+       if (session.lastCallAt < cutoff) this._sessionClientMap.delete(id);
+     }
+   }, 60_000);
+   ```
+
+3. **REST endpoint** - `GET /api/mcp/sessions` returns the active session list as JSON. Used for the initial page load.
+
+4. **SSE stream** - `GET /api/mcp/sessions/stream` emits an event whenever the session map changes (new connection, disconnect, last-call update). The client subscribes on mount and updates the panel live without polling:
+
+   ```js
+   // Server: emit on any session map change
+   function broadcastSessionUpdate() {
+     const payload = JSON.stringify(getActiveSessions());
+     sseClients.forEach(res => res.write(`data: ${payload}\n\n`));
+   }
+   ```
+
+5. **Dashboard widget** - A compact widget in the top section of the Dashboard page, next to the existing stats cards. Shows active client count as a badge, lists clients in a small table. Collapses to a single "N clients connected" line if more than 5 are active.
+
+6. **Monitoring page section** - A more detailed view on the Monitoring page with full session history (including recently disconnected sessions in a muted style), per-session call count, and a timeline sparkline of call frequency.
+
+7. **Active tool indicator** - When a tool call is in progress for a session (started but not yet returned), mark that row with a subtle spinner. This is especially useful for long-running calls like the async watcher (Feature 34) — you can see at a glance that a watch is running and which client triggered it.
+
+8. **stdio transport** - For stdio there is no `sessionId`. Represent the single stdio client as a fixed entry keyed `"stdio"`, populated from `this._stdioClientInfo` (Feature 35 step 4). Show it as "1 client (stdio)" with the same fields.
+
+**Effort estimate:** Small-Medium — session record extension ~30 lines, REST + SSE endpoints ~60 lines, dashboard widget ~80 lines, monitoring section ~60 lines. Builds entirely on the session map from Feature 35 — the two features should be implemented in the same PR.

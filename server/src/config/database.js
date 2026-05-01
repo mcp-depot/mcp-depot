@@ -499,6 +499,47 @@ const createDefaultTool = async () => {
 
     logger.info('Additional MCP Depot tools added!\n');
   }
+
+  // Create MCP Depot - AI Tools integration (meta-tools for AI-driven integration builder)
+  let aiToolsIntegration = await Integration.findOne({
+    where: { name: 'MCP Depot - AI Tools' }
+  });
+  if (!aiToolsIntegration) {
+    aiToolsIntegration = await Integration.create({
+      userId,
+      type: 'custom',
+      name: 'MCP Depot - AI Tools',
+      description: 'AI-driven integration builder — meta-tools for creating and managing integrations from chat. Disable to hide meta-tools.',
+      config: { baseUrl: `http://localhost:${process.env.PORT || 3000}`, auth: { type: 'none' } },
+      isActive: true,
+      metadata: { source: 'built-in' }
+    });
+    logger.info('MCP Depot - AI Tools integration created (enable/disable via the UI card to toggle meta-tools)');
+  }
+
+  // Seed meta-tool records so they appear in the UI (actual handlers are on McpServer, not HTTP endpoints)
+  const metaToolDefs = [
+    { name: 'mcp_list_integrations', description: 'List all registered integrations with their tool counts and metadata.' },
+    { name: 'mcp_register_integration', description: 'Create a new integration by name, base URL, and type. Credentials must be configured in the UI.' },
+    { name: 'mcp_register_tool', description: 'Add a tool to an existing integration, mapping an HTTP endpoint to a named MCP tool.' },
+    { name: 'mcp_describe_tool', description: 'Get the full schema and details for a named tool.' },
+    { name: 'mcp_remove_tool', description: 'Remove a tool from an integration. Requires confirm: true.' }
+  ];
+
+  for (const mt of metaToolDefs) {
+    await Tool.findOrCreate({
+      where: { name: mt.name },
+      defaults: {
+        userId,
+        integrationId: aiToolsIntegration.id,
+        type: 'meta',
+        name: mt.name,
+        description: mt.description,
+        endpoint: { path: '/internal/meta', method: 'POST', params: {}, headers: {}, body: null },
+        isActive: true
+      }
+    });
+  }
 };
 
 const connectDB = async (retries = 5, delay = 3000) => {

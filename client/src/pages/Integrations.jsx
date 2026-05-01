@@ -234,12 +234,14 @@ function Integrations() {
     setShowModal(true);
   };
 
+  const isBuiltIn = (integration) => integration.metadata?.source === 'built-in';
+
   const handleToggleActive = async (id, currentStatus) => {
     try {
       await api.put(`/integrations/${id}`, { isActive: !currentStatus });
       fetchIntegrations();
     } catch (err) {
-      alert('Failed to update integration status');
+      console.error('Failed to toggle integration:', err);
     }
   };
 
@@ -637,6 +639,11 @@ function Integrations() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <span style={{ marginRight: '0.5rem', display: 'flex', alignItems: 'center' }}>{getIntegrationIcon(integration.type)}</span>
                     <span className="integration-name">{integration.name}</span>
+                    {isBuiltIn(integration) && (
+                      <span className="badge badge-system" title="Built-in integration managed by MCP Depot" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.03em' }}>
+                        SYSTEM
+                      </span>
+                    )}
                     {integration.requiresCredentials && !integration.canUse && (
                       <span 
                         className="badge badge-warning" 
@@ -709,15 +716,23 @@ function Integrations() {
                       <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit integration">
                         Edit
                       </button>
-                      <button 
-                        className="btn btn-icon btn-danger" 
-                        onClick={() => handleDelete(integration._id)} 
-                        title={integration.name === 'MCP Depot' ? 'Cannot delete default integration' : 'Delete integration'}
-                        disabled={integration.name === 'MCP Depot'}
-                        style={{ opacity: integration.name === 'MCP Depot' ? 0.5 : 1, cursor: integration.name === 'MCP Depot' ? 'not-allowed' : 'pointer' }}
-                      >
-                        Del
-                      </button>
+                      {isBuiltIn(integration) ? (
+                        <span 
+                          className="btn btn-icon" 
+                          title="Built-in integrations cannot be deleted — use the toggle above to disable"
+                          style={{ opacity: 0.5, cursor: 'not-allowed', color: 'var(--text-dim)' }}
+                        >
+                          Del
+                        </span>
+                      ) : (
+                        <button 
+                          className="btn btn-icon btn-danger" 
+                          onClick={() => handleDelete(integration._id)} 
+                          title="Delete integration"
+                        >
+                          Del
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

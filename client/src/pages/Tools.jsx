@@ -13,6 +13,8 @@ function hasHardcodedCredential(text) {
   return CREDENTIAL_PATTERN.test(text);
 }
 
+const isBuiltIn = (integration) => integration?.metadata?.source === 'built-in';
+
 function Tools({ all: isAllTools }) {
   const params = useParams();
   const [searchParams] = useSearchParams();
@@ -619,19 +621,41 @@ function Tools({ all: isAllTools }) {
               <h1>{integration?.name} - Tools</h1>
               <p>{integration?.description}</p>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button className="btn btn-secondary" onClick={() => setShowExploreModal(true)}>
                 Explore API
               </button>
               <button className="btn btn-primary" onClick={() => setShowPromptLibrary(true)}>
                 Prompt Library
               </button>
-              <button className="btn btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
-                + Add Tool
-              </button>
+              {isBuiltIn(integration) ? (
+                <span
+                  className="btn btn-primary"
+                  title="Built-in tools are managed by MCP Depot and cannot be edited"
+                  style={{ opacity: 0.5, cursor: 'not-allowed', pointerEvents: 'none' }}
+                >
+                  + Add Tool
+                </span>
+              ) : (
+                <button className="btn btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
+                  + Add Tool
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        {isBuiltIn(integration) && (
+          <div className="card" style={{ marginBottom: '1rem', background: 'var(--surface-hover)', border: '1px solid var(--border-light)' }}>
+            <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+              Built-in tools are managed by MCP Depot and cannot be edited.
+              To add your own tools,{' '}
+              <Link to="/integrations" style={{ color: 'var(--primary)', fontWeight: 500 }}>
+                Create a new integration →
+              </Link>
+            </p>
+          </div>
+        )}
 
         {tools.length === 0 ? (
           <div className="empty-state">

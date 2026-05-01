@@ -969,6 +969,11 @@ select.input-sm option,
   color: var(--danger);
 }
 
+.badge-system {
+  background: rgba(107, 114, 128, 0.15);
+  color: var(--text-secondary);
+}
+
 /* Context expiry */
 .expiry-pinned { color: var(--text-light); font-size: 0.85rem; }
 .expiry-ok { color: var(--success); }

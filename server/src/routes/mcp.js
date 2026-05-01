@@ -1114,23 +1114,53 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         return res.status(500).json({ error: error.message });
       }
     }
-    
-    const userId = req.user?.id || req.apiKey?.userId;
-    if (tool.rateLimit && tool.rateLimit > 0 && userId) {
-      const rateCheck = checkRateLimit(tool.id, userId, tool.rateLimit);
-      if (!rateCheck.allowed) {
-        return res.status(429).json({
-          error: 'Rate limit exceeded',
-          limit: tool.rateLimit,
-          remaining: 0,
-          retryAfter: rateCheck.resetIn
+
+    if (tool.type === 'meta') {
+      const mcpServer = require('../mcp/server');
+      try {
+        const entry = mcpServer.toolsMap.get(tool.name);
+        if (!entry) {
+          return res.status(404).json({ error: `Meta-tool "${tool.name}" handler not found. Enable the "MCP Depot - AI Tools" integration.` });
+        }
+        const result = await entry.handler(params || body || {});
+        const text = result.content?.[0]?.text || JSON.stringify(result);
+        return res.json({
+          success: true,
+          tool: tool.name,
+          toolId: tool.id,
+          source: 'local',
+          result: text
         });
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
       }
     }
     
+    const userId = req.user?.id || req.apiKey?.userId;
     const integration = await Integration.findByPk(tool.integrationId);
     if (!integration || !integration.isActive) {
       return res.status(400).json({ error: 'Integration is not active' });
+    }
+
+    if (userId) {
+      const toolLimit = tool.rateLimit || 0;
+      const intLimit = integration.rateLimit || {};
+      const integrationLimitRpm = intLimit.requestsPerMinute || 0;
+      const integrationLimitRph = intLimit.requestsPerHour || 0;
+      const rateCheck = checkRateLimit(tool.id, userId, toolLimit, integrationLimitRpm, integrationLimitRph);
+      if (!rateCheck.allowed) {
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          level: rateCheck.level,
+          limit: rateCheck.limit,
+          remaining: 0,
+          retryAfter: rateCheck.resetInSeconds
+        });
+      }
+
+      res.set('X-RateLimit-Tool-Remaining', String(rateCheck.toolRemaining !== Infinity ? rateCheck.toolRemaining : ''));
+      res.set('X-RateLimit-Integration-Remaining', String(rateCheck.integrationRemaining !== Infinity ? rateCheck.integrationRemaining : ''));
+      res.set('X-RateLimit-Reset', String(rateCheck.resetInSeconds));
     }
     
     const authType = integration.config?.auth?.type || 'none';

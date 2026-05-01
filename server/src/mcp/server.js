@@ -10,6 +10,7 @@ const logger = require('../services/logger');
 const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
+const { checkRateLimit: checkToolRateLimit } = require('../services/rate-limiter');
 const { filterFields } = require('../utils/fieldFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
 const transformerLoader = require('../transformers/loader');
@@ -91,10 +92,16 @@ class MCPDepotServer {
 
     this.registerPrompts();
 
+    this.registerMetaTools();
+
+    this.registerWatchUntilDone();
+
     logger.info({ toolCount: tools.length, skillCount: skills.length, personaCount: personas.length }, 'MCP Server initialized');
   }
 
   registerTool(tool) {
+    if (tool.type === 'meta') return;
+
     const toolName = this.sanitizeToolName(tool.name);
     const endpoint = tool.endpoint || {};
 
@@ -150,13 +157,35 @@ class MCPDepotServer {
       async (params) => {
         const startTime = Date.now();
         try {
+          const toolLimit = tool.rateLimit || 0;
+          const intLimit = tool.Integration?.rateLimit || {};
+          const integrationLimitRpm = intLimit.requestsPerMinute || 0;
+          const integrationLimitRph = intLimit.requestsPerHour || 0;
+          const rateCheck = checkToolRateLimit(tool.id, tool.userId, toolLimit, integrationLimitRpm, integrationLimitRph);
+          if (!rateCheck.allowed) {
+            return {
+              content: [{
+                type: 'text',
+                text: `Rate limit exceeded for ${tool.name}. Retry in ${rateCheck.resetInSeconds}s.`
+              }],
+              isError: true
+            };
+          }
+
           const result = await this.executeTool(tool, params);
           recordToolCall(toolName, Date.now() - startTime, true);
           return {
             content: [{
               type: 'text',
               text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-            }]
+            }],
+            meta: {
+              rateLimit: {
+                toolRemaining: rateCheck.toolRemaining !== Infinity ? rateCheck.toolRemaining : null,
+                integrationRemaining: rateCheck.integrationRemaining !== Infinity ? rateCheck.integrationRemaining : null,
+                resetInSeconds: rateCheck.resetInSeconds
+              }
+            }
           };
         } catch (error) {
           recordToolCall(toolName, Date.now() - startTime, false);
@@ -613,6 +642,98 @@ class MCPDepotServer {
     logger.debug('MCP Prompts registered');
   }
 
+  registerMetaTools() {
+    const { registerMetaTools } = require('./meta-tools');
+    // Always register — each handler checks isActive at call time
+    registerMetaTools(this.server, this.toolsMap);
+  }
+
+  registerWatchUntilDone() {
+    const { loadAdapter, KNOWN } = require('../watchers/adapters');
+    const { runWatcher } = require('../watchers/engine');
+    const { Integration } = loadModels();
+    const secretStore = require('../services/secret-store');
+
+    const sourcesDesc = `Available sources: ${KNOWN.join(', ')}. ` +
+      'Requires an integrationId pointing to a configured Jenkins, GitHub, or Bitbucket integration.';
+
+    const watchSchema = z.object({
+      integrationId: z.string().describe('UUID of the integration that holds credentials for this watcher'),
+      trigger: z.object({}).passthrough().describe('Adapter-specific trigger parameters (e.g. { job: "my-job", build: "42" } for jenkins)'),
+      pollIntervalSeconds: z.number().optional().describe('Seconds between polls (default provided by adapter)'),
+      timeoutSeconds: z.number().optional().describe('Maximum watch duration in seconds (default 3600)')
+    });
+
+    this.server.tool('watch_until_done', {
+      description: 'Wait for an asynchronous external process (CI build, deployment, pipeline) to complete. Polls internally and sends progress notifications. Returns structured summary on completion.',
+      inputSchema: watchSchema
+    }, async (args, extra) => {
+      const startTime = Date.now();
+      const watchId = `watch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      try {
+        const integration = await Integration.findByPk(args.integrationId);
+        if (!integration) {
+          throw new Error(`Integration ${args.integrationId} not found`);
+        }
+
+        let resolvedConfig = integration.config;
+        if (secretStore.isInitialized()) {
+          const credentials = resolvedConfig.auth?.credentials;
+          if (credentials) {
+            for (const [key, value] of Object.entries(credentials)) {
+              if (typeof value === 'string' && secretStore.isSecretRef(value)) {
+                const resolved = await secretStore.resolveSecret(value);
+                if (resolved) {
+                  resolvedConfig = { ...resolvedConfig };
+                  resolvedConfig.auth = { ...resolvedConfig.auth };
+                  resolvedConfig.auth.credentials = { ...credentials };
+                  resolvedConfig.auth.credentials[key] = resolved;
+                }
+              }
+            }
+          }
+        }
+
+        const adapter = await loadAdapter(integration.type);
+
+        const result = await runWatcher({
+          watchId,
+          adapter,
+          trigger: args.trigger,
+          credentials: resolvedConfig,
+          integrationType: integration.type,
+          meta: { pollIntervalSeconds: args.pollIntervalSeconds, timeoutSeconds: args.timeoutSeconds },
+          signal: extra?.signal,
+          onProgress: ({ status, progress, elapsed }) => {
+            if (extra?.progressToken) {
+              this.server.server.notification({
+                method: 'notifications/progress',
+                params: {
+                  progressToken: extra.progressToken,
+                  progress: elapsed,
+                  total: args.timeoutSeconds ?? 3600,
+                  message: `${status}${progress ? ` - ${progress}` : ''} (${elapsed}s)`
+                }
+              }).catch(() => {});
+            }
+          }
+        });
+
+        recordToolCall('watch_until_done', Date.now() - startTime, true);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        recordToolCall('watch_until_done', Date.now() - startTime, false);
+        return {
+          content: [{ type: 'text', text: `Error: ${error.message}` }],
+          isError: true
+        };
+      }
+    });
+
+    logger.info('watch_until_done tool registered');
+  }
+
   renderSkillPrompt(skill, inputValues) {
     let rendered = skill.prompt || '';
     
@@ -679,6 +800,10 @@ class MCPDepotServer {
     this.registerPersonaTools();
     
     this.registerPrompts();
+    
+    this.registerMetaTools();
+
+    this.registerWatchUntilDone();
     
     await this.server.sendToolListChanged();
     

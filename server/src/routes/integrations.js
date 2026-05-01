@@ -516,6 +516,10 @@ router.delete('/:id', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    if (integration.metadata?.source === 'built-in') {
+      return res.status(403).json({ error: 'Built-in integrations cannot be deleted. Use the active toggle to disable instead.' });
+    }
+
     // Delete associated tool_calls first (they reference tools)
     await sequelize.query(`
       DELETE FROM tool_calls WHERE "toolId" IN (SELECT id FROM tools WHERE "integrationId" = '${req.params.id}')
@@ -649,6 +653,10 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
 
     if (!integration) {
       return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    if (integration.metadata?.source === 'built-in') {
+      return res.status(403).json({ error: 'Tools cannot be added to built-in integrations. Create a new integration instead.' });
     }
 
     const { error, value } = toolSchema.validate(req.body);

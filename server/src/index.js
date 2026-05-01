@@ -94,24 +94,6 @@ app.use('/api', v1Router); // Backward compatibility
 
 setExternalMcpClearCache(clearToolsCache);
 
-if (process.env.MCP_ENABLED === 'true') {
-  const mcpServer = require('./mcp/server');
-  mcpServer.initialize().then(async () => {
-    mcpServer.setMcpEnabled(true);
-    if (process.env.MCP_TRANSPORT === 'http' || !process.env.MCP_TRANSPORT) {
-      await mcpServer.startHttp(app).catch(err => {
-        logger.error({ err: err.message }, 'Failed to start MCP HTTP server');
-      });
-    } else if (process.env.MCP_TRANSPORT === 'stdio') {
-      mcpServer.startStdio().catch(err => {
-        logger.error({ err: err.message }, 'Failed to start MCP stdio server');
-      });
-    }
-  }).catch(err => {
-    logger.error({ err: err.message }, 'Failed to initialize MCP server');
-  });
-}
-
 app.get('/metrics', async (req, res) => {
   res.set('Content-Type', promClient.register.contentType);
   res.end(await promClient.register.metrics());
@@ -147,6 +129,21 @@ app.use((req, res) => {
 const startServer = async () => {
   try {
     await connectDB();
+
+    if (process.env.MCP_ENABLED === 'true') {
+      const mcpServer = require('./mcp/server');
+      await mcpServer.initialize();
+      mcpServer.setMcpEnabled(true);
+      if (process.env.MCP_TRANSPORT === 'http' || !process.env.MCP_TRANSPORT) {
+        await mcpServer.startHttp(app).catch(err => {
+          logger.error({ err: err.message }, 'Failed to start MCP HTTP server');
+        });
+      } else if (process.env.MCP_TRANSPORT === 'stdio') {
+        mcpServer.startStdio().catch(err => {
+          logger.error({ err: err.message }, 'Failed to start MCP stdio server');
+        });
+      }
+    }
     
     // Start background context cleanup job
     const { startContextCleanup } = require('./services/context-cleanup');
