@@ -799,7 +799,7 @@ router.patch('/:id/tools/bulk', auth, async (req, res) => {
 
 router.post('/discover', auth, async (req, res) => {
   try {
-    const { baseUrl, openApiPath, auth: authConfig, specType, specUrl } = req.body;
+    const { baseUrl, openApiPath, auth: authConfig, specType, specUrl, filter } = req.body;
 
     if (!baseUrl) {
       return res.status(400).json({ error: 'baseUrl is required' });
@@ -825,7 +825,7 @@ router.post('/discover', auth, async (req, res) => {
 
     if (specTypeToTry === 'openapi' || specTypeToTry === 'auto') {
       try {
-        const parser = new OpenAPIParser(discoveryBaseUrl, discoveryAuth);
+        const parser = new OpenAPIParser(discoveryBaseUrl, discoveryAuth, filter);
         if (openApiPath) {
           result = await parser.discover(openApiPath);
         } else {

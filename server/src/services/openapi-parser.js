@@ -1,11 +1,13 @@
 const axios = require('axios');
 const yaml = require('js-yaml');
+const { shouldInclude } = require('../utils/openapiFilter');
 
 class OpenAPIParser {
-  constructor(baseUrl, auth = null) {
+  constructor(baseUrl, auth = null, filter = null) {
     this.baseUrl = baseUrl;
     this.auth = auth;
     this.spec = null;
+    this.filter = filter;
   }
 
   async fetchSpec(urlOrPath) {
@@ -100,7 +102,12 @@ class OpenAPIParser {
     const paths = spec.paths || {};
     for (const [path, methods] of Object.entries(paths)) {
       for (const [method, details] of Object.entries(methods)) {
-        if (['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].includes(method.toLowerCase())) {
+          if (['get', 'post', 'put', 'patch', 'delete', 'options', 'head'].includes(method.toLowerCase())) {
+          const operation = {
+            operationId: details.operationId || null,
+            tags: details.tags || []
+          };
+          if (!shouldInclude(operation, this.filter)) continue;
           const params = [];
           const pathParams = details.parameters?.filter(p => p.in === 'path') || [];
           const queryParams = details.parameters?.filter(p => p.in === 'query') || [];
