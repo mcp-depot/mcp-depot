@@ -13,6 +13,7 @@ import Monitoring from './pages/Monitoring';
 import Skills from './pages/Skills';
 import Personas from './pages/Personas';
 import Prompts from './pages/Prompts';
+import HealthDashboard from './pages/HealthDashboard';
 import SessionContexts from './pages/SessionContexts';
 import SessionChannels from './pages/SessionChannels';
 import CompositeToolBuilder from './pages/CompositeToolBuilder';
@@ -62,6 +63,7 @@ function AppRoutes() {
       <Route path="/skills" element={<PrivateRoute><Layout><Skills /></Layout></PrivateRoute>} />
       <Route path="/personas" element={<PrivateRoute><Layout><Personas /></Layout></PrivateRoute>} />
       <Route path="/prompts" element={<PrivateRoute><Layout><Prompts /></Layout></PrivateRoute>} />
+      <Route path="/health" element={<PrivateRoute><Layout><HealthDashboard /></Layout></PrivateRoute>} />
       <Route path="/session-contexts" element={<PrivateRoute><Layout><SessionContexts /></Layout></PrivateRoute>} />
       <Route path="/session-channels" element={<PrivateRoute><Layout><SessionChannels /></Layout></PrivateRoute>} />
       <Route path="/composite-tool/new" element={<PrivateRoute><Layout><CompositeToolBuilder /></Layout></PrivateRoute>} />

@@ -25,6 +25,7 @@ const sessionChannelRoutes = require('./routes/session-channel');
 const systemRoutes = require('./routes/system');
 const oauthRoutes = require('./routes/oauth');
 const personasRoutes = require('./routes/personas');
+const healthRoutes = require('./routes/health');
 
 const app = express();
 
@@ -86,6 +87,7 @@ v1Router.use('/session-channels', sessionChannelRoutes);
 v1Router.use('/system', systemRoutes);
 v1Router.use('/oauth', oauthRoutes);
 v1Router.use('/personas', personasRoutes);
+v1Router.use('/health', healthRoutes);
 
 app.use('/api/v1', v1Router);
 app.use('/api', v1Router); // Backward compatibility
@@ -168,6 +170,11 @@ const startServer = async () => {
     const server = app.listen(config.port, () => {
       logger.info({ port: config.port }, 'MCP Depot Server started');
     });
+
+    const Integration = require('./models/Integration');
+    const { startAutoRefresh } = require('./health/checker');
+    const getActiveIntegrations = () => Integration.findAll({ where: { isActive: true } });
+    startAutoRefresh(getActiveIntegrations);
     
     const gracefulShutdown = async (signal) => {
       logger.info({ signal }, 'Shutting down gracefully');

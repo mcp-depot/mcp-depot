@@ -57,6 +57,7 @@ function Sidebar() {
     ]},
     { section: 'Operations', items: [
       { path: '/monitoring', icon: Activity, label: 'Monitoring' },
+      { path: '/health', icon: Activity, label: 'Health' },
     ]},
     { section: 'System', items: [
       { path: '/settings', icon: Settings, label: 'Settings' },

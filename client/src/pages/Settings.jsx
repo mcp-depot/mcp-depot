@@ -23,13 +23,9 @@ function MCPServerSettings() {
   const [saving, setSaving] = useState(false);
   const [mcpSettings, setMcpSettings] = useState({ authMode: 'optional', apiKey: '' });
   const [message, setMessage] = useState({ type: '', text: '' });
-  const abortControllers = {};
 
   useEffect(() => {
     fetchSettings();
-    return () => {
-      Object.values(abortControllers).forEach(controller => controller?.abort());
-    };
   }, []);
 
   async function fetchSettings() {
@@ -185,6 +181,8 @@ function Settings() {
     tools: [],
     workflows: []
   });
+
+  const abortControllers = {};
 
   async function fetchExternalServers() {
     setExternalLoading(true);
