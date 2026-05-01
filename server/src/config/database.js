@@ -50,6 +50,7 @@ const loadModels = () => {
   const SystemSetting = require('../models/SystemSetting');
   const SessionContext = require('../models/SessionContext')(sequelize);
   const SessionChannel = require('../models/SessionChannel')(sequelize);
+  const AgentPersona = require('../models/AgentPersona')(sequelize);
   
   if (!associationsDefined) {
     User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
@@ -70,10 +71,12 @@ const loadModels = () => {
     
     SessionContext.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
     
+    AgentPersona.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+    
     associationsDefined = true;
   }
   
-  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel };
+  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel, AgentPersona };
 };
 
 const generatePassword = () => {

@@ -86,6 +86,12 @@ const Tool = sequelize.define('Tool', {
     defaultValue: null,
     comment: 'Array of dot-notation paths to filter response fields (null = no filtering)'
   },
+  responseTransformer: {
+    type: DataTypes.STRING(50),
+    defaultValue: null,
+    allowNull: true,
+    comment: 'Name of post-processing transformer to apply (e.g. stripNulls, flattenSingle)'
+  },
   steps: {
     type: DataTypes.JSONB,
     defaultValue: null,

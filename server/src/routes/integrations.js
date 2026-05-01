@@ -43,7 +43,9 @@ const toolSchema = Joi.object({
     body: Joi.any()
   }).required(),
   inputSchema: Joi.object().default({}),
-  outputSchema: Joi.object().default({})
+  outputSchema: Joi.object().default({}),
+  responseFields: Joi.array().items(Joi.string()).optional().allow(null),
+  responseTransformer: Joi.string().max(50).optional().allow(null)
 });
 
 router.get('/', auth, async (req, res) => {
@@ -678,7 +680,9 @@ router.post('/:id/tools', auth, async (req, res) => {
       description: value.description,
       endpoint: enrichedEndpoint,
       inputSchema: value.inputSchema,
-      outputSchema: value.outputSchema
+      outputSchema: value.outputSchema,
+      responseFields: value.responseFields,
+      responseTransformer: value.responseTransformer
     });
 
     if (process.env.MCP_ENABLED === 'true') {
@@ -707,7 +711,7 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
       return res.status(404).json({ error: 'Tool not found' });
     }
 
-    const { name, description, endpoint, isActive, enabled } = req.body;
+    const { name, description, endpoint, isActive, enabled, responseFields, responseTransformer } = req.body;
     const updates = {};
     
     if (name !== undefined) updates.name = name;
@@ -715,6 +719,8 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
     if (endpoint !== undefined) updates.endpoint = endpoint;
     if (isActive !== undefined) updates.isActive = isActive;
     if (enabled !== undefined) updates.isActive = enabled;
+    if (responseFields !== undefined) updates.responseFields = responseFields;
+    if (responseTransformer !== undefined) updates.responseTransformer = responseTransformer;
 
     await tool.update(updates);
 

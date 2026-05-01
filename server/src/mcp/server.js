@@ -12,6 +12,7 @@ const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
 const { filterFields } = require('../utils/fieldFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
+const transformerLoader = require('../transformers/loader');
 const { z } = require('zod/v3');
 
 function coerceParam(value, paramDefs, key) {
@@ -57,7 +58,7 @@ class MCPDepotServer {
   }
 
   async initialize() {
-    const { Tool, Integration, PromptLibrary } = loadModels();
+    const { Tool, Integration, PromptLibrary, AgentPersona } = loadModels();
     
     const tools = await Tool.findAll({
       where: { isActive: true },
@@ -75,7 +76,19 @@ class MCPDepotServer {
       this.registerTool(tool);
     }
 
-    logger.info({ toolCount: tools.length }, 'MCP Server initialized');
+    const skills = await PromptLibrary.findAll();
+    for (const skill of skills) {
+      this.registerSkill(skill);
+    }
+
+    const personas = await AgentPersona.findAll();
+    for (const persona of personas) {
+      this.registerPersona(persona);
+    }
+
+    this.registerPersonaTools();
+
+    logger.info({ toolCount: tools.length, skillCount: skills.length, personaCount: personas.length }, 'MCP Server initialized');
   }
 
   registerTool(tool) {
@@ -263,9 +276,16 @@ class MCPDepotServer {
           return buildBinaryResult(b64, contentType);
         }
       }
-      return Array.isArray(data)
+      const transformerName = endpoint.responseTransformer || tool.responseTransformer;
+      const filtered = Array.isArray(data)
         ? data.map(item => filterFields(item, fields))
         : filterFields(data, fields);
+      if (transformerName) {
+        const fn = transformerLoader.get(transformerName);
+        if (fn) return fn(filtered);
+        logger.warn({ tool: tool.name, transformer: transformerName }, 'Response transformer not found');
+      }
+      return filtered;
     } catch (error) {
       success = false;
       responseStatus = error.response?.status || 500;
@@ -351,15 +371,13 @@ class MCPDepotServer {
 
     this.toolsMap.set(skillName, { skill, type: 'skill' });
 
+    const zodSchema = z.object(buildZodSchema(schema, required));
+
     this.server.tool(
       skillName,
       {
         description: skill.description || `Skill: ${skill.name}`,
-        inputSchema: {
-          type: 'object',
-          properties: schema,
-          required: required.length > 0 ? required : undefined
-        }
+        inputSchema: zodSchema
       },
       async (params) => {
         try {
@@ -397,6 +415,147 @@ class MCPDepotServer {
     );
 
     logger.debug({ skill: skillName }, 'Skill registered');
+  }
+
+  registerPersona(persona) {
+    const personaName = this.sanitizeToolName(`get-${persona.name}`);
+
+    this.server.tool(
+      personaName,
+      {
+        description: `Retrieve the ${persona.role} persona system prompt`,
+        inputSchema: { type: 'object', properties: {} }
+      },
+      async () => {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              name: persona.name,
+              role: persona.role,
+              description: persona.description,
+              systemPrompt: persona.systemPrompt
+            }, null, 2)
+          }]
+        };
+      }
+    );
+  }
+
+  async registerPersonaTools() {
+    const { AgentPersona } = require('../config/database').loadModels();
+
+    this.server.tool(
+      'list-personas',
+      {
+        description: 'List all available agent personas. Each persona is a named system prompt that can be applied to any MCP client session.',
+        inputSchema: z.object({})
+      },
+      async () => {
+        try {
+          const personas = await AgentPersona.findAll({ order: [['name', 'ASC']] });
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify(personas.map(p => ({
+                name: p.name,
+                role: p.role,
+                description: p.description
+              })), null, 2)
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      'get-persona',
+      {
+        description: 'Retrieve the system prompt and metadata for a named persona.',
+        inputSchema: z.object({ name: z.string().describe('Persona name, e.g. "security-reviewer"') })
+      },
+      async (params) => {
+        try {
+          const persona = await AgentPersona.findOne({ where: { name: params.name } });
+          if (!persona) {
+            return {
+              content: [{ type: 'text', text: `Persona "${params.name}" not found` }],
+              isError: true
+            };
+          }
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                name: persona.name,
+                role: persona.role,
+                description: persona.description,
+                systemPrompt: persona.systemPrompt
+              }, null, 2)
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      'store-persona',
+      {
+        description: 'Save or update an agent persona. Use to create new personas or update existing ones.',
+        inputSchema: z.object({
+          name: z.string().describe('Persona key, e.g. "security-reviewer"'),
+          role: z.string().describe('Short display label, e.g. "Security Reviewer"'),
+          systemPrompt: z.string().describe('Full system prompt for this persona'),
+          description: z.string().optional().describe('One-line summary'),
+          shared: z.boolean().optional().describe('If true, visible to all team members')
+        })
+      },
+      async (params) => {
+        try {
+          const [persona, created] = await AgentPersona.findOrCreate({
+            where: { name: params.name },
+            defaults: {
+              name: params.name,
+              role: params.role,
+              systemPrompt: params.systemPrompt,
+              description: params.description || '',
+              isShared: params.shared || false
+            }
+          });
+          if (!created) {
+            await persona.update({
+              role: params.role,
+              systemPrompt: params.systemPrompt,
+              description: params.description !== undefined ? params.description : persona.description,
+              isShared: params.shared !== undefined ? params.shared : persona.isShared
+            });
+          }
+          return {
+            content: [{
+              type: 'text',
+              text: `Persona "${params.name}" ${created ? 'created' : 'updated'}.`
+            }]
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${error.message}` }],
+            isError: true
+          };
+        }
+      }
+    );
+
+    logger.debug('Persona tools registered');
   }
 
   renderSkillPrompt(skill, inputValues) {
@@ -442,7 +601,7 @@ class MCPDepotServer {
   async refreshTools() {
     this.toolsMap.clear();
     
-    const { Tool, Integration, PromptLibrary } = loadModels();
+    const { Tool, Integration, PromptLibrary, AgentPersona } = loadModels();
     const tools = await Tool.findAll({
       where: { isActive: true },
       include: [{ model: Integration, where: { isActive: true } }]
@@ -456,10 +615,17 @@ class MCPDepotServer {
     for (const skill of skills) {
       this.registerSkill(skill);
     }
+
+    const personas = await AgentPersona.findAll();
+    for (const persona of personas) {
+      this.registerPersona(persona);
+    }
+    
+    this.registerPersonaTools();
     
     await this.server.sendToolListChanged();
     
-    logger.info({ toolCount: tools.length, skillCount: skills.length }, 'Tools refreshed');
+    logger.info({ toolCount: tools.length, skillCount: skills.length, personaCount: personas.length }, 'Tools refreshed');
   }
 }
 

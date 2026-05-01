@@ -24,6 +24,7 @@ const sessionContextRoutes = require('./routes/session-context');
 const sessionChannelRoutes = require('./routes/session-channel');
 const systemRoutes = require('./routes/system');
 const oauthRoutes = require('./routes/oauth');
+const personasRoutes = require('./routes/personas');
 
 const app = express();
 
@@ -84,6 +85,7 @@ v1Router.use('/session-contexts', sessionContextRoutes);
 v1Router.use('/session-channels', sessionChannelRoutes);
 v1Router.use('/system', systemRoutes);
 v1Router.use('/oauth', oauthRoutes);
+v1Router.use('/personas', personasRoutes);
 
 app.use('/api/v1', v1Router);
 app.use('/api', v1Router); // Backward compatibility

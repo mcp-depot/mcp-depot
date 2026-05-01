@@ -61,7 +61,8 @@ function Tools({ all: isAllTools }) {
     path: '',
     params: '{\n  "key": "value"\n}',
     headers: '{\n  "key": "value"\n}',
-    body: ''
+    body: '',
+    responseTransformer: ''
   });
 
   const [collapsedIntegrations, setCollapsedIntegrations] = useState({});
@@ -201,7 +202,12 @@ function Tools({ all: isAllTools }) {
         body: parsedBody
       };
 
-      const payload = { name: form.name, description: form.description, endpoint };
+      const payload = {
+        name: form.name,
+        description: form.description,
+        endpoint,
+        responseTransformer: form.responseTransformer || null
+      };
 
       if (editingTool) {
         const integrationId = id || editingTool.integrationId;
@@ -228,7 +234,8 @@ function Tools({ all: isAllTools }) {
       path: tool.endpoint.path,
       params: JSON.stringify(tool.endpoint.params, null, 2),
       headers: JSON.stringify(tool.endpoint.headers, null, 2),
-      body: JSON.stringify(tool.endpoint.body, null, 2)
+      body: JSON.stringify(tool.endpoint.body, null, 2),
+      responseTransformer: tool.endpoint.responseTransformer || tool.responseTransformer || ''
     });
     setShowModal(true);
   };
@@ -359,7 +366,7 @@ function Tools({ all: isAllTools }) {
 
   const resetForm = () => {
     setEditingTool(null);
-    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '' });
+    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '' });
   };
 
   const handleExplore = async (e) => {
@@ -902,6 +909,26 @@ function Tools({ all: isAllTools }) {
                       )}
                     </div>
                   )}
+                  <div className="form-group">
+                    <label>Response Transformer
+                      <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
+                        Post-processing applied after field filtering
+                      </span>
+                    </label>
+                    <StyledSelect
+                      options={[
+                        { value: '', label: 'None' },
+                        { value: 'stripNulls', label: 'stripNulls — Remove all null/undefined values' },
+                        { value: 'flattenSingle', label: 'flattenSingle — Unwrap single-key objects' },
+                        { value: 'snakeToTitle', label: 'snakeToTitle — Convert keys to Title Case' },
+                        { value: 'truncateStrings', label: 'truncateStrings — Truncate long strings (500 chars)' },
+                        { value: 'addTimestamp', label: 'addTimestamp — Prepend _fetchedAt to response' }
+                      ]}
+                      value={{ value: form.responseTransformer || '', label: form.responseTransformer ? form.responseTransformer : 'None' }}
+                      onChange={(opt) => setForm({ ...form, responseTransformer: opt?.value || '' })}
+                      isSearchable={false}
+                    />
+                  </div>
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
