@@ -233,6 +233,30 @@ class DynamicAdapter {
     return this.makeRequest('DELETE', path, null, options);
   }
 
+  async fetchBinary(path, options = {}) {
+    const { params, headers } = options;
+    const config = {
+      method: 'GET',
+      url: path,
+      headers: {
+        ...await this.getAuthHeaders(),
+        ...this.customHeaders,
+        ...headers
+      },
+      params: {
+        ...await this.getQueryParams(),
+        ...params
+      },
+      responseType: 'arraybuffer'
+    };
+    const response = await this.client.request(config);
+    return {
+      data: response.data,
+      status: response.status,
+      headers: response.headers
+    };
+  }
+
   async ensureValidToken() {
     if (this.auth.type !== 'oauth2') return;
     

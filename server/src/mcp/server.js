@@ -11,6 +11,7 @@ const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
 const { filterFields } = require('../utils/fieldFilter');
+const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
 const { z } = require('zod/v3');
 
 function coerceParam(value, paramDefs, key) {
@@ -225,24 +226,42 @@ class MCPDepotServer {
     
     try {
       const fields = endpoint.responseFields || tool.responseFields;
+      const binaryOpt = endpoint.binaryResponse;
       let data;
-      if (method === 'GET') {
-        const result = await adapter.get(path, { params: remainingParams });
-        data = result.data;
-      } else if (method === 'POST') {
-        const result = await adapter.post(path, bodyParams);
-        data = result.data;
-      } else if (method === 'PUT') {
-        const result = await adapter.put(path, bodyParams);
-        data = result.data;
-      } else if (method === 'DELETE') {
-        const result = await adapter.delete(path, { params: remainingParams });
-        data = result.data;
-      } else if (method === 'PATCH') {
-        const result = await adapter.patch(path, bodyParams);
+      let result;
+      if (binaryOpt) {
+        result = await adapter.fetchBinary(path, { params: remainingParams });
+        const contentType = result.headers['content-type'] || '';
+        if (isBinary(contentType)) {
+          const b64 = Buffer.from(result.data).toString('base64');
+          return buildBinaryResult(b64, contentType);
+        }
         data = result.data;
       } else {
-        throw new Error(`Unsupported method: ${method}`);
+        if (method === 'GET') {
+          result = await adapter.get(path, { params: remainingParams });
+          data = result.data;
+        } else if (method === 'POST') {
+          result = await adapter.post(path, bodyParams);
+        data = result.data;
+        } else if (method === 'PUT') {
+          result = await adapter.put(path, bodyParams);
+          data = result.data;
+        } else if (method === 'DELETE') {
+          result = await adapter.delete(path, { params: remainingParams });
+          data = result.data;
+        } else if (method === 'PATCH') {
+          result = await adapter.patch(path, bodyParams);
+          data = result.data;
+        } else {
+          throw new Error(`Unsupported method: ${method}`);
+        }
+        const contentType = result.headers?.['content-type'] || '';
+        if (isBinary(contentType)) {
+          const buf = Buffer.from(JSON.stringify(data));
+          const b64 = buf.toString('base64');
+          return buildBinaryResult(b64, contentType);
+        }
       }
       return Array.isArray(data)
         ? data.map(item => filterFields(item, fields))
