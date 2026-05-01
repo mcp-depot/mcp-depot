@@ -4,7 +4,7 @@ const { Op } = require('sequelize');
 const { sequelize, loadModels } = require('../config/database');
 const Integration = require('../models/Integration');
 const Tool = require('../models/Tool');
-const { auth } = require('../middleware/auth');
+const { authWithApiKey } = require('../middleware/auth');
 const AdapterFactory = require('../adapters');
 const audit = require('../services/audit');
 const OpenAPIParser = require('../services/openapi-parser');
@@ -48,7 +48,7 @@ const toolSchema = Joi.object({
   responseTransformer: Joi.string().max(50).optional().allow(null)
 });
 
-router.get('/', auth, async (req, res) => {
+router.get('/', authWithApiKey, async (req, res) => {
   try {
     let integrations;
     
@@ -160,7 +160,7 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-router.get('/composite', auth, async (req, res) => {
+router.get('/composite', authWithApiKey, async (req, res) => {
   try {
     const { integrationId } = req.query;
     
@@ -178,7 +178,7 @@ router.get('/composite', auth, async (req, res) => {
   }
 });
 
-router.post('/composite', auth, async (req, res) => {
+router.post('/composite', authWithApiKey, async (req, res) => {
   try {
     const { error, value } = compositeToolSchema.validate(req.body);
     if (error) {
@@ -231,7 +231,7 @@ router.post('/composite', auth, async (req, res) => {
   }
 });
 
-router.get('/composite/:id', auth, async (req, res) => {
+router.get('/composite/:id', authWithApiKey, async (req, res) => {
   try {
     const tool = await Tool.findByPk(req.params.id);
     
@@ -260,7 +260,7 @@ router.get('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.put('/composite/:id', auth, async (req, res) => {
+router.put('/composite/:id', authWithApiKey, async (req, res) => {
   try {
     const tool = await Tool.findByPk(req.params.id);
     
@@ -296,7 +296,7 @@ router.put('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.delete('/composite/:id', auth, async (req, res) => {
+router.delete('/composite/:id', authWithApiKey, async (req, res) => {
   try {
     const tool = await Tool.findByPk(req.params.id);
     
@@ -322,7 +322,7 @@ router.delete('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.post('/composite/:id/test', auth, async (req, res) => {
+router.post('/composite/:id/test', authWithApiKey, async (req, res) => {
   try {
     const tool = await Tool.findByPk(req.params.id);
     
@@ -348,7 +348,7 @@ router.post('/composite/:id/test', auth, async (req, res) => {
   }
 });
 
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', authWithApiKey, async (req, res) => {
   try {
     let integration;
     
@@ -387,7 +387,7 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-router.post('/', auth, async (req, res) => {
+router.post('/', authWithApiKey, async (req, res) => {
   try {
     const { error, value } = integrationSchema.validate(req.body);
     if (error) {
@@ -445,7 +445,7 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.id }
@@ -502,7 +502,7 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin' 
       ? { id: req.params.id }
@@ -539,7 +539,7 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
-router.post('/:id/test', auth, async (req, res) => {
+router.post('/:id/test', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.id }
@@ -598,7 +598,7 @@ router.post('/:id/test', auth, async (req, res) => {
   }
 });
 
-router.get('/:id/tools', auth, async (req, res) => {
+router.get('/:id/tools', authWithApiKey, async (req, res) => {
   try {
     let integration;
     
@@ -637,7 +637,7 @@ router.get('/:id/tools', auth, async (req, res) => {
   }
 });
 
-router.post('/:id/tools', auth, async (req, res) => {
+router.post('/:id/tools', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.id }
@@ -697,7 +697,7 @@ router.post('/:id/tools', auth, async (req, res) => {
   }
 });
 
-router.put('/:id/tools/:toolId', auth, async (req, res) => {
+router.put('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.toolId, integrationId: req.params.id }
@@ -736,7 +736,7 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id/tools/:toolId', auth, async (req, res) => {
+router.delete('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.toolId, integrationId: req.params.id }
@@ -763,7 +763,7 @@ router.delete('/:id/tools/:toolId', auth, async (req, res) => {
   }
 });
 
-router.patch('/:id/tools/bulk', auth, async (req, res) => {
+router.patch('/:id/tools/bulk', authWithApiKey, async (req, res) => {
   try {
     const { ids, action } = req.body;
     
@@ -803,7 +803,7 @@ router.patch('/:id/tools/bulk', auth, async (req, res) => {
   }
 });
 
-router.post('/discover', auth, async (req, res) => {
+router.post('/discover', authWithApiKey, async (req, res) => {
   try {
     const { baseUrl, openApiPath, auth: authConfig, specType, specUrl, filter } = req.body;
 
@@ -859,7 +859,7 @@ router.post('/discover', auth, async (req, res) => {
   }
 });
 
-router.post('/:id/import-tools', auth, async (req, res) => {
+router.post('/:id/import-tools', authWithApiKey, async (req, res) => {
   logger.debug({ id: req.params.id, endpointsCount: req.body.endpoints?.length }, 'Import tools request');
   
   try {
@@ -1021,7 +1021,7 @@ router.post('/:id/import-tools', auth, async (req, res) => {
   }
 });
 
-router.post('/export', auth, async (req, res) => {
+router.post('/export', authWithApiKey, async (req, res) => {
   try {
     const { includeTools, integrationIds } = req.body;
     logger.debug({ userId: req.user.id, integrationIds }, 'Export request');
@@ -1074,7 +1074,7 @@ router.post('/export', auth, async (req, res) => {
   }
 });
 
-router.post('/import', auth, async (req, res) => {
+router.post('/import', authWithApiKey, async (req, res) => {
   try {
     const { integrations, includeTools, mode } = req.body;
     
@@ -1168,7 +1168,7 @@ router.post('/import', auth, async (req, res) => {
   }
 });
 
-router.patch('/:id/visibility', auth, async (req, res) => {
+router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.id }
@@ -1192,7 +1192,7 @@ router.patch('/:id/visibility', auth, async (req, res) => {
   }
 });
 
-router.patch('/:id/credentials', auth, async (req, res) => {
+router.patch('/:id/credentials', authWithApiKey, async (req, res) => {
   try {
     const integration = await Integration.findByPk(req.params.id);
     if (!integration) {
@@ -1236,7 +1236,7 @@ router.patch('/:id/credentials', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id/credentials', auth, async (req, res) => {
+router.delete('/:id/credentials', authWithApiKey, async (req, res) => {
   try {
     const integration = await Integration.findByPk(req.params.id);
     if (!integration) {
@@ -1264,7 +1264,7 @@ router.delete('/:id/credentials', auth, async (req, res) => {
   }
 });
 
-router.get('/:id/users', auth, async (req, res) => {
+router.get('/:id/users', authWithApiKey, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Admin only' });
@@ -1315,7 +1315,7 @@ const compositeToolSchema = Joi.object({
   })).min(1).required()
 });
 
-router.get('/composite', auth, async (req, res) => {
+router.get('/composite', authWithApiKey, async (req, res) => {
   try {
     const { integrationId } = req.query;
     
@@ -1333,7 +1333,7 @@ router.get('/composite', auth, async (req, res) => {
   }
 });
 
-router.post('/composite', auth, async (req, res) => {
+router.post('/composite', authWithApiKey, async (req, res) => {
   try {
     const { error, value } = compositeToolSchema.validate(req.body);
     if (error) {
@@ -1386,7 +1386,7 @@ router.post('/composite', auth, async (req, res) => {
   }
 });
 
-router.get('/composite/:id', auth, async (req, res) => {
+router.get('/composite/:id', authWithApiKey, async (req, res) => {
   try {
     const tool = await Tool.findByPk(req.params.id);
     
@@ -1415,7 +1415,7 @@ router.get('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.put('/composite/:id', auth, async (req, res) => {
+router.put('/composite/:id', authWithApiKey, async (req, res) => {
   try {
     const tool = await Tool.findByPk(req.params.id);
     
@@ -1451,7 +1451,7 @@ router.put('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.delete('/composite/:id', auth, async (req, res) => {
+router.delete('/composite/:id', authWithApiKey, async (req, res) => {
   try {
     const tool = await Tool.findByPk(req.params.id);
     
@@ -1477,7 +1477,7 @@ router.delete('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.post('/composite/:id/test', auth, async (req, res) => {
+router.post('/composite/:id/test', authWithApiKey, async (req, res) => {
   try {
     const tool = await Tool.findByPk(req.params.id);
     
@@ -1504,7 +1504,7 @@ router.post('/composite/:id/test', auth, async (req, res) => {
 });
 
 // Postman Collection Import
-router.post('/postman-import', auth, async (req, res) => {
+router.post('/postman-import', authWithApiKey, async (req, res) => {
   try {
     const { name, baseUrl, auth, tools } = req.body;
     

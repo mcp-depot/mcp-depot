@@ -72,6 +72,14 @@ if (args.includes('--login')) {
   runLogin();
 } else if (args.includes('--mcp')) {
   startMcpProxy();
+} else if (['integrations', 'tools', 'health', 'import'].includes(args[0])) {
+  const subcmd = args[0];
+  runSubcommand(subcmd, args.slice(1)).catch(err => {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  });
+} else if (args.includes('--help') || args.includes('-h')) {
+  printHelp();
 } else {
   const serveClient = !args.includes('--server');
   process.env.SERVE_CLIENT = serveClient ? 'true' : 'false';
@@ -322,4 +330,333 @@ function loadConfig() {
     }
   }
   return {};
+}
+
+// ─── CLI Management Subcommands ──────────────────────────────────────
+
+function getBaseUrl() {
+  const config = loadConfig();
+  let url = config.url || 'http://localhost:3000/api';
+  if (url.endsWith('/mcp')) url = url.slice(0, -4);
+  return url;
+}
+
+function getAuthHeaders() {
+  const config = loadConfig();
+  const headers = { 'Content-Type': 'application/json' };
+  if (config.apiKey) headers['x-api-key'] = config.apiKey;
+  return headers;
+}
+
+async function apiGet(endpoint) {
+  const url = `${getBaseUrl()}${endpoint}`;
+  const res = await fetch(url, { headers: getAuthHeaders() });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(`HTTP ${res.status}: ${body.error || res.statusText}`);
+  }
+  return res.json();
+}
+
+async function apiPost(endpoint, body) {
+  const url = `${getBaseUrl()}${endpoint}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(`HTTP ${res.status}: ${errBody.error || res.statusText}`);
+  }
+  return res.json();
+}
+
+async function apiDelete(endpoint) {
+  const url = `${getBaseUrl()}${endpoint}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(`HTTP ${res.status}: ${errBody.error || res.statusText}`);
+  }
+  return res.ok ? { ok: true } : null;
+}
+
+function flag(args, name) {
+  const idx = args.indexOf(name);
+  return idx !== -1 ? (args[idx + 1] !== undefined && !args[idx + 1].startsWith('--') ? args[idx + 1] : true) : undefined;
+}
+
+function hasFlag(args, name) {
+  return args.includes(name);
+}
+
+function parseEnvVars(args) {
+  const envPairIdx = args.indexOf('--env');
+  if (envPairIdx === -1) return {};
+  const env = {};
+  for (let i = envPairIdx + 1; i < args.length && !args[i].startsWith('--'); i++) {
+    const [key, ...rest] = args[i].split('=');
+    if (key && rest.length) env[key] = rest.join('=');
+  }
+  return env;
+}
+
+async function cmdIntegrationsList(opts) {
+  const data = await apiGet('/v1/integrations');
+  if (opts.json) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+  if (data.length === 0) { console.log('No integrations found.'); return; }
+  console.log(`\n${'Name'.padEnd(25)} ${'Type'.padEnd(15)} ${'URL'.padEnd(45)} ${'Status'}  ${'Tools'}`);
+  console.log('─'.repeat(110));
+  data.forEach(i => {
+    const status = i.isActive ? '\x1b[32mactive\x1b[0m' : '\x1b[31minactive\x1b[0m';
+    const tools = (i.metadata?.toolCount ?? 0).toString();
+    console.log(`${(i.name || '').padEnd(25)} ${(i.type || '').padEnd(15)} ${(i.baseUrl || '').padEnd(45)} ${status.padEnd(8)} ${tools}`);
+  });
+  console.log(`\nTotal: ${data.length}`);
+}
+
+async function cmdIntegrationsAdd(opts) {
+  if (!opts.name || !opts.baseUrl) {
+    console.error('Usage: mcp-depot integrations add --name <name> --base-url <url> [--type <type>] [--auth <type>] [--key <env-name>]');
+    process.exit(1);
+  }
+  const authConfig = opts.auth ? { type: opts.auth, credentials: opts.key ? { key: opts.key, value: '' } : {} } : { type: 'none' };
+  const payload = {
+    type: opts.type || 'custom',
+    name: opts.name,
+    description: opts.description || '',
+    config: { baseUrl: opts.baseUrl, auth: authConfig, headers: {}, timeout: 30000 },
+    metadata: {}
+  };
+  const result = await apiPost('/v1/integrations', payload);
+  console.log(`\nIntegration "${opts.name}" created.`);
+  console.log(`ID: ${result._id || result.id}`);
+  console.log('Next: add tools with: mcp-depot tools add --integration <name> --name <tool> --method GET --path /endpoint');
+}
+
+async function cmdIntegrationsRemove(name) {
+  if (!name) { console.error('Usage: mcp-depot integrations remove <name>'); process.exit(1); }
+  const integrations = await apiGet('/v1/integrations');
+  const target = integrations.find(i => i.name === name);
+  if (!target) { console.error(`Integration "${name}" not found.`); process.exit(1); }
+  await apiDelete(`/v1/integrations/${target._id || target.id}`);
+  console.log(`Integration "${name}" deleted.`);
+}
+
+async function cmdToolsList(opts) {
+  const integrations = await apiGet('/v1/integrations');
+  let filtered = integrations;
+  if (opts.integration) {
+    filtered = integrations.filter(i => i.name.toLowerCase() === opts.integration.toLowerCase());
+    if (filtered.length === 0) { console.error(`Integration "${opts.integration}" not found.`); process.exit(1); }
+  }
+  let allTools = [];
+  for (const int of filtered) {
+    try {
+      const tools = await apiGet(`/v1/integrations/${int._id || int.id}/tools`);
+      tools.forEach(t => { allTools.push({ ...t, _integrationName: int.name }); });
+    } catch (e) { /* skip unreachable integrations */ }
+  }
+  if (opts.json) { console.log(JSON.stringify(allTools, null, 2)); return; }
+  if (allTools.length === 0) { console.log('No tools found.'); return; }
+  console.log(`\n${'Tool Name'.padEnd(30)} ${'Integration'.padEnd(25)} ${'Method'.padEnd(8)} ${'Path'}`);
+  console.log('─'.repeat(100));
+  allTools.forEach(t => {
+    const method = (t.endpoint?.method || 'GET').padEnd(8);
+    const path = t.endpoint?.path || '';
+    const name = (t.name || '').padEnd(30);
+    const intName = (t._integrationName || '').padEnd(25);
+    console.log(`${name} ${intName} ${method} ${path}`);
+  });
+  console.log(`\nTotal: ${allTools.length}`);
+}
+
+async function cmdToolsAdd(opts) {
+  if (!opts.integration || !opts.name || !opts.method || !opts.path) {
+    console.error('Usage: mcp-depot tools add --integration <name> --name <tool> --method GET --path /endpoint');
+    process.exit(1);
+  }
+  const integrations = await apiGet('/v1/integrations');
+  const target = integrations.find(i => i.name.toLowerCase() === opts.integration.toLowerCase());
+  if (!target) { console.error(`Integration "${opts.integration}" not found.`); process.exit(1); }
+  const payload = {
+    name: opts.name,
+    description: opts.description || '',
+    endpoint: {
+      path: opts.path,
+      method: opts.method.toUpperCase(),
+      params: {},
+      headers: {},
+      body: null
+    },
+    inputSchema: {},
+    outputSchema: {}
+  };
+  const result = await apiPost(`/v1/integrations/${target._id || target.id}/tools`, payload);
+  console.log(`Tool "${opts.name}" added to "${opts.integration}".`);
+  console.log(`ID: ${result._id || result.id}`);
+}
+
+async function cmdToolsRemove(integrationName, toolName) {
+  if (!integrationName || !toolName) {
+    console.error('Usage: mcp-depot tools remove <integration> <tool>');
+    process.exit(1);
+  }
+  const integrations = await apiGet('/v1/integrations');
+  const target = integrations.find(i => i.name.toLowerCase() === integrationName.toLowerCase());
+  if (!target) { console.error(`Integration "${integrationName}" not found.`); process.exit(1); }
+  const tools = await apiGet(`/v1/integrations/${target._id || target.id}/tools`);
+  const tool = tools.find(t => t.name.toLowerCase() === toolName.toLowerCase());
+  if (!tool) { console.error(`Tool "${toolName}" not found in "${integrationName}".`); process.exit(1); }
+  await apiDelete(`/v1/integrations/${target._id || target.id}/tools/${tool._id || tool.id}`);
+  console.log(`Tool "${toolName}" deleted from "${integrationName}".`);
+}
+
+async function cmdHealth() {
+  const data = await apiGet('/v1/health');
+  const results = data.cached || [];
+  if (results.length === 0) {
+    console.log('No health data yet. Run: mcp-depot health --refresh');
+    return;
+  }
+  console.log(`\n${'Integration'.padEnd(30)} ${'Status'.padEnd(10)} ${'Latency'.padEnd(12)} ${'Error'}`);
+  console.log('─'.repeat(80));
+  results.forEach(r => {
+    const status = r.status === 'ok' ? '\x1b[32mOK\x1b[0m' : '\x1b[31mERROR\x1b[0m';
+    const latency = `${r.latencyMs || 0}ms`.padEnd(12);
+    const error = r.error || '';
+    console.log(`${(r.name || '').padEnd(30)} ${status.padEnd(10)} ${latency} ${error}`);
+  });
+  const ok = results.filter(r => r.status === 'ok').length;
+  console.log(`\n${ok}/${results.length} healthy · last check: ${results[0]?.checkedAt || 'never'}`);
+}
+
+async function cmdImportOpenapi(opts) {
+  const specSource = opts._[1];
+  if (!specSource || !opts.integration) {
+    console.error('Usage: mcp-depot import openapi <url-or-file> --integration <name>');
+    process.exit(1);
+  }
+  let specUrl, baseUrl, specContent;
+  if (specSource.startsWith('http://') || specSource.startsWith('https://')) {
+    specUrl = specSource;
+    const res = await fetch(specUrl);
+    if (!res.ok) { console.error(`Failed to fetch spec: HTTP ${res.status}`); process.exit(1); }
+    specContent = await res.text();
+  } else {
+    const filePath = path.resolve(specSource);
+    if (!fs.existsSync(filePath)) { console.error(`File not found: ${filePath}`); process.exit(1); }
+    specContent = fs.readFileSync(filePath, 'utf-8');
+  }
+  const spec = JSON.parse(specContent);
+  baseUrl = spec.servers?.[0]?.url || spec.host ? `${spec.schemes?.[0] || 'https'}://${spec.host}${spec.basePath || ''}` : '';
+  if (!baseUrl) { console.error('Could not determine base URL from spec. Please ensure the spec has a servers array.'); process.exit(1); }
+  const integrations = await apiGet('/v1/integrations');
+  let target = integrations.find(i => i.name.toLowerCase() === opts.integration.toLowerCase());
+  if (!target) {
+    console.log(`Integration "${opts.integration}" not found. Creating...`);
+    target = await apiPost('/v1/integrations', {
+      type: 'custom', name: opts.integration, config: { baseUrl, auth: { type: 'none' }, headers: {}, timeout: 30000 }, metadata: {}
+    });
+    console.log(`Created integration "${opts.integration}" (ID: ${target._id || target.id})`);
+  }
+  const intId = target._id || target.id;
+  const existingTools = await apiGet(`/v1/integrations/${intId}/tools`);
+  const existingNames = new Set(existingTools.map(t => t.name));
+  const endpoints = [];
+  if (spec.paths) {
+    Object.entries(spec.paths).forEach(([pathPath, methods]) => {
+      Object.entries(methods).forEach(([method, op]) => {
+        if (['get', 'post', 'put', 'patch', 'delete'].includes(method) && !existingNames.has(op.operationId || `${method}_${pathPath.replace(/\//g, '_')}`)) {
+          endpoints.push({
+            path: pathPath,
+            method: method.toUpperCase(),
+            operationId: op.operationId || `${method}_${pathPath.replace(/[{}\/]/g, '_')}`,
+            summary: op.summary || op.description || '',
+            params: op.parameters ? op.parameters.map(p => ({ name: p.name, required: p.required || false, type: 'string', description: p.description || p.name })) : [],
+          });
+        }
+      });
+    });
+  }
+  if (endpoints.length === 0) { console.log('No new endpoints to import.'); return; }
+  const result = await apiPost(`/v1/integrations/${intId}/import-tools`, { endpoints });
+  const created = result.created || 0;
+  console.log(`\nImported ${created} tools into "${opts.integration}".`);
+  if (result.errors?.length) {
+    console.log(`\n${result.errors.length} errors:`);
+    result.errors.forEach(e => console.log(`  - ${e.endpoint || e}: ${typeof e.error === 'string' ? e.error : JSON.stringify(e.error)}`));
+  }
+}
+
+async function runSubcommand(subcmd, subArgs) {
+  const opts = { _: subArgs };
+  subArgs.forEach((a, i) => {
+    if (a.startsWith('--')) {
+      const key = a.replace(/^--/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      const val = subArgs[i + 1] && !subArgs[i + 1].startsWith('--') ? subArgs[i + 1] : true;
+      opts[key] = val;
+    }
+  });
+  try {
+    if (subcmd === 'integrations') {
+      const action = subArgs[0];
+      if (action === 'list' || !action) return cmdIntegrationsList({ json: opts.json });
+      if (action === 'add') return cmdIntegrationsAdd(opts);
+      if (action === 'remove') return cmdIntegrationsRemove(subArgs[1]);
+    }
+    if (subcmd === 'tools') {
+      const action = subArgs[0];
+      if (action === 'list' || !action) return cmdToolsList({ json: opts.json, integration: opts.integration });
+      if (action === 'add') return cmdToolsAdd(opts);
+      if (action === 'remove') return cmdToolsRemove(subArgs[1], subArgs[2]);
+    }
+    if (subcmd === 'health') return cmdHealth();
+    if (subcmd === 'import') {
+      const type = subArgs[0];
+      if (type === 'openapi') return cmdImportOpenapi(opts);
+    }
+    printHelp();
+  } catch (err) {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+function printHelp() {
+  console.log(`
+MCP Depot CLI - Management Commands
+
+Usage: mcp-depot <command> [subcommand] [options]
+
+Commands:
+  integrations list [--json]                    List all integrations
+  integrations add --name N --base-url U        Create a new integration
+    [--type T] [--auth A] [--key K]
+  integrations remove <name>                    Delete an integration
+  tools list [--integration N] [--json]         List tools (optionally filtered)
+  tools add --integration N --name T            Add a tool to an integration
+    --method M --path P [--description D]
+  tools remove <integration> <tool>             Delete a tool
+  health                                        Show integration health status
+  import openapi <url|file> --integration N     Import tools from OpenAPI spec
+
+Global options:
+  --json                    Output as JSON (for list commands)
+  --login                   Interactive login to configure API key
+  --mcp                     Start MCP stdio proxy
+  --port <n>                Run server on custom port
+  --daemon                  Run server as background daemon
+  --stop                    Stop background daemon
+  --status                  Show daemon status
+
+Configuration: ~/.mcp-depot/config.json
+`);
 }

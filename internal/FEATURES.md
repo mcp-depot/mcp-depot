@@ -1573,7 +1573,7 @@ Dot-notation paths (`fields.status.name`) allow drilling into nested objects. Ar
 
 ## Feature 18 — Integration health dashboard
 
-**Status:** Proposed
+**Status:** Implemented
 
 **The problem:**
 
@@ -1706,7 +1706,7 @@ Add a **Marketplace** tab to the MCP Depot UI that fetches the public MCP regist
 
 ## Feature 21 — CLI management tool
 
-**Status:** Proposed
+**Status:** Implemented
 
 **The problem:**
 
@@ -2207,7 +2207,7 @@ export default function stripNulls(response) {
 
 ## Feature 30 — MCP Prompts registry
 
-**Status:** Proposed
+**Status:** Implemented (`69e6226`)
 
 **Inspired by:** [IBM/mcp-context-forge](https://github.com/IBM/mcp-context-forge) (enterprise MCP gateway)
 
@@ -2520,3 +2520,170 @@ A client connecting to the hub sees tools like `platform/search_issues`, `platfo
 6. **Security** - Each upstream connection uses its own API key from the environment. Never store API keys in `federation.json` directly — require `${ENV_VAR}` syntax and resolve at startup. Log a startup error and refuse to register the upstream if the env var is missing.
 
 **Effort estimate:** Medium — upstream sync + proxy executor ~200 lines, health-aware routing ~50 lines, UI panel ~150 lines. Loop detection ~30 lines. The main complexity is handling upstream tool re-registration cleanly when the `McpServer` SDK does not have a first-class `unregister` API.
+
+---
+
+## Feature 34 — Generic async watcher: long-running tool calls that wait for external systems
+
+**Status:** Proposed
+
+**The problem:**
+
+Most MCP tools are stateless and fast: call an API, return the result. But many real developer workflows involve waiting for an asynchronous external process — a CI build, a deployment, a pipeline run, a background job. Today the only option is for the AI to poll repeatedly by calling the same tool in a loop, which burns tool calls, fills context with intermediate status messages, and puts the polling logic in the prompt rather than the server.
+
+**The proposed solution:**
+
+Add a generic `watch_until_done` tool backed by a pluggable **source adapter** system. The AI makes a single tool call. MCPHUB takes ownership of the polling loop internally, sends `notifications/progress` ticks back to the client while waiting, and resolves the tool call only when the watched process reaches a terminal state — returning a structured summary of the outcome.
+
+From the AI's perspective: one tool call in, one result out, however long it takes.
+
+**Tool interface:**
+
+```js
+watch_until_done({
+  source: "jenkins",           // which adapter to use
+  trigger: {                   // adapter-specific identifiers
+    job: "Components/lcs",
+    build: "PR-42"
+  },
+  pollIntervalSeconds: 30,     // optional, adapter provides a sensible default
+  timeoutSeconds: 3600         // optional, default 1 hour
+})
+```
+
+**Return value (on completion):**
+
+```json
+{
+  "source": "jenkins",
+  "status": "FAILURE",
+  "duration": "8m 14s",
+  "summary": "Stage 'test' failed: 3 test cases failed in PoolServiceTest",
+  "details": {
+    "failedStage": "test",
+    "consoleExcerpt": "...last 40 lines of relevant output...",
+    "artifactUrls": ["http://jenkins/job/lcs/PR-42/artifact/surefire-reports/"]
+  }
+}
+```
+
+**Source adapter interface:**
+
+Each adapter is a small module in `src/watchers/adapters/` that implements three functions:
+
+```js
+export default {
+  // Return the current status and whether it is terminal
+  async poll(trigger, credentials) {
+    // → { status: "RUNNING", terminal: false, progress?: "3 / 10 stages" }
+    // → { status: "SUCCESS", terminal: true }
+    // → { status: "FAILURE", terminal: true }
+  },
+
+  // Called once when a terminal state is reached — fetch logs, artifacts, summary
+  async collectResult(trigger, status, credentials) {
+    // → { summary, details }
+  },
+
+  defaults: {
+    pollIntervalSeconds: 30,
+    terminalStates: ["SUCCESS", "FAILURE", "ABORTED"]
+  }
+}
+```
+
+**Built-in adapters:**
+
+| Adapter | What it watches | Terminal states |
+|---------|----------------|----------------|
+| `jenkins` | Jenkins build by job + build number | `SUCCESS`, `FAILURE`, `ABORTED`, `UNSTABLE` |
+| `github_actions` | GitHub Actions workflow run | `completed`, `cancelled` |
+| `bitbucket_pipelines` | Bitbucket Pipeline run | `SUCCESSFUL`, `FAILED`, `STOPPED` |
+| `vercel` | Vercel deployment | `READY`, `ERROR`, `CANCELED` |
+| `kubernetes` | Pod or Rollout readiness | `Running+Ready`, `CrashLoopBackOff`, `Failed` |
+| `custom` | Any REST endpoint | Caller-defined field path + terminal values |
+
+The `custom` adapter is the escape hatch for anything not covered — the caller specifies the poll URL, which JSON field to read for status, and what values count as terminal:
+
+```js
+watch_until_done({
+  source: "custom",
+  trigger: {
+    pollUrl: "https://api.example.com/jobs/{{jobId}}/status",
+    statusField: "state",
+    terminalStates: ["done", "failed", "cancelled"],
+    resultField: "result"
+  }
+})
+```
+
+**Implementation guide for developers:**
+
+1. **Watcher engine** (`src/watchers/engine.js`) - The core loop. Runs inside the async tool handler so the MCP connection stays open for the duration:
+   ```js
+   export async function runWatcher({ adapter, trigger, credentials, meta, onProgress, signal }) {
+     const { pollIntervalSeconds } = { ...adapter.defaults, ...meta };
+     const deadline = Date.now() + (meta.timeoutSeconds ?? 3600) * 1000;
+     let elapsed = 0;
+
+     while (Date.now() < deadline) {
+       if (signal?.aborted) throw new Error('Watch cancelled');
+       const { status, terminal, progress } = await adapter.poll(trigger, credentials);
+       elapsed += pollIntervalSeconds;
+       onProgress({ status, progress, elapsed });
+       if (terminal) {
+         const result = await adapter.collectResult(trigger, status, credentials);
+         return { status, ...result };
+       }
+       await sleep(pollIntervalSeconds * 1000);
+     }
+     throw new Error(`Watch timed out after ${meta.timeoutSeconds}s`);
+   }
+   ```
+
+2. **Tool handler** (`src/tools/watchUntilDone.js`) - Registers the tool on the `McpServer`. Uses the SDK's progress notification API to send ticks while waiting:
+   ```js
+   server.tool('watch_until_done', schema, async (args, { progressToken, signal }) => {
+     const adapter = await loadAdapter(args.source);
+     const result = await runWatcher({
+       adapter,
+       trigger: args.trigger,
+       credentials: resolveCredentials(args.source),
+       meta: { pollIntervalSeconds: args.pollIntervalSeconds, timeoutSeconds: args.timeoutSeconds },
+       signal,
+       onProgress: ({ status, progress, elapsed }) => {
+         server.notification({
+           method: 'notifications/progress',
+           params: {
+             progressToken,
+             progress: elapsed,
+             total: args.timeoutSeconds ?? 3600,
+             message: `${status}${progress ? ` — ${progress}` : ''} (${fmtDuration(elapsed)})`
+           }
+         });
+       }
+     });
+     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+   });
+   ```
+
+3. **Credentials** - Each adapter reads credentials from environment variables resolved at call time. The Jenkins adapter reads `JENKINS_URL`, `JENKINS_USER`, and `JENKINS_TOKEN`. Document required env vars per adapter in the README. Never pass credentials through the tool arguments.
+
+4. **Adapter loader** (`src/watchers/adapters/index.js`):
+   ```js
+   const KNOWN = ['jenkins', 'github_actions', 'bitbucket_pipelines', 'vercel', 'kubernetes', 'custom'];
+   export async function loadAdapter(source) {
+     if (!KNOWN.includes(source)) throw new Error(`Unknown watcher source: ${source}`);
+     return (await import(`./${source}.js`)).default;
+   }
+   ```
+
+5. **Jenkins adapter** (`src/watchers/adapters/jenkins.js`) - Polls `/job/{folder}/{job}/{build}/api/json` for build status. On terminal FAILURE, fetches the last 80 lines of `/consoleText` and calls `/wfapi/describe` to identify which pipeline stage failed and why. Returns a `summary` string and `details` object structured for easy AI consumption.
+
+6. **Cancellation** - The MCP SDK passes an `AbortSignal` to tool handlers when the client cancels the call. Thread it to the watcher engine's `signal` parameter so a cancelled watch stops polling immediately.
+
+7. **UI live panel** - Add a "Watchers" panel to the MCP Depot UI (SSE-streamed from `GET /api/watchers/active`). Show each active watch: source, trigger, current status, elapsed time, and a "Cancel" button. Gives visibility into what MCPHUB is waiting on even when the AI session is not actively displaying progress.
+
+8. **Composability** - The watcher integrates naturally with Feature 22 (composite tool builder). A composite could chain: `create_pull_request` → `watch_until_done(source=jenkins, trigger=$step1.buildId)` → `post_comment(body=$step2.summary)` — push code, wait for CI, post result as a PR comment, all as one composite tool.
+
+**Effort estimate:** Medium-High — watcher engine + tool handler ~200 lines, Jenkins adapter ~150 lines (the most detailed one — failure stage extraction from wfapi is the tricky part), remaining adapters ~50 lines each, UI live panel ~100 lines.
