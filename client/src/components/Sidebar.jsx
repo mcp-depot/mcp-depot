@@ -15,7 +15,8 @@ import {
   ChevronDown,
   User,
   Layers,
-  MessagesSquare
+  MessagesSquare,
+  BookOpen
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -48,6 +49,7 @@ function Sidebar() {
       // { path: '/workflows', icon: FileText, label: 'Workflows' },
       { path: '/skills', icon: FileText, label: 'Skills' },
       { path: '/personas', icon: User, label: 'Personas' },
+      { path: '/prompts', icon: BookOpen, label: 'Prompts' },
     ]},
     { section: 'Sessions', items: [
       { path: '/session-contexts', icon: Layers, label: 'Contexts' },
