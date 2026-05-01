@@ -10,6 +10,7 @@ const logger = require('../services/logger');
 const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
+const { filterFields } = require('../utils/fieldFilter');
 const { z } = require('zod/v3');
 
 function coerceParam(value, paramDefs, key) {
@@ -223,24 +224,29 @@ class MCPDepotServer {
     let errorMessage = null;
     
     try {
+      const fields = endpoint.responseFields || tool.responseFields;
+      let data;
       if (method === 'GET') {
         const result = await adapter.get(path, { params: remainingParams });
-        return result.data;
+        data = result.data;
       } else if (method === 'POST') {
         const result = await adapter.post(path, bodyParams);
-        return result.data;
+        data = result.data;
       } else if (method === 'PUT') {
         const result = await adapter.put(path, bodyParams);
-        return result.data;
+        data = result.data;
       } else if (method === 'DELETE') {
         const result = await adapter.delete(path, { params: remainingParams });
-        return result.data;
+        data = result.data;
       } else if (method === 'PATCH') {
         const result = await adapter.patch(path, bodyParams);
-        return result.data;
+        data = result.data;
+      } else {
+        throw new Error(`Unsupported method: ${method}`);
       }
-      
-      throw new Error(`Unsupported method: ${method}`);
+      return Array.isArray(data)
+        ? data.map(item => filterFields(item, fields))
+        : filterFields(data, fields);
     } catch (error) {
       success = false;
       responseStatus = error.response?.status || 500;

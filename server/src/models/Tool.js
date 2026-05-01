@@ -81,6 +81,11 @@ const Tool = sequelize.define('Tool', {
     defaultValue: 'simple',
     comment: "Tool type: 'simple' or 'composite'"
   },
+  responseFields: {
+    type: DataTypes.JSONB,
+    defaultValue: null,
+    comment: 'Array of dot-notation paths to filter response fields (null = no filtering)'
+  },
   steps: {
     type: DataTypes.JSONB,
     defaultValue: null,
