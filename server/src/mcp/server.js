@@ -9,6 +9,7 @@ const encryption = require('../services/encryption');
 const logger = require('../services/logger');
 const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
+const { deriveAnnotations } = require('../services/annotations');
 const { z } = require('zod/v3');
 
 function coerceParam(value, paramDefs, key) {
@@ -119,11 +120,14 @@ class MCPDepotServer {
 
     const inputSchema = z.object(buildZodSchema(schema, required));
 
+    const annotations = endpoint.annotations || deriveAnnotations(endpoint.method);
+
     this.server.tool(
       toolName,
       {
         description: tool.description || toolName,
-        inputSchema
+        inputSchema,
+        annotations
       },
       async (params) => {
         const startTime = Date.now();
