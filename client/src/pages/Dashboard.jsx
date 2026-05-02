@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings, Layers, MessagesSquare } from 'lucide-react';
+import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings, Layers, MessagesSquare, Monitor, Zap, Clock } from 'lucide-react';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -14,6 +14,7 @@ function Dashboard() {
     prompts: { total: 0 },
     sessions: { contexts: 0, shared: 0, channels: 0 }
   });
+  const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -100,6 +101,42 @@ function Dashboard() {
     };
     fetchData();
   }, []);
+
+  useEffect(() => {
+    let eventSource;
+    let retryTimer;
+
+    const connectSSE = () => {
+      eventSource = new EventSource('/api/mcp/sessions/stream');
+
+      eventSource.addEventListener('sessions', (event) => {
+        setClients(JSON.parse(event.data));
+      });
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        retryTimer = setTimeout(connectSSE, 5000);
+      };
+    };
+
+    api.get('/mcp/sessions').then(res => setClients(res.data || [])).catch(() => {});
+    connectSSE();
+
+    return () => {
+      eventSource?.close();
+      clearTimeout(retryTimer);
+    };
+  }, []);
+
+  const fmtTime = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const now = new Date();
+    const diffSec = Math.floor((now - d) / 1000);
+    if (diffSec < 60) return `${diffSec}s ago`;
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    return `${Math.floor(diffSec / 3600)}h ago`;
+  };
 
   return (
     <div>
@@ -228,6 +265,46 @@ function Dashboard() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title"><Monitor size={16} style={{ marginRight: '0.5rem' }} />Connected Clients</h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>{clients.length} active</span>
+              </div>
+              {clients.length === 0 ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-light)' }}>
+                  No clients connected yet
+                </div>
+              ) : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Client</th>
+                      <th>Session</th>
+                      <th>Connected</th>
+                      <th>Last Call</th>
+                      <th>Calls</th>
+                      <th>Last Tool</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clients.map(s => (
+                      <tr key={s.sessionId}>
+                        <td>
+                          <strong>{s.clientName || 'Unknown'}</strong>
+                          {s.clientVersion && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-light)' }}>v{s.clientVersion}</span>}
+                        </td>
+                        <td><code style={{ fontSize: '0.75rem' }}>{s.sessionId}</code></td>
+                        <td><span title={s.connectedAt}>{fmtTime(s.connectedAt)}</span></td>
+                        <td><span title={s.lastCallAt}>{s.lastCallAt ? fmtTime(s.lastCallAt) : '—'}</span></td>
+                        <td>{s.callCount}</td>
+                        <td>{s.lastTool || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </>
         )}

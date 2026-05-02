@@ -26,6 +26,15 @@ function coerceParam(value, paramDefs, key) {
 
 const { randomUUID } = require('crypto');
 
+function fmtDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
 const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
 const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
 
@@ -57,6 +66,9 @@ class MCPDepotServer {
   constructor() {
     this.server = null;
     this.toolsMap = new Map();
+    this._sessionClientMap = new Map();
+    this._stdioClientInfo = null;
+    this._sseClients = new Set();
   }
 
   async initialize() {
@@ -72,6 +84,38 @@ class MCPDepotServer {
         name: 'mcp-depot',
         version: '1.0.0'
       });
+
+      const { LATEST_PROTOCOL_VERSION } = require('@modelcontextprotocol/sdk/types.js');
+      this.server.server.setRequestHandler(
+        require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
+        async (req, extra) => {
+          const clientInfo = req.params?.clientInfo ?? { name: 'unknown', version: '0.0.0' };
+          const sessionId = extra?.sessionId || 'stdio';
+          this._sessionClientMap.set(sessionId, {
+            sessionId,
+            clientName: clientInfo.name,
+            clientVersion: clientInfo.version,
+            connectedAt: new Date().toISOString(),
+            lastCallAt: new Date().toISOString(),
+            lastTool: null,
+            callCount: 0
+          });
+          return {
+            protocolVersion: LATEST_PROTOCOL_VERSION,
+            serverInfo: { name: 'mcp-depot', version: '1.0.0' },
+            capabilities: this.server.server.getCapabilities()
+          };
+        }
+      );
+
+      setInterval(() => {
+        const cutoff = Date.now() - 30 * 60 * 1000;
+        for (const [id, session] of this._sessionClientMap.entries()) {
+          if (id !== 'stdio' && new Date(session.lastCallAt).getTime() < cutoff) {
+            this._sessionClientMap.delete(id);
+          }
+        }
+      }, 60_000);
     }
 
     for (const tool of tools) {
@@ -154,8 +198,11 @@ class MCPDepotServer {
         inputSchema,
         annotations
       },
-      async (params) => {
+      async (params, extra) => {
         const startTime = Date.now();
+        const sessionId = extra?.sessionId || 'stdio';
+        const clientInfo = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
+
         try {
           const toolLimit = tool.rateLimit || 0;
           const intLimit = tool.Integration?.rateLimit || {};
@@ -172,7 +219,8 @@ class MCPDepotServer {
             };
           }
 
-          const result = await this.executeTool(tool, params);
+          const result = await this.executeTool(tool, params, clientInfo);
+          this._updateSession(sessionId, toolName, true);
           recordToolCall(toolName, Date.now() - startTime, true);
           return {
             content: [{
@@ -188,6 +236,7 @@ class MCPDepotServer {
             }
           };
         } catch (error) {
+          this._updateSession(sessionId, toolName, false);
           recordToolCall(toolName, Date.now() - startTime, false);
           return {
             content: [{
@@ -203,7 +252,7 @@ class MCPDepotServer {
     logger.debug({ tool: toolName }, 'Tool registered');
   }
 
-  async executeTool(tool, params) {
+  async executeTool(tool, params, clientInfo) {
     if (tool.type === 'composite') {
       const result = await executeCompositeTool(tool, params, tool.userId);
       return result;
@@ -329,7 +378,8 @@ class MCPDepotServer {
         userId: tool.userId,
         integrationId: integration.id,
         callerId: null,
-        callerType: 'mcp',
+        callerType: clientInfo?.clientName ?? 'mcp',
+        callerVersion: clientInfo?.clientVersion ?? null,
         method,
         path: endpoint.path,
         requestHeaders: {},
@@ -350,7 +400,8 @@ class MCPDepotServer {
           userId: tool.userId,
           integrationId: integration.id,
           callerId: null,
-          callerType: 'mcp',
+          callerType: clientInfo?.clientName ?? 'mcp',
+          callerVersion: clientInfo?.clientVersion ?? null,
           method,
           path: endpoint.path,
           requestHeaders: {},
@@ -753,6 +804,40 @@ class MCPDepotServer {
     });
     
     return rendered;
+  }
+
+  _updateSession(sessionId, toolName, success) {
+    const session = this._sessionClientMap.get(sessionId);
+    if (session) {
+      session.lastCallAt = new Date().toISOString();
+      session.lastTool = toolName;
+      session.callCount++;
+      this._broadcastSessions();
+    }
+  }
+
+  getActiveSessions() {
+    const sessions = [];
+    for (const session of this._sessionClientMap.values()) {
+      sessions.push({
+        ...session,
+        connectedSince: fmtDuration(Date.now() - new Date(session.connectedAt).getTime())
+      });
+    }
+    return sessions;
+  }
+
+  addSseClient(res) {
+    this._sseClients.add(res);
+    res.on('close', () => this._sseClients.delete(res));
+    res.write(`event: sessions\ndata: ${JSON.stringify(this.getActiveSessions())}\n\n`);
+  }
+
+  _broadcastSessions() {
+    const data = JSON.stringify(this.getActiveSessions());
+    for (const res of this._sseClients) {
+      try { res.write(`event: sessions\ndata: ${data}\n\n`); } catch { this._sseClients.delete(res); }
+    }
   }
 
   async startStdio() {

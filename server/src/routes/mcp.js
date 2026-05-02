@@ -1437,4 +1437,38 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
   }
 });
 
+function fmtDuration(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+router.get('/sessions', (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const sessions = mcpServer.getActiveSessions ? mcpServer.getActiveSessions() : [];
+    res.json(sessions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/sessions/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const mcpServer = require('../mcp/server');
+  if (mcpServer.addSseClient) {
+    mcpServer.addSseClient(res);
+  } else {
+    res.write(`event: sessions\ndata: ${JSON.stringify([])}\n\n`);
+  }
+});
+
 module.exports = { router, clearToolsCache };

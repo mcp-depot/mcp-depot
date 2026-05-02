@@ -2692,7 +2692,7 @@ watch_until_done({
 
 ## Feature 35 — MCP client identity: capture which AI tool made each call
 
-**Status:** Proposed
+**Status:** Implemented
 
 **The problem:**
 
@@ -2791,7 +2791,7 @@ Every MCP client sends an `initialize` request on connect with a `clientInfo` bl
 
 ## Feature 36 — Connected clients panel: live view of active MCP sessions
 
-**Status:** Proposed
+**Status:** Implemented
 
 **Depends on:** Feature 35 / Issue 115 (session→clientInfo map must be in place first)
 
