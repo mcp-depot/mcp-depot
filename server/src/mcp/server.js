@@ -109,13 +109,14 @@ class MCPDepotServer {
       );
 
       setInterval(() => {
-        const cutoff = Date.now() - 30 * 60 * 1000;
+        const cutoff = Date.now() - 150_000;
         for (const [id, session] of this._sessionClientMap.entries()) {
           if (id !== 'stdio' && new Date(session.lastCallAt).getTime() < cutoff) {
             this._sessionClientMap.delete(id);
+            this._broadcastSessions();
           }
         }
-      }, 60_000);
+      }, 30_000);
     }
 
     for (const tool of tools) {
@@ -139,8 +140,6 @@ class MCPDepotServer {
     this.registerMetaTools();
 
     this.registerWatchUntilDone();
-
-    this.registerWatchChannel();
 
     logger.info({ toolCount: tools.length, skillCount: skills.length, personaCount: personas.length }, 'MCP Server initialized');
   }
@@ -900,11 +899,20 @@ class MCPDepotServer {
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID()
     });
-    
+
+    const self = this;
+    transport.onclose = () => {
+      const sid = transport.sessionId;
+      if (sid) {
+        self._sessionClientMap.delete(sid);
+        self._broadcastSessions();
+      }
+    };
+
     app.post('/mcp', (req, res) => transport.handleRequest(req, res, req.body));
     app.get('/mcp', (req, res) => transport.handleRequest(req, res));
     app.delete('/mcp', (req, res) => transport.handleRequest(req, res));
-    
+
     await this.server.connect(transport);
     logger.info('MCP Server started with HTTP+SSE transport');
   }
@@ -939,8 +947,6 @@ class MCPDepotServer {
     this.registerMetaTools();
 
     this.registerWatchUntilDone();
-
-    this.registerWatchChannel();
 
     await this.server.sendToolListChanged();
     

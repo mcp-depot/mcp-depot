@@ -220,12 +220,14 @@ router.post('/session-channels', async (req, res) => {
     if (!channel || !message) return res.status(400).json({ error: 'channel and message are required' });
     const { SessionChannel } = loadModels();
     const callerId = req.user?.id ?? null;
-    await SessionChannel.create({
+    const entry = await SessionChannel.create({
       id: require('crypto').randomUUID(),
       channel,
       message,
       createdBy: callerId
     });
+    const channelEmitter = require('../services/channel-events');
+    channelEmitter.emit(channel, entry.toJSON());
     res.json({ success: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -324,6 +326,37 @@ router.delete('/session-channels/:channel', async (req, res) => {
     const { SessionChannel } = loadModels();
     const deleted = await SessionChannel.destroy({ where: { channel } });
     res.json({ success: true, channel, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /session-channels/:channel/watch — long-poll for CLI proxy watch_channel tool
+router.get('/session-channels/:channel/watch', async (req, res) => {
+  try {
+    const channel = req.params.channel;
+    const channelEmitter = require('../services/channel-events');
+    const timeoutMs = Math.min(parseInt(req.query.timeout) || 25, 25) * 1000;
+
+    const msg = await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        channelEmitter.off(channel, handler);
+        resolve(null);
+      }, timeoutMs);
+
+      const handler = (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      };
+
+      channelEmitter.once(channel, handler);
+    });
+
+    if (msg) {
+      res.json({ message: msg.message, postedAt: msg.createdAt, channel: msg.channel, timedOut: false });
+    } else {
+      res.json({ timedOut: true, channel });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

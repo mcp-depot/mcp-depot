@@ -148,23 +148,6 @@ function startMcpProxy() {
       process.exit(1);
     }
 
-    try {
-      const regHeaders = { 'Content-Type': 'application/json' };
-      if (AUTH_TOKEN) regHeaders['x-api-key'] = AUTH_TOKEN;
-      const regRes = await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
-        method: 'POST',
-        headers: regHeaders,
-        body: JSON.stringify({ clientName: 'mcp-depot-cli', clientVersion: '1.0.0' })
-      });
-      if (regRes.ok) {
-        const regData = await regRes.json();
-        registeredSessionId = regData.sessionId;
-        console.error(`[MCP Depot] Session registered: ${registeredSessionId}`);
-      }
-    } catch (e) {
-      console.error('[MCP Depot] Session registration failed (non-fatal):', e.message);
-    }
-
     const { Server } = require('@modelcontextprotocol/sdk/server');
     const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
     const types = require(path.join(
@@ -176,6 +159,21 @@ function startMcpProxy() {
       { name: 'mcp-depot', version: '1.0.0' },
       { capabilities: { tools: {} } }
     );
+
+    let actualClientName = 'mcp-depot-cli';
+    let actualClientVersion = '1.0.0';
+
+    server.setRequestHandler(types.InitializeRequestSchema, async (request) => {
+      if (request.params?.clientInfo?.name) {
+        actualClientName = request.params.clientInfo.name;
+        actualClientVersion = request.params.clientInfo.version || '1.0.0';
+      }
+      return {
+        protocolVersion: '2024-11-05',
+        serverInfo: { name: 'mcp-depot', version: '1.0.0' },
+        capabilities: { tools: {} }
+      };
+    });
 
     server.setRequestHandler(types.ListToolsRequestSchema, async () => {
       return {
@@ -219,15 +217,30 @@ function startMcpProxy() {
     await server.connect(transport);
     console.error('[MCP Depot] Server connected and ready');
 
-    const regHeaders = { 'Content-Type': 'application/json' };
-    if (AUTH_TOKEN) regHeaders['x-api-key'] = AUTH_TOKEN;
+    const regHeader = { 'Content-Type': 'application/json' };
+    if (AUTH_TOKEN) regHeader['x-api-key'] = AUTH_TOKEN;
+
+    try {
+      const res = await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
+        method: 'POST',
+        headers: regHeader,
+        body: JSON.stringify({ clientName: actualClientName, clientVersion: actualClientVersion })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        registeredSessionId = data.sessionId;
+        console.error(`[MCP Depot] Session registered: ${registeredSessionId} (${actualClientName} ${actualClientVersion})`);
+      }
+    } catch (e) {
+      console.error('[MCP Depot] Session registration failed (non-fatal):', e.message);
+    }
 
     setInterval(async () => {
       try {
         const res = await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
           method: 'POST',
-          headers: regHeaders,
-          body: JSON.stringify({ sessionId: registeredSessionId, clientName: 'mcp-depot-cli', clientVersion: '1.0.0' })
+          headers: regHeader,
+          body: JSON.stringify({ sessionId: registeredSessionId, clientName: actualClientName, clientVersion: actualClientVersion })
         });
         if (res.ok) {
           const data = await res.json();

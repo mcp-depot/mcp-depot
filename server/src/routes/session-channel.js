@@ -52,6 +52,67 @@ router.get('/:channel/stream', auth, async (req, res) => {
   }
 });
 
+// GET /:channel/watch — long-poll until new message arrives on specified channel
+router.get('/:channel/watch', auth, async (req, res) => {
+  const channel = req.params.channel;
+  const timeoutMs = Math.min(parseInt(req.query.timeout) || 25, 25) * 1000;
+
+  try {
+    const msg = await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        channelEmitter.off(channel, handler);
+        resolve(null);
+      }, timeoutMs);
+
+      const handler = (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      };
+
+      channelEmitter.once(channel, handler);
+    });
+
+    if (msg) {
+      res.json({ message: msg.message, postedAt: msg.createdAt, channel: msg.channel, timedOut: false });
+    } else {
+      res.json({ timedOut: true, channel });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /session-channels/watch — long-poll until new message arrives on specified channel (query param variant)
+router.get('/watch', auth, async (req, res) => {
+  const channel = req.query.channel;
+  if (!channel) return res.status(400).json({ error: 'channel parameter is required' });
+  const timeoutMs = Math.min(parseInt(req.query.timeout) || 25, 25) * 1000;
+
+  try {
+    const msg = await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        channelEmitter.off(channel, handler);
+        resolve(null);
+      }, timeoutMs);
+
+      const handler = (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      };
+
+      channelEmitter.once(channel, handler);
+    });
+
+    if (msg) {
+      res.json({ message: msg.message, postedAt: msg.createdAt, channel: msg.channel, timedOut: false });
+    } else {
+      res.json({ timedOut: true, channel });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /session-channels — list distinct channels with count and last activity
 router.get('/', auth, async (req, res) => {
   try {

@@ -122,9 +122,11 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 104 | Post-import alert: "can't access property 'value', document.getElementById(...) is null" | latest |
 | 106 | Integration credentials stored as plaintext | `latest` |
 | 116 | `resolveWatcherCredentials` uses hardcoded env vars instead of DB integration credentials | `b87fc6e` |
-| 117 | `fmtDuration` called but never defined — Connected Clients panel always empty | `latest` |
-| 118 | CLI proxy (`mcp-depot --mcp`) never populates `_sessionClientMap` — Connected Clients always empty | `latest` |
-| 119 | `startHttp` does not pass `req.body` as `parsedBody` — direct HTTP clients cannot initialize | `latest` |
+| 117 | `fmtDuration` called but never defined — Connected Clients panel always empty | `484169b` |
+| 118 | CLI proxy (`mcp-depot --mcp`) never populates `_sessionClientMap` — Connected Clients always empty | `484169b` |
+| 119 | `startHttp` does not pass `req.body` as `parsedBody` — direct HTTP clients cannot initialize | `484169b` |
+| 120 | Connected Clients panel shows `mcp-depot-cli` for all clients — real `clientInfo` never forwarded | `latest` |
+| 121 | `_sessionClientMap` entries never expire — stale clients stay in panel after crash or disconnect | `latest` |
 
 ---
 
@@ -465,4 +467,116 @@ app.delete('/mcp', (req, res) => transport.handleRequest(req, res));
 ```
 
 `StreamableHTTPServerTransport.handleRequest` accepts an optional third `parsedBody` argument for exactly this case — when a body-parser middleware has already consumed the stream.
+
+---
+
+### Issue 120 — Connected Clients panel shows `mcp-depot-cli` for all clients instead of actual client name
+
+**File:** `bin/cli.js` — `startMcpProxy()`
+
+**What is broken:** Every client that connects via `mcp-depot --mcp` is listed in the Connected Clients panel as `mcp-depot-cli`, regardless of the actual AI client (Claude Code, OpenCode, Cursor, Zed, etc.). The panel is not useful for identifying who is connected.
+
+**Why:** The CLI proxy creates its own local MCP `Server` + `StdioServerTransport`. When the real AI client connects, it sends `initialize` with its `clientInfo` (e.g. `{ name: "claude-code", version: "1.x" }`). The CLI proxy receives this during the handshake but discards it - when it registers with the Docker server via `POST /sessions/register`, it sends the hardcoded string `'mcp-depot-cli'` instead of the real client name.
+
+**Fix:** Intercept the `initialize` request on the local server, capture `clientInfo`, and use it in the register call:
+
+```js
+// bin/cli.js — inside startMcpProxy(), after creating the local server:
+const { InitializeRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
+
+let actualClientName = 'mcp-depot-cli';
+let actualClientVersion = pkg.version;
+
+// Intercept initialize to capture real client identity
+server.server.setRequestHandler(InitializeRequestSchema, async (request, extra) => {
+  if (request.params?.clientInfo?.name) {
+    actualClientName = request.params.clientInfo.name;
+    actualClientVersion = request.params.clientInfo.version || '';
+    // Re-register with the real client name now that we know it
+    await registerClient(actualClientName, actualClientVersion);
+  }
+  // Delegate to the default handler
+  return {
+    protocolVersion: request.params.protocolVersion,
+    serverInfo: { name: 'mcp-depot', version: pkg.version },
+    capabilities: server.server.getClientCapabilities() ?? {}
+  };
+});
+```
+
+Update `registerClient` to accept name/version parameters:
+
+```js
+async function registerClient(clientName = 'mcp-depot-cli', clientVersion = pkg.version) {
+  try {
+    const res = await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: registeredSessionId, clientName, clientVersion })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      registeredSessionId = data.sessionId;
+    }
+  } catch { /* non-fatal */ }
+}
+```
+
+With this fix, Claude Code will show as `claude-code`, OpenCode as `opencode`, etc. The heartbeat re-register should also use the captured name so it persists across server restarts.
+
+---
+
+### Issue 121 — `_sessionClientMap` entries never expire — stale clients stay in panel after crash or disconnect
+
+**Files:** `server/src/mcp/server.js`, `server/src/routes/mcp.js`, `bin/cli.js`
+
+**What is broken:** Entries in `_sessionClientMap` are never automatically removed. Two cases leave stale entries permanently:
+
+1. **CLI proxy crash / SIGKILL** - `bin/cli.js` calls deregister on `process.exit` and `SIGINT`, but not on SIGKILL or a hard crash. The entry stays until the Docker container restarts.
+2. **Direct HTTP client disconnect** - When a client connects directly to `/mcp`, the session is added on `initialize` but there is no listener for transport close to remove it.
+
+**Fix A - TTL / last-seen expiry (covers CLI crash path):**
+
+Add `lastSeenAt` timestamp to each entry. The existing 60s heartbeat in `bin/cli.js` bumps it on each re-register. A cleanup interval on the server removes entries silent for >150s:
+
+```js
+// mcp/server.js — cleanup interval (add to constructor):
+setInterval(() => {
+  const cutoff = Date.now() - 150_000;
+  let changed = false;
+  for (const [id, entry] of this._sessionClientMap) {
+    if (entry.lastSeenAt < cutoff) {
+      this._sessionClientMap.delete(id);
+      changed = true;
+    }
+  }
+  if (changed) this._broadcastSessions();
+}, 30_000);
+
+// _sessionClientMap entry shape — add lastSeenAt:
+this._sessionClientMap.set(id, { clientInfo, connectedAt: Date.now(), lastSeenAt: Date.now() });
+
+// routes/mcp.js — POST /sessions/register — bump lastSeenAt on heartbeat:
+if (existing) {
+  existing.lastSeenAt = Date.now();
+} else {
+  sessionClientMap.set(id, { clientInfo, connectedAt: Date.now(), lastSeenAt: Date.now() });
+}
+```
+
+**Fix B - Transport close listener (covers direct HTTP disconnect):**
+
+```js
+// mcp/server.js — in startHttp(), after creating transport:
+transport.onclose = () => {
+  if (transport.sessionId) {
+    this._sessionClientMap.delete(transport.sessionId);
+    this._broadcastSessions();
+  }
+};
+```
+
+Check the SDK source for exact event name (`onclose` callback vs `transport.on('close', ...)`).
+
+Fix A alone is sufficient for CLI proxy users. Fix B makes direct HTTP connections clean up promptly rather than waiting for the 150s TTL.
 

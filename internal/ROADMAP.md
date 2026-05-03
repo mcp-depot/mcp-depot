@@ -114,3 +114,4 @@ These were inspired by enterprise tools (IBM ContextForge, MetaMCP) but conflict
 | 34 (async watcher) | ✅ Implemented | - |
 | 35 (client identity) | ✅ Implemented | 2.3 |
 | 36 (connected clients panel) | ✅ Implemented | 2.3 |
+| 37 (channel notifications) | ✅ Implemented | - |
