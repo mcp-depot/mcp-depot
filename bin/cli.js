@@ -157,7 +157,7 @@ function startMcpProxy() {
 
     const server = new Server(
       { name: 'mcp-depot', version: '1.0.0' },
-      { capabilities: { tools: {} } }
+      { capabilities: { tools: {}, logging: {} } }
     );
 
     let actualClientName = 'mcp-depot-cli';
@@ -171,7 +171,7 @@ function startMcpProxy() {
       return {
         protocolVersion: '2024-11-05',
         serverInfo: { name: 'mcp-depot', version: '1.0.0' },
-        capabilities: { tools: {} }
+        capabilities: { tools: {}, logging: {} }
       };
     });
 
@@ -275,12 +275,18 @@ function startMcpProxy() {
               if (!line.startsWith('data: ')) continue;
               try {
                 const notification = JSON.parse(line.slice(6));
-                server.notification(notification);
+                try {
+                  server.notification(notification);
+                } catch (err) {
+                  process.stderr.write(`[mcp-depot] notification forward failed: ${err.message}\n`);
+                }
               } catch { /* malformed SSE line */ }
             }
           }
         })
-        .catch(() => {})
+        .catch((err) => {
+          process.stderr.write(`[notification-stream] error: ${err.message}\n`);
+        })
         .finally(() => {
           setTimeout(() => {
             if (registeredSessionId) startNotificationStream(registeredSessionId);
@@ -352,7 +358,11 @@ function startMcpProxy() {
     const response = await fetch(`${MCP_DEPOT_URL}/execute`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ toolName, params: args || {} })
+      body: JSON.stringify({
+        toolName,
+        params: args || {},
+        ...(registeredSessionId ? { sessionId: registeredSessionId } : {})
+      })
     });
 
     if (!response.ok) {

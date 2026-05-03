@@ -382,6 +382,16 @@ const createDefaultTool = async () => {
       { where: { name: sessionToolNames, integrationId: mcpDepotIntegration.id } }
     );
 
+    // Migration: update subscribe/unsubscribe channel tool endpoints to include channel param
+    await Tool.update(
+      { endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} } },
+      { where: { name: 'subscribe_channel' } }
+    );
+    await Tool.update(
+      { endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} } },
+      { where: { name: 'unsubscribe_channel' } }
+    );
+
     // Seed session tools under MCP Depot Sessions
     const sessionToolsToCreate = [
       {

@@ -24,7 +24,8 @@ const executeToolSchema = Joi.object({
   toolName: Joi.string(),
   params: Joi.object().default({}),
   headers: Joi.object().default({}),
-  body: Joi.any()
+  body: Joi.any(),
+  sessionId: Joi.string().optional()
 }).or('toolId', 'toolName');
 
 function safeJsonParse(value, defaultValue) {
@@ -367,29 +368,52 @@ router.get('/session-channels/:channel/watch', async (req, res) => {
 });
 
 // POST /session-channels/:channel/subscribe — subscribe to push notifications
-router.post('/session-channels/:channel/subscribe', async (req, res) => {
+router.post('/session-channels/:channel/subscribe', checkMcpAuth, async (req, res) => {
   try {
     const channel = req.params.channel;
     const mcpServer = require('../mcp/server');
-    const sessionId = req.body?.sessionId || req.headers['x-session-id'];
-    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+
+    let sessionId = req.headers['x-session-id'];
+
+    if (!sessionId && mcpServer._sessionClientMap) {
+      for (const [id, entry] of mcpServer._sessionClientMap) {
+        if (entry.userId && (entry.userId === req.user?.id || entry.apiKey === req.user?.apiKey)) {
+          sessionId = id;
+          break;
+        }
+      }
+    }
+
+    if (!sessionId) return res.status(400).json({ error: 'No active session found for this user' });
+
     if (!mcpServer._channelSubscriptions.has(channel)) {
       mcpServer._channelSubscriptions.set(channel, new Set());
     }
     mcpServer._channelSubscriptions.get(channel).add(sessionId);
-    res.json({ subscribed: true, channel });
+    res.json({ subscribed: true, channel, sessionId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // DELETE /session-channels/:channel/subscribe — unsubscribe from push notifications
-router.delete('/session-channels/:channel/subscribe', async (req, res) => {
+router.delete('/session-channels/:channel/subscribe', checkMcpAuth, async (req, res) => {
   try {
     const channel = req.params.channel;
     const mcpServer = require('../mcp/server');
-    const sessionId = req.body?.sessionId || req.headers['x-session-id'];
-    if (mcpServer._channelSubscriptions.has(channel)) {
+
+    let sessionId = req.headers['x-session-id'];
+
+    if (!sessionId && mcpServer._sessionClientMap) {
+      for (const [id, entry] of mcpServer._sessionClientMap) {
+        if (entry.userId && (entry.userId === req.user?.id || entry.apiKey === req.user?.apiKey)) {
+          sessionId = id;
+          break;
+        }
+      }
+    }
+
+    if (sessionId && mcpServer._channelSubscriptions.has(channel)) {
       mcpServer._channelSubscriptions.get(channel).delete(sessionId);
       if (mcpServer._channelSubscriptions.get(channel).size === 0) {
         mcpServer._channelSubscriptions.delete(channel);
@@ -1425,6 +1449,10 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       bodyParams = pruneNulls(bodyParams);
     }
 
+    if (req.body?.sessionId && req.body.sessionId !== 'undefined') {
+      mergedHeaders['X-Session-Id'] = req.body.sessionId;
+    }
+
     let result;
     
     try {
@@ -1519,7 +1547,7 @@ function fmtDuration(ms) {
   return `${s}s`;
 }
 
-router.post('/sessions/register', (req, res) => {
+router.post('/sessions/register', checkMcpAuth, (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const { sessionId, clientName, clientVersion } = req.body;
@@ -1528,6 +1556,7 @@ router.post('/sessions/register', (req, res) => {
       existing.lastCallAt = new Date().toISOString();
       if (clientName) existing.clientName = clientName;
       if (clientVersion) existing.clientVersion = clientVersion;
+      if (!existing.userId && req.user?.id) existing.userId = req.user.id;
     } else {
       const id = sessionId || `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       mcpServer._sessionClientMap = mcpServer._sessionClientMap || new Map();
@@ -1535,6 +1564,7 @@ router.post('/sessions/register', (req, res) => {
         sessionId: id,
         clientName: clientName || 'mcp-depot-cli',
         clientVersion: clientVersion || '0.0.0',
+        userId: req.user?.id || null,
         connectedAt: new Date().toISOString(),
         lastCallAt: new Date().toISOString(),
         lastTool: null,

@@ -84,6 +84,8 @@ class MCPDepotServer {
       this.server = new McpServer({
         name: 'mcp-depot',
         version: '1.0.0'
+      }, {
+        capabilities: { logging: {} }
       });
 
       const { LATEST_PROTOCOL_VERSION } = require('@modelcontextprotocol/sdk/types.js');
@@ -870,7 +872,7 @@ class MCPDepotServer {
 
   _pushChannelNotification(channel, entry) {
     const subscribers = this._channelSubscriptions.get(channel);
-    if (!subscribers || subscribers.size === 0) return;
+    if (!subscribers?.size) return;
 
     const notification = {
       method: 'notifications/message',
@@ -883,7 +885,9 @@ class MCPDepotServer {
 
     try {
       this.server.server.notification(notification);
-    } catch { /* no active HTTP sessions */ }
+    } catch (err) {
+      logger.warn('MCP notification failed (Path A):', err.message);
+    }
 
     for (const sessionId of subscribers) {
       const sessionEntry = this._sessionClientMap.get(sessionId);
@@ -935,9 +939,16 @@ class MCPDepotServer {
 
   getActiveSessions() {
     const sessions = [];
-    for (const session of this._sessionClientMap.values()) {
+    for (const [id, session] of this._sessionClientMap.entries()) {
       sessions.push({
-        ...session,
+        sessionId: id,
+        clientName: session.clientName,
+        clientVersion: session.clientVersion,
+        userId: session.userId,
+        connectedAt: session.connectedAt,
+        lastCallAt: session.lastCallAt,
+        lastTool: session.lastTool,
+        callCount: session.callCount,
         connectedSince: fmtDuration(Date.now() - new Date(session.connectedAt).getTime())
       });
     }
