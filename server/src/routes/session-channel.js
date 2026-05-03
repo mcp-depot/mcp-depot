@@ -3,8 +3,54 @@ const Joi = require('joi');
 const { Op } = require('sequelize');
 const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
+const channelEmitter = require('../services/channel-events');
 
 const router = express.Router();
+
+const sseClientsByChannel = new Map();
+
+function sseBroadcast(channel, data) {
+  const clients = sseClientsByChannel.get(channel);
+  if (!clients) return;
+  const payload = JSON.stringify(data);
+  for (const res of clients) {
+    try { res.write(`event: message\ndata: ${payload}\n\n`); } catch { clients.delete(res); }
+  }
+}
+
+// GET /session-channels/:channel/stream — SSE endpoint for live channel updates
+router.get('/:channel/stream', auth, async (req, res) => {
+  const channel = req.params.channel;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  if (!sseClientsByChannel.has(channel)) {
+    sseClientsByChannel.set(channel, new Set());
+  }
+  sseClientsByChannel.get(channel).add(res);
+  res.on('close', () => {
+    const clients = sseClientsByChannel.get(channel);
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) sseClientsByChannel.delete(channel);
+    }
+  });
+
+  try {
+    const { SessionChannel } = loadModels();
+    const messages = await SessionChannel.findAll({
+      where: { channel },
+      order: [['createdAt', 'ASC']]
+    });
+    for (const m of messages) {
+      res.write(`data: ${JSON.stringify(m.toJSON())}\n\n`);
+    }
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+  }
+});
 
 // GET /session-channels — list distinct channels with count and last activity
 router.get('/', auth, async (req, res) => {
@@ -67,6 +113,8 @@ router.post('/', auth, async (req, res) => {
       createdBy: req.user.id
     });
     res.status(201).json(entry);
+    channelEmitter.emit(value.channel, entry);
+    sseBroadcast(value.channel, entry);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

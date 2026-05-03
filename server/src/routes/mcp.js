@@ -1447,6 +1447,49 @@ function fmtDuration(ms) {
   return `${s}s`;
 }
 
+router.post('/sessions/register', (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const { sessionId, clientName, clientVersion } = req.body;
+    const existing = sessionId && mcpServer._sessionClientMap?.get(sessionId);
+    if (existing) {
+      existing.lastCallAt = new Date().toISOString();
+      if (clientName) existing.clientName = clientName;
+      if (clientVersion) existing.clientVersion = clientVersion;
+    } else {
+      const id = sessionId || `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      mcpServer._sessionClientMap = mcpServer._sessionClientMap || new Map();
+      mcpServer._sessionClientMap.set(id, {
+        sessionId: id,
+        clientName: clientName || 'mcp-depot-cli',
+        clientVersion: clientVersion || '0.0.0',
+        connectedAt: new Date().toISOString(),
+        lastCallAt: new Date().toISOString(),
+        lastTool: null,
+        callCount: 0
+      });
+    }
+    if (mcpServer._broadcastSessions) mcpServer._broadcastSessions();
+    res.json({ sessionId: existing ? existing.sessionId : sessionId || `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/sessions/deregister', (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const { sessionId } = req.body;
+    if (sessionId && mcpServer._sessionClientMap) {
+      mcpServer._sessionClientMap.delete(sessionId);
+    }
+    if (mcpServer._broadcastSessions) mcpServer._broadcastSessions();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/sessions', (req, res) => {
   try {
     const mcpServer = require('../mcp/server');

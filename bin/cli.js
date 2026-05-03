@@ -116,6 +116,7 @@ function startMcpProxy() {
   const AUTH_TOKEN = config.apiKey || '';
 
   let tools = [];
+  let registeredSessionId = null;
 
   async function main() {
     const needsAuth = true;
@@ -145,6 +146,23 @@ function startMcpProxy() {
     } catch (error) {
       console.error('[MCP Depot] Error loading tools:', error.message);
       process.exit(1);
+    }
+
+    try {
+      const regHeaders = { 'Content-Type': 'application/json' };
+      if (AUTH_TOKEN) regHeaders['x-api-key'] = AUTH_TOKEN;
+      const regRes = await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
+        method: 'POST',
+        headers: regHeaders,
+        body: JSON.stringify({ clientName: 'mcp-depot-cli', clientVersion: '1.0.0' })
+      });
+      if (regRes.ok) {
+        const regData = await regRes.json();
+        registeredSessionId = regData.sessionId;
+        console.error(`[MCP Depot] Session registered: ${registeredSessionId}`);
+      }
+    } catch (e) {
+      console.error('[MCP Depot] Session registration failed (non-fatal):', e.message);
     }
 
     const { Server } = require('@modelcontextprotocol/sdk/server');
@@ -200,6 +218,35 @@ function startMcpProxy() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error('[MCP Depot] Server connected and ready');
+
+    const regHeaders = { 'Content-Type': 'application/json' };
+    if (AUTH_TOKEN) regHeaders['x-api-key'] = AUTH_TOKEN;
+
+    setInterval(async () => {
+      try {
+        const res = await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
+          method: 'POST',
+          headers: regHeaders,
+          body: JSON.stringify({ sessionId: registeredSessionId, clientName: 'mcp-depot-cli', clientVersion: '1.0.0' })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          registeredSessionId = data.sessionId;
+        }
+      } catch { /* server may be restarting, retry next interval */ }
+    }, 60_000);
+
+    process.on('exit', () => {
+      if (registeredSessionId) {
+        const deregHeaders = { 'Content-Type': 'application/json' };
+        if (AUTH_TOKEN) deregHeaders['x-api-key'] = AUTH_TOKEN;
+        fetch(`${MCP_DEPOT_URL}/sessions/deregister`, {
+          method: 'POST',
+          headers: deregHeaders,
+          body: JSON.stringify({ sessionId: registeredSessionId })
+        }).catch(() => {});
+      }
+    });
   }
 
   function extractParams(path) {

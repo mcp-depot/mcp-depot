@@ -302,6 +302,11 @@ const createDefaultTool = async () => {
         name: 'clear-channel',
         description: 'Delete all messages in a session channel.',
         endpoint: { path: '/api/mcp/session-channels/clear', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      },
+      {
+        name: 'watch_channel',
+        description: 'Long-poll a session channel until a new message arrives. Returns the message and metadata. Useful for waiting on a collaborator\'s reply.',
+        endpoint: { path: '/api/mcp/watch-channel', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' }, timeoutSeconds: { type: 'number', required: false, description: 'Max wait time in seconds' } }, headers: {} }
       }
     ];
 
@@ -359,7 +364,7 @@ const createDefaultTool = async () => {
       'store-session-context', 'get-session-context',
       'list-session-contexts', 'delete-session-context',
       'append-to-channel', 'read-channel',
-      'list-channels', 'clear-channel'
+      'list-channels', 'clear-channel', 'watch_channel'
     ];
     await Tool.update(
       { integrationId: sessionsIntegration.id },

@@ -123,6 +123,8 @@ All issues below were diagnosed here and fixed by the developer. Kept as a commi
 | 106 | Integration credentials stored as plaintext | `latest` |
 | 116 | `resolveWatcherCredentials` uses hardcoded env vars instead of DB integration credentials | `b87fc6e` |
 | 117 | `fmtDuration` called but never defined — Connected Clients panel always empty | `latest` |
+| 118 | CLI proxy (`mcp-depot --mcp`) never populates `_sessionClientMap` — Connected Clients always empty | `latest` |
+| 119 | `startHttp` does not pass `req.body` as `parsedBody` — direct HTTP clients cannot initialize | `latest` |
 
 ---
 
@@ -409,4 +411,58 @@ function fmtDuration(ms) {
   return `${h}h ${m % 60}m`;
 }
 ```
+
+---
+
+### Issue 118 — CLI proxy (`mcp-depot --mcp`) never populates `_sessionClientMap` — Connected Clients always empty for typical users
+
+**File:** `bin/cli.js` — `startMcpProxy()`
+
+**What is broken:** The `mcp-depot --mcp` CLI proxy creates its own standalone MCP `Server` with a `StdioServerTransport` and serves tools directly to the AI client (Claude Code). It forwards tool execution to the Docker server via the REST endpoint `POST /api/mcp/execute`. The Docker server's HTTP MCP endpoint (`/mcp`) is never contacted, so the `initialize` handshake never reaches the Docker server's `_sessionClientMap`. The Connected Clients panel is always empty for the majority of users who connect via the CLI proxy.
+
+**Why:** The developer implemented the session map on the Docker server's HTTP transport (`MCPDepotServer._sessionClientMap`), but the CLI proxy is an independent MCP server process — the Docker server has no visibility into clients connected through it.
+
+**Fix:** Register the proxy as a connected client via REST when it starts, and deregister when it exits:
+
+```js
+// bin/cli.js — inside startMcpProxy(), after loading tools successfully:
+async function registerClient() {
+  try {
+    await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientName: 'mcp-depot-cli', clientVersion: require('../package.json').version })
+    });
+  } catch { /* non-fatal */ }
+}
+async function deregisterClient() {
+  try {
+    await fetch(`${MCP_DEPOT_URL}/sessions/register`, { method: 'DELETE', headers });
+  } catch { /* non-fatal */ }
+}
+registerClient();
+process.on('exit', deregisterClient);
+process.on('SIGINT', () => { deregisterClient(); process.exit(0); });
+```
+
+Add the corresponding `POST /sessions/register` and `DELETE /sessions/register` endpoints to `server/src/routes/mcp.js`, storing entries in the same `mcpServer._sessionClientMap` used by the HTTP transport handler.
+
+---
+
+### Issue 119 — `startHttp` does not pass `req.body` as `parsedBody` — direct HTTP connections cannot send `initialize`
+
+**File:** `server/src/mcp/server.js` — `startHttp()`
+
+**What is broken:** Express's global `express.json()` middleware parses and consumes the request body stream before the MCP transport's handler runs. The transport then tries to re-read the body from the web request stream (which is now empty) and returns a 400 "Parse error: Invalid JSON" response. Any client connecting directly to the HTTP MCP endpoint (`/mcp`) gets a 400 on `initialize` and cannot establish a session.
+
+**Fix:** Pass the already-parsed body as the third argument to `handleRequest`:
+
+```js
+// server/src/mcp/server.js — in startHttp():
+app.post('/mcp', (req, res) => transport.handleRequest(req, res, req.body));
+app.get('/mcp',  (req, res) => transport.handleRequest(req, res));
+app.delete('/mcp', (req, res) => transport.handleRequest(req, res));
+```
+
+`StreamableHTTPServerTransport.handleRequest` accepts an optional third `parsedBody` argument for exactly this case — when a body-parser middleware has already consumed the stream.
 

@@ -140,6 +140,8 @@ class MCPDepotServer {
 
     this.registerWatchUntilDone();
 
+    this.registerWatchChannel();
+
     logger.info({ toolCount: tools.length, skillCount: skills.length, personaCount: personas.length }, 'MCP Server initialized');
   }
 
@@ -785,6 +787,54 @@ class MCPDepotServer {
     logger.info('watch_until_done tool registered');
   }
 
+  registerWatchChannel() {
+    const channelEmitter = require('../services/channel-events');
+    const { MAX_WAIT_MS } = require('../services/channel-events');
+
+    const watchSchema = z.object({
+      channel: z.string().describe('Channel name to watch for new messages'),
+      timeoutSeconds: z.number().optional().describe('Maximum wait time in seconds (default 120)')
+    });
+
+    this.server.tool('watch_channel', {
+      description: 'Long-poll a session channel until a new message arrives. Returns the message and metadata. Useful for waiting on a collaborator\'s reply.',
+      inputSchema: watchSchema
+    }, async (args, extra) => {
+      const startTime = Date.now();
+      const timeout = (args.timeoutSeconds || MAX_WAIT_MS / 1000) * 1000;
+
+      try {
+        const msg = await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            channelEmitter.off(args.channel, handler);
+            resolve(null);
+          }, timeout);
+
+          const handler = (data) => {
+            clearTimeout(timer);
+            resolve(data);
+          };
+
+          channelEmitter.once(args.channel, handler);
+        });
+
+        recordToolCall('watch_channel', Date.now() - startTime, true);
+        if (msg) {
+          return { content: [{ type: 'text', text: JSON.stringify({ message: msg.message, postedAt: msg.createdAt, channel: msg.channel, timedOut: false }, null, 2) }] };
+        }
+        return { content: [{ type: 'text', text: JSON.stringify({ timedOut: true, channel: args.channel }, null, 2) }] };
+      } catch (error) {
+        recordToolCall('watch_channel', Date.now() - startTime, false);
+        return {
+          content: [{ type: 'text', text: `Error: ${error.message}` }],
+          isError: true
+        };
+      }
+    });
+
+    logger.info('watch_channel tool registered');
+  }
+
   renderSkillPrompt(skill, inputValues) {
     let rendered = skill.prompt || '';
     
@@ -851,7 +901,7 @@ class MCPDepotServer {
       sessionIdGenerator: () => randomUUID()
     });
     
-    app.post('/mcp', (req, res) => transport.handleRequest(req, res));
+    app.post('/mcp', (req, res) => transport.handleRequest(req, res, req.body));
     app.get('/mcp', (req, res) => transport.handleRequest(req, res));
     app.delete('/mcp', (req, res) => transport.handleRequest(req, res));
     
@@ -889,7 +939,9 @@ class MCPDepotServer {
     this.registerMetaTools();
 
     this.registerWatchUntilDone();
-    
+
+    this.registerWatchChannel();
+
     await this.server.sendToolListChanged();
     
     logger.info({ toolCount: tools.length, skillCount: skills.length, personaCount: personas.length }, 'Tools refreshed');
