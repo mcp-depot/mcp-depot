@@ -307,6 +307,16 @@ const createDefaultTool = async () => {
         name: 'watch_channel',
         description: 'Long-poll a session channel until a new message arrives. Returns the message and metadata. Useful for waiting for a collaborator reply.',
         endpoint: { path: '/api/mcp/session-channels/{channel}/watch', method: 'GET', params: { channel: { type: 'string', required: true, description: 'Channel name' }, timeout: { type: 'number', required: false, description: 'Max wait time in seconds' } }, headers: {} }
+      },
+      {
+        name: 'subscribe_channel',
+        description: 'Subscribe to push notifications for a channel. After subscribing, new messages arrive as MCP notifications/message events — no polling needed.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      },
+      {
+        name: 'unsubscribe_channel',
+        description: 'Unsubscribe from push notifications for a channel.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
       }
     ];
 
@@ -364,7 +374,8 @@ const createDefaultTool = async () => {
       'store-session-context', 'get-session-context',
       'list-session-contexts', 'delete-session-context',
       'append-to-channel', 'read-channel',
-      'list-channels', 'clear-channel', 'watch_channel'
+      'list-channels', 'clear-channel', 'watch_channel',
+      'subscribe_channel', 'unsubscribe_channel'
     ];
     await Tool.update(
       { integrationId: sessionsIntegration.id },
@@ -427,6 +438,16 @@ const createDefaultTool = async () => {
         name: 'watch_channel',
         description: 'Long-poll a session channel until a new message arrives. Returns the message and metadata. Useful for waiting for a collaborator reply.',
         endpoint: { path: '/api/mcp/session-channels/{channel}/watch', method: 'GET', params: { channel: { type: 'string', required: true, description: 'Channel name' }, timeout: { type: 'number', required: false, description: 'Max wait time in seconds' } }, headers: {} }
+      },
+      {
+        name: 'subscribe_channel',
+        description: 'Subscribe to push notifications for a channel. After subscribing, new messages arrive as MCP notifications/message events — no polling needed.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      },
+      {
+        name: 'unsubscribe_channel',
+        description: 'Unsubscribe from push notifications for a channel.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
       }
     ];
 

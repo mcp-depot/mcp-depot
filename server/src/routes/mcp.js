@@ -228,6 +228,10 @@ router.post('/session-channels', async (req, res) => {
     });
     const channelEmitter = require('../services/channel-events');
     channelEmitter.emit(channel, entry.toJSON());
+    const mcpServer = require('../mcp/server');
+    if (mcpServer._pushChannelNotification) {
+      mcpServer._pushChannelNotification(channel, entry);
+    }
     res.json({ success: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -357,6 +361,41 @@ router.get('/session-channels/:channel/watch', async (req, res) => {
     } else {
       res.json({ timedOut: true, channel });
     }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /session-channels/:channel/subscribe — subscribe to push notifications
+router.post('/session-channels/:channel/subscribe', async (req, res) => {
+  try {
+    const channel = req.params.channel;
+    const mcpServer = require('../mcp/server');
+    const sessionId = req.body?.sessionId || req.headers['x-session-id'];
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+    if (!mcpServer._channelSubscriptions.has(channel)) {
+      mcpServer._channelSubscriptions.set(channel, new Set());
+    }
+    mcpServer._channelSubscriptions.get(channel).add(sessionId);
+    res.json({ subscribed: true, channel });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /session-channels/:channel/subscribe — unsubscribe from push notifications
+router.delete('/session-channels/:channel/subscribe', async (req, res) => {
+  try {
+    const channel = req.params.channel;
+    const mcpServer = require('../mcp/server');
+    const sessionId = req.body?.sessionId || req.headers['x-session-id'];
+    if (mcpServer._channelSubscriptions.has(channel)) {
+      mcpServer._channelSubscriptions.get(channel).delete(sessionId);
+      if (mcpServer._channelSubscriptions.get(channel).size === 0) {
+        mcpServer._channelSubscriptions.delete(channel);
+      }
+    }
+    res.json({ unsubscribed: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1514,12 +1553,39 @@ router.post('/sessions/deregister', (req, res) => {
     const mcpServer = require('../mcp/server');
     const { sessionId } = req.body;
     if (sessionId && mcpServer._sessionClientMap) {
+      mcpServer._removeSessionSubscriptions(sessionId);
       mcpServer._sessionClientMap.delete(sessionId);
     }
     if (mcpServer._broadcastSessions) mcpServer._broadcastSessions();
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /sessions/:sessionId/notifications — SSE stream for CLI proxy push notifications
+router.get('/sessions/:sessionId/notifications', async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const { sessionId } = req.params;
+    const entry = mcpServer._sessionClientMap.get(sessionId);
+    if (!entry) return res.status(404).json({ error: 'Session not found' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    entry.notificationRes = res;
+
+    const keepalive = setInterval(() => { try { res.write(': keepalive\n\n'); } catch {} }, 30_000);
+
+    req.on('close', () => {
+      clearInterval(keepalive);
+      if (entry.notificationRes === res) entry.notificationRes = null;
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

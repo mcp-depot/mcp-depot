@@ -176,6 +176,10 @@ router.post('/', auth, async (req, res) => {
     res.status(201).json(entry);
     channelEmitter.emit(value.channel, entry);
     sseBroadcast(value.channel, entry);
+    const mcpServer = require('../mcp/server');
+    if (mcpServer._pushChannelNotification) {
+      mcpServer._pushChannelNotification(value.channel, entry);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -188,6 +192,41 @@ router.delete('/:channel', auth, async (req, res) => {
     const deleted = await SessionChannel.destroy({ where: { channel: req.params.channel } });
     if (!deleted) return res.status(404).json({ error: 'Channel not found or already empty' });
     res.json({ success: true, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /session-channels/:channel/subscribe — subscribe to push notifications
+router.post('/:channel/subscribe', auth, async (req, res) => {
+  try {
+    const channel = req.params.channel;
+    const mcpServer = require('../mcp/server');
+    const sessionId = req.headers['x-session-id'] || req.body?.sessionId;
+    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+    if (!mcpServer._channelSubscriptions.has(channel)) {
+      mcpServer._channelSubscriptions.set(channel, new Set());
+    }
+    mcpServer._channelSubscriptions.get(channel).add(sessionId);
+    res.json({ subscribed: true, channel });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /session-channels/:channel/subscribe — unsubscribe from push notifications
+router.delete('/:channel/subscribe', auth, async (req, res) => {
+  try {
+    const channel = req.params.channel;
+    const mcpServer = require('../mcp/server');
+    const sessionId = req.headers['x-session-id'] || req.body?.sessionId;
+    if (mcpServer._channelSubscriptions.has(channel)) {
+      mcpServer._channelSubscriptions.get(channel).delete(sessionId);
+      if (mcpServer._channelSubscriptions.get(channel).size === 0) {
+        mcpServer._channelSubscriptions.delete(channel);
+      }
+    }
+    res.json({ unsubscribed: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

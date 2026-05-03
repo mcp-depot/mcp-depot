@@ -69,6 +69,7 @@ class MCPDepotServer {
     this._sessionClientMap = new Map();
     this._stdioClientInfo = null;
     this._sseClients = new Set();
+    this._channelSubscriptions = new Map();
   }
 
   async initialize() {
@@ -834,6 +835,73 @@ class MCPDepotServer {
     logger.info('watch_channel tool registered');
   }
 
+  registerSubscribeChannel() {
+    this.server.tool(
+      'subscribe_channel',
+      { channel: z.string().describe('Channel name to subscribe to') },
+      async (args, extra) => {
+        const sessionId = extra?.sessionId;
+        if (!sessionId) return { content: [{ type: 'text', text: JSON.stringify({ error: 'No session ID — cannot subscribe' }) }] };
+        if (!this._channelSubscriptions.has(args.channel)) {
+          this._channelSubscriptions.set(args.channel, new Set());
+        }
+        this._channelSubscriptions.get(args.channel).add(sessionId);
+        return { content: [{ type: 'text', text: JSON.stringify({ subscribed: true, channel: args.channel }) }] };
+      }
+    );
+
+    this.server.tool(
+      'unsubscribe_channel',
+      { channel: z.string().describe('Channel name to unsubscribe from') },
+      async (args, extra) => {
+        const sessionId = extra?.sessionId;
+        if (this._channelSubscriptions.has(args.channel)) {
+          this._channelSubscriptions.get(args.channel).delete(sessionId);
+          if (this._channelSubscriptions.get(args.channel).size === 0) {
+            this._channelSubscriptions.delete(args.channel);
+          }
+        }
+        return { content: [{ type: 'text', text: JSON.stringify({ unsubscribed: true, channel: args.channel }) }] };
+      }
+    );
+
+    logger.info('subscribe/unsubscribe_channel tools registered');
+  }
+
+  _pushChannelNotification(channel, entry) {
+    const subscribers = this._channelSubscriptions.get(channel);
+    if (!subscribers || subscribers.size === 0) return;
+
+    const notification = {
+      method: 'notifications/message',
+      params: {
+        level: 'info',
+        logger: `channel/${channel}`,
+        data: JSON.stringify({ channel, message: entry.message, postedAt: entry.createdAt })
+      }
+    };
+
+    try {
+      this.server.server.notification(notification);
+    } catch { /* no active HTTP sessions */ }
+
+    for (const sessionId of subscribers) {
+      const sessionEntry = this._sessionClientMap.get(sessionId);
+      if (sessionEntry?.notificationRes) {
+        try {
+          sessionEntry.notificationRes.write(`data: ${JSON.stringify(notification)}\n\n`);
+        } catch { /* client disconnected */ }
+      }
+    }
+  }
+
+  _removeSessionSubscriptions(sessionId) {
+    for (const [channel, subs] of this._channelSubscriptions) {
+      subs.delete(sessionId);
+      if (subs.size === 0) this._channelSubscriptions.delete(channel);
+    }
+  }
+
   renderSkillPrompt(skill, inputValues) {
     let rendered = skill.prompt || '';
     
@@ -905,6 +973,7 @@ class MCPDepotServer {
       const sid = transport.sessionId;
       if (sid) {
         self._sessionClientMap.delete(sid);
+        self._removeSessionSubscriptions(sid);
         self._broadcastSessions();
       }
     };

@@ -244,10 +244,53 @@ function startMcpProxy() {
         });
         if (res.ok) {
           const data = await res.json();
-          registeredSessionId = data.sessionId;
+          if (data.sessionId !== registeredSessionId) {
+            registeredSessionId = data.sessionId;
+            startNotificationStream(registeredSessionId);
+          }
         }
       } catch { /* server may be restarting, retry next interval */ }
     }, 60_000);
+
+    function startNotificationStream(sessionId) {
+      if (!sessionId) return;
+      const ctrl = new AbortController();
+      const url = `${MCP_DEPOT_URL}/sessions/${sessionId}/notifications`;
+
+      fetch(url, { headers: regHeader, signal: ctrl.signal })
+        .then(async (res) => {
+          if (!res.ok) return;
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const notification = JSON.parse(line.slice(6));
+                server.notification(notification);
+              } catch { /* malformed SSE line */ }
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          setTimeout(() => {
+            if (registeredSessionId) startNotificationStream(registeredSessionId);
+          }, 5_000);
+        });
+
+      return ctrl;
+    }
+
+    startNotificationStream(registeredSessionId);
 
     process.on('exit', () => {
       if (registeredSessionId) {
