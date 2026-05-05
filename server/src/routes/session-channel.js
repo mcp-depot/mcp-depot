@@ -180,6 +180,9 @@ router.post('/', auth, async (req, res) => {
     if (mcpServer._pushChannelNotification) {
       mcpServer._pushChannelNotification(value.channel, entry);
     }
+    if (mcpServer._pushResourceUpdate) {
+      mcpServer._pushResourceUpdate(value.channel);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
