@@ -233,6 +233,9 @@ router.post('/session-channels', async (req, res) => {
     if (mcpServer._pushChannelNotification) {
       mcpServer._pushChannelNotification(channel, entry);
     }
+    if (mcpServer._pushResourceUpdate) {
+      mcpServer._pushResourceUpdate(channel);
+    }
     res.json({ success: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1640,6 +1643,78 @@ router.get('/sessions/stream', (req, res) => {
     mcpServer.addSseClient(res);
   } else {
     res.write(`event: sessions\ndata: ${JSON.stringify([])}\n\n`);
+  }
+});
+
+// Resource listing
+router.get('/resources', checkMcpAuth, async (req, res) => {
+  try {
+    const { SessionChannel } = require('../config/database').loadModels();
+    const rows = await SessionChannel.findAll({ attributes: ['channel'], group: ['channel'], raw: true });
+    res.json({
+      resources: rows.map(r => ({
+        uri: `channel://${r.channel}`,
+        name: r.channel,
+        description: `Session channel: ${r.channel}`,
+        mimeType: 'text/plain'
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resource read
+router.get('/resources/read', checkMcpAuth, async (req, res) => {
+  try {
+    const uri = req.query.uri;
+    if (!uri) return res.status(400).json({ error: 'uri required' });
+    const channelName = uri.replace('channel://', '');
+    const { SessionChannel } = require('../config/database').loadModels();
+    const messages = await SessionChannel.findAll({
+      where: { channel: channelName },
+      order: [['createdAt', 'ASC']],
+      limit: 100
+    });
+    const text = messages.length
+      ? messages.map(m => `[${new Date(m.createdAt).toISOString()}] ${m.message}`).join('\n')
+      : '(empty channel)';
+    res.json({ contents: [{ uri, mimeType: 'text/plain', text }] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resource subscribe (for CLI proxy sessions)
+router.post('/resources/subscribe', checkMcpAuth, async (req, res) => {
+  try {
+    const { uri, sessionId } = req.body;
+    if (!uri || !sessionId) return res.status(400).json({ error: 'uri and sessionId required' });
+    const mcpServer = require('../mcp/server');
+    if (!mcpServer._resourceSubscriptions.has(uri)) {
+      mcpServer._resourceSubscriptions.set(uri, new Set());
+    }
+    mcpServer._resourceSubscriptions.get(uri).add(sessionId);
+    res.json({ subscribed: true, uri, sessionId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resource unsubscribe (for CLI proxy sessions)
+router.post('/resources/unsubscribe', checkMcpAuth, async (req, res) => {
+  try {
+    const { uri, sessionId } = req.body;
+    const mcpServer = require('../mcp/server');
+    if (mcpServer._resourceSubscriptions.has(uri)) {
+      mcpServer._resourceSubscriptions.get(uri).delete(sessionId);
+      if (mcpServer._resourceSubscriptions.get(uri).size === 0) {
+        mcpServer._resourceSubscriptions.delete(uri);
+      }
+    }
+    res.json({ unsubscribed: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

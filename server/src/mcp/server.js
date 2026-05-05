@@ -70,7 +70,8 @@ class MCPDepotServer {
     this._stdioClientInfo = null;
     this._sseClients = new Set();
     this._channelSubscriptions = new Map();
-  }
+    this._resourceSubscriptions = new Map(); // Map<uri, Set<sessionId>>
+   }
 
   async initialize() {
     const { Tool, Integration, PromptLibrary, AgentPersona } = loadModels();
@@ -85,10 +86,15 @@ class MCPDepotServer {
         name: 'mcp-depot',
         version: '1.0.0'
       }, {
-        capabilities: { logging: {} }
+        capabilities: { logging: {}, resources: { subscribe: true } }
       });
 
-      const { LATEST_PROTOCOL_VERSION } = require('@modelcontextprotocol/sdk/types.js');
+      const { LATEST_PROTOCOL_VERSION,
+        ListResourcesRequestSchema,
+        ReadResourceRequestSchema,
+        SubscribeRequestSchema,
+        UnsubscribeRequestSchema
+      } = require('@modelcontextprotocol/sdk/types.js');
       this.server.server.setRequestHandler(
         require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         async (req, extra) => {
@@ -110,6 +116,63 @@ class MCPDepotServer {
           };
         }
       );
+
+      const { SessionChannel } = loadModels();
+
+      this.server.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+        const rows = await SessionChannel.findAll({
+          attributes: ['channel'],
+          group: ['channel'],
+          raw: true
+        });
+        return {
+          resources: rows.map(r => ({
+            uri: `channel://${r.channel}`,
+            name: r.channel,
+            description: `Session channel: ${r.channel}`,
+            mimeType: 'text/plain'
+          }))
+        };
+      });
+
+      this.server.server.setRequestHandler(ReadResourceRequestSchema, async ({ params }) => {
+        const uri = params.uri;
+        const channelName = uri.replace('channel://', '');
+        const messages = await SessionChannel.findAll({
+          where: { channel: channelName },
+          order: [['createdAt', 'ASC']],
+          limit: 100
+        });
+        const text = messages.length
+          ? messages.map(m => `[${new Date(m.createdAt).toISOString()}] ${m.message}`).join('\n')
+          : '(empty channel)';
+        return {
+          contents: [{ uri, mimeType: 'text/plain', text }]
+        };
+      });
+
+      this.server.server.setRequestHandler(SubscribeRequestSchema, async ({ params }, extra) => {
+        const sessionId = extra?.sessionId || 'stdio';
+        const { uri } = params;
+        if (!this._resourceSubscriptions.has(uri)) {
+          this._resourceSubscriptions.set(uri, new Set());
+        }
+        this._resourceSubscriptions.get(uri).add(sessionId);
+        logger.info({ sessionId, uri }, 'Resource subscription added');
+        return {};
+      });
+
+      this.server.server.setRequestHandler(UnsubscribeRequestSchema, async ({ params }, extra) => {
+        const sessionId = extra?.sessionId || 'stdio';
+        const { uri } = params;
+        if (this._resourceSubscriptions.has(uri)) {
+          this._resourceSubscriptions.get(uri).delete(sessionId);
+          if (this._resourceSubscriptions.get(uri).size === 0) {
+            this._resourceSubscriptions.delete(uri);
+          }
+        }
+        return {};
+      });
 
       setInterval(() => {
         const cutoff = Date.now() - 150_000;
@@ -903,6 +966,39 @@ class MCPDepotServer {
     for (const [channel, subs] of this._channelSubscriptions) {
       subs.delete(sessionId);
       if (subs.size === 0) this._channelSubscriptions.delete(channel);
+    }
+    // Clean resource subscriptions too
+    for (const [uri, subs] of this._resourceSubscriptions) {
+      subs.delete(sessionId);
+      if (subs.size === 0) this._resourceSubscriptions.delete(uri);
+    }
+  }
+
+  _pushResourceUpdate(channelName) {
+    const uri = `channel://${channelName}`;
+    const notification = {
+      method: 'notifications/resources/updated',
+      params: { uri }
+    };
+
+    // Path A: broadcast to all direct HTTP MCP sessions
+    try {
+      this.server.server.notification(notification);
+    } catch (err) {
+      logger.warn('Resource update notification failed (Path A):', err.message);
+    }
+
+    // Path B: push via SSE to CLI proxy sessions that subscribed
+    const subscribers = this._resourceSubscriptions.get(uri);
+    if (subscribers?.size) {
+      for (const sessionId of subscribers) {
+        const entry = this._sessionClientMap.get(sessionId);
+        if (entry?.notificationRes) {
+          try {
+            entry.notificationRes.write(`data: ${JSON.stringify(notification)}\n\n`);
+          } catch { /* client disconnected */ }
+        }
+      }
     }
   }
 
