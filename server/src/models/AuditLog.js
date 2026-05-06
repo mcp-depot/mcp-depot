@@ -23,7 +23,7 @@ const AuditLog = sequelize.define('AuditLog', {
     type: DataTypes.UUID
   },
   details: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {}
   },
   status: {

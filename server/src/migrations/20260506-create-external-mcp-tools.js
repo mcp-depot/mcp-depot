@@ -25,7 +25,7 @@ module.exports = {
         type: Sequelize.TEXT
       },
       inputSchema: {
-        type: Sequelize.JSONB,
+        type: Sequelize.JSON,
         defaultValue: {}
       },
       isActive: {

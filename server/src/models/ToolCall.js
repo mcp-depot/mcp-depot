@@ -40,17 +40,17 @@ integrationId: {
     allowNull: false
   },
   requestHeaders: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {},
     comment: 'Sanitized request headers (no credentials)'
   },
   requestBody: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {},
     comment: 'Request body (sanitized)'
   },
   queryParams: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {},
     comment: 'Query parameters'
   },
@@ -59,7 +59,7 @@ integrationId: {
     allowNull: true
   },
   responseBody: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {},
     comment: 'Response body (truncated if too large)'
   },

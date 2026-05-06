@@ -143,40 +143,38 @@ function Skills() {
     <div>
       <div className="container">
         <div className="page-header">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h1>Skills</h1>
-              <p>Create parameterized skills that AI assistants can invoke directly</p>
-            </div>
-            <button className="btn btn-primary" onClick={() => { resetForm(); setEditingSkill(null); setShowModal(true); }}>
-              + Create Skill
-            </button>
+          <div>
+            <h1>Skills</h1>
+            <p>Create parameterized skills that AI assistants can invoke directly</p>
           </div>
+          <button className="btn btn-primary" onClick={() => { resetForm(); setEditingSkill(null); setShowModal(true); }}>
+            + Create Skill
+          </button>
         </div>
 
-        {allTags.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>Filter by tag:</span>
-            {allTags.map(tag => (
-              <button
-                key={tag}
-                onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
-                style={{
-                  background: selectedTag === tag ? 'var(--primary)' : 'var(--bg-tertiary)',
-                  color: selectedTag === tag ? 'white' : 'var(--text)',
-                  border: 'none',
-                  padding: '0.2rem 0.5rem',
-                  borderRadius: '4px',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer'
-                }}
-              >
-                {tag}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>Filter by tag:</span>
+          {allTags.length > 0 ? allTags.map(tag => (
+            <button
+              key={tag}
+              onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+              style={{
+                background: selectedTag === tag ? 'var(--primary)' : 'var(--bg-tertiary)',
+                color: selectedTag === tag ? 'white' : 'var(--text)',
+                border: 'none',
+                padding: '0.2rem 0.5rem',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+                cursor: 'pointer'
+              }}
+            >
+              {tag}
               </button>
-            ))}
+            )) : (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>No tags yet</span>
+            )}
             {selectedTag && <button onClick={() => setSelectedTag(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-light)', cursor: 'pointer', fontSize: '0.75rem' }}>Clear</button>}
           </div>
-        )}
 
         {selectedSkill ? (
           <div className="card">
@@ -334,6 +332,22 @@ function Skills() {
                   <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="What does this skill do?" />
                 </div>
                 <div className="form-group">
+                  <label>Tags</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    {form.tags.map(tag => (
+                      <span key={tag} style={{ background: 'var(--primary)', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        {tag}
+                        <X size={12} style={{ cursor: 'pointer' }} onClick={() => removeTag(tag)} />
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} placeholder="Add tag..." style={{ flex: 1 }} 
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagInput.trim()); } }} />
+                    <button type="button" className="btn btn-secondary" onClick={() => addTag(tagInput.trim())}>Add</button>
+                  </div>
+                </div>
+                <div className="form-group">
                   <label>Inputs</label>
                   {formInputs.map((input, idx) => (
                     <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
@@ -361,22 +375,6 @@ function Skills() {
                     <input type="checkbox" checked={form.isShared} onChange={e => setForm({ ...form, isShared: e.target.checked })} />
                     Share with team members
                   </label>
-                </div>
-                <div className="form-group">
-                  <label>Tags</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    {form.tags.map(tag => (
-                      <span key={tag} style={{ background: 'var(--primary)', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        {tag}
-                        <X size={12} style={{ cursor: 'pointer' }} onClick={() => removeTag(tag)} />
-                      </span>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} placeholder="Add tag..." style={{ flex: 1 }} 
-                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagInput.trim()); } }} />
-                    <button type="button" className="btn btn-secondary" onClick={() => addTag(tagInput.trim())}>Add</button>
-                  </div>
                 </div>
               </div>
               <div className="modal-footer">

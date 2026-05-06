@@ -25,7 +25,7 @@ const Integration = sequelize.define('Integration', {
     type: DataTypes.STRING
   },
   config: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     allowNull: false
   },
   isActive: {
@@ -37,16 +37,16 @@ const Integration = sequelize.define('Integration', {
     defaultValue: 'private'
   },
   metadata: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {}
   },
   rateLimit: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: { requestsPerMinute: 0, requestsPerHour: 0 },
     comment: 'Integration-level rate limits: { requestsPerMinute, requestsPerHour }, 0 = unlimited'
   },
   tags: {
-    type: DataTypes.ARRAY(DataTypes.STRING),
+    type: DataTypes.JSON,
     defaultValue: []
   }
 }, {

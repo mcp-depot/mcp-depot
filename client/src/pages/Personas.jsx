@@ -91,7 +91,7 @@ function Personas() {
           </p>
         </div>
       ) : (
-        <div className="card-grid">
+        <div className="grid">
           {personas.map(p => (
             <div className="card skill-card" key={p.name}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -109,9 +109,9 @@ function Personas() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                <button className="btn btn-sm btn-secondary" onClick={() => setViewingPersona(p)}>View</button>
-                <button className="btn btn-sm btn-secondary" onClick={() => openEdit(p)}>Edit</button>
-                <button className="btn btn-sm btn-danger" onClick={() => handleDelete(p.name)}>Delete</button>
+                <button className="btn btn-small btn-secondary" onClick={() => setViewingPersona(p)}>View</button>
+                <button className="btn btn-small btn-secondary" onClick={() => openEdit(p)}>Edit</button>
+                <button className="btn btn-small btn-danger" onClick={() => handleDelete(p.name)}>Delete</button>
               </div>
             </div>
           ))}
@@ -120,10 +120,10 @@ function Personas() {
 
       {viewingPersona && (
         <div className="modal-overlay" onClick={() => setViewingPersona(null)}>
-          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
             <div className="modal-header">
               <h2 style={{ margin: 0 }}>{viewingPersona.role}</h2>
-              <button className="btn-close" onClick={() => setViewingPersona(null)}>×</button>
+              <button className="modal-close" onClick={() => setViewingPersona(null)}>×</button>
             </div>
             <div className="modal-body">
               <p style={{ color: '#8899aa', margin: '0 0 1rem' }}>{viewingPersona.name}{viewingPersona.isShared && ' · Shared'}</p>
@@ -138,10 +138,10 @@ function Personas() {
 
       {showModal && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditingPersona(null); }}>
-          <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
             <div className="modal-header">
               <h2 style={{ margin: 0 }}>{editingPersona ? 'Edit Persona' : 'New Persona'}</h2>
-              <button className="btn-close" onClick={() => { setShowModal(false); setEditingPersona(null); }}>×</button>
+              <button className="modal-close" onClick={() => { setShowModal(false); setEditingPersona(null); }}>×</button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">

@@ -3,7 +3,7 @@
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.addColumn('integrations', 'rateLimit', {
-      type: Sequelize.JSONB,
+      type: Sequelize.JSON,
       allowNull: true,
       defaultValue: { requestsPerMinute: 0, requestsPerHour: 0 }
     });

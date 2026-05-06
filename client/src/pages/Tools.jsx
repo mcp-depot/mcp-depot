@@ -684,23 +684,15 @@ function Tools({ all: isAllTools }) {
     <div>
       <div className="container">
         <div className="page-header">
-          <div className="breadcrumb">
-            <Link to="/integrations">Integrations</Link>
-            <span className="breadcrumb-separator">/</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: '0.5rem' }}>
+            <Link to="/integrations" style={{ color: 'var(--primary)' }}>Integrations</Link>
+            <span>/</span>
             <span>{integration?.name}</span>
-          </div>
-          <div style={{ marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-dim)' }}>
-              <Link to="/integrations" style={{ color: 'var(--primary)' }}>Integrations</Link>
-              <span>/</span>
-              <span>{integration?.name}</span>
-              <span>/</span>
-              <span style={{ color: 'var(--text)' }}>Tools</span>
-            </div>
+            <span>/</span>
+            <span style={{ color: 'var(--text)' }}>Tools</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <h1>{integration?.name} - Tools</h1>
               <p>{integration?.description}</p>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>

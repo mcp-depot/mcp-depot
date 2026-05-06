@@ -18,7 +18,7 @@ const UserIntegrationCredentials = sequelize.define('UserIntegrationCredentials'
     references: { model: 'integrations', key: 'id' }
   },
   credentials: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     allowNull: false,
     comment: 'User-specific credentials (encrypted)'
   },

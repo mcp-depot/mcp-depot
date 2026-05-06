@@ -11,12 +11,16 @@ function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-const [allowRegistration, setAllowRegistration] = useState(false);
+  const [allowRegistration, setAllowRegistration] = useState(false);
+  const [oauthConfig, setOauthConfig] = useState({ googleEnabled: false, githubEnabled: false });
 
   useEffect(() => {
     api.get('/auth/config')
-      .then(res => setAllowRegistration(res.data.allowRegistration === true))
-      .catch(() => setAllowRegistration(false));
+      .then(res => {
+        setAllowRegistration(res.data.allowRegistration === true);
+        setOauthConfig({ googleEnabled: res.data.googleEnabled, githubEnabled: res.data.githubEnabled });
+      })
+      .catch(() => {});
   }, []);
 
   const handleSubmit = async (e) => {
@@ -124,22 +128,30 @@ const [allowRegistration, setAllowRegistration] = useState(false);
           </button>
         </form>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '1.5rem 0' }}>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
-          <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>or</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
-        </div>
+        {(oauthConfig.googleEnabled || oauthConfig.githubEnabled) && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '1.5rem 0' }}>
+              <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
+              <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>or</span>
+              <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
+            </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button type="button" className="btn btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={() => handleOAuthLogin('google')} disabled={loading}>
-            <Chrome size={18} />
-            Google
-          </button>
-          <button type="button" className="btn btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={() => handleOAuthLogin('github')} disabled={loading}>
-            <Github size={18} />
-            GitHub
-          </button>
-        </div>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              {oauthConfig.googleEnabled && (
+                <button type="button" className="btn btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={() => handleOAuthLogin('google')} disabled={loading}>
+                  <Chrome size={18} />
+                  Google
+                </button>
+              )}
+              {oauthConfig.githubEnabled && (
+                <button type="button" className="btn btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={() => handleOAuthLogin('github')} disabled={loading}>
+                  <Github size={18} />
+                  GitHub
+                </button>
+              )}
+            </div>
+          </>
+        )}
         
         {allowRegistration && (
           <p style={{ textAlign: 'center', marginTop: '1.5rem', color: 'var(--text-light)', fontSize: '0.9rem' }}>

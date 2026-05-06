@@ -7,7 +7,7 @@ module.exports = {
     });
     
     await queryInterface.addColumn('tools', 'steps', {
-      type: Sequelize.JSONB,
+      type: Sequelize.JSON,
       defaultValue: null,
       comment: 'Composite tool steps array'
     });

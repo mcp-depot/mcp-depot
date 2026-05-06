@@ -457,4 +457,11 @@ async function fetchOAuthProfile(provider, accessToken) {
   throw new Error(`Unsupported OAuth provider: ${provider}`);
 }
 
+router.get('/config', (req, res) => {
+  res.json({
+    googleEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    githubEnabled: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
+  });
+});
+
 module.exports = router;

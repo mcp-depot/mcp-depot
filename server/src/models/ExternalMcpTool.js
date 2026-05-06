@@ -27,7 +27,7 @@ const ExternalMcpTool = sequelize.define('ExternalMcpTool', {
     description: 'Tool description'
   },
   inputSchema: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {}
   },
   isActive: {

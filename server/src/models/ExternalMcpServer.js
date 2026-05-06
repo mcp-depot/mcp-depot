@@ -83,7 +83,7 @@ const ExternalMcpServer = sequelize.define('ExternalMcpServer', {
     description: 'SHA-256 hash of last fetched tool list for change detection'
   },
   metadata: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {}
   }
 }, {

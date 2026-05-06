@@ -9,7 +9,7 @@ async function runMigrations(sequelize) {
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS migrations (
       name VARCHAR(255) PRIMARY KEY,
-      executed_at TIMESTAMP DEFAULT NOW()
+      executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -39,9 +39,9 @@ async function runMigrations(sequelize) {
       );
       logger.info({ migration: file }, 'Migration executed');
     } catch (error) {
-      if (error.message.includes('already exists') || error.message.includes('already exist')) {
+      if (error.message.includes('already exists') || error.message.includes('already exist') || error.message.includes('duplicate column name')) {
         await sequelize.query(
-          'INSERT INTO migrations (name) VALUES (:name) ON CONFLICT DO NOTHING',
+          'INSERT OR IGNORE INTO migrations (name) VALUES (:name)',
           { replacements: { name: file } }
         );
         logger.info({ migration: file }, 'Migration skipped (already applied)');

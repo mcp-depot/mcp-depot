@@ -661,7 +661,7 @@ function Integrations() {
         </div>
 
         <div style={{ marginBottom: '1rem' }}>
-          <div className="search-input-wrap" style={{ width: '100%' }}>
+          <div className="search-input-wrap" style={{ width: '300px' }}>
             <Search size={14} className="search-icon" style={{ color: 'var(--text-dim)', position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
             <input
               ref={filterInputRef}

@@ -19,7 +19,7 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT
     },
     inputs: {
-      type: DataTypes.JSONB,
+      type: DataTypes.JSON,
       defaultValue: []
     },
     prompt: {
@@ -41,7 +41,7 @@ module.exports = (sequelize) => {
       defaultValue: false
     },
     tags: {
-      type: DataTypes.ARRAY(DataTypes.STRING),
+      type: DataTypes.JSON,
       defaultValue: []
     }
   }, {

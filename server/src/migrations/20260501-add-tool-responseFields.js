@@ -3,7 +3,7 @@
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.addColumn('tools', 'responseFields', {
-      type: Sequelize.JSONB,
+      type: Sequelize.JSON,
       defaultValue: null,
       comment: 'Array of dot-notation paths to filter response fields (null = no filtering)'
     });

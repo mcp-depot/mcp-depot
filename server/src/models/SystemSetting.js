@@ -8,7 +8,7 @@ const SystemSetting = sequelize.define('SystemSetting', {
     allowNull: false
   },
   value: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {}
   },
   description: {
