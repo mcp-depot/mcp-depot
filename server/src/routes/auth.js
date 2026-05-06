@@ -307,4 +307,154 @@ router.post('/api-key/disable', async (req, res) => {
   }
 });
 
+const OAUTH_CONFIGS = {
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    scope: 'openid email profile'
+  },
+  github: {
+    clientId: process.env.GITHUB_CLIENT_ID,
+    clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    authUrl: 'https://github.com/login/oauth/authorize',
+    tokenUrl: 'https://github.com/login/oauth/access_token',
+    scope: 'read:user user:email'
+  }
+};
+
+router.get('/oauth-url/:provider', (req, res) => {
+  const { provider } = req.params;
+  const config = OAUTH_CONFIGS[provider];
+  
+  if (!config || !config.clientId) {
+    return res.status(400).json({ error: `OAuth provider ${provider} is not configured` });
+  }
+
+  const redirectUri = req.query.redirect_uri || `${process.env.API_BASE_URL || 'http://localhost:3000'}/api/auth/oauth/${provider}/callback`;
+  const state = provider;
+
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: config.scope,
+    state
+  });
+
+  res.json({ url: `${config.authUrl}?${params.toString()}` });
+});
+
+router.post('/oauth/:provider', async (req, res) => {
+  const { provider } = req.params;
+  const { code, redirectUri } = req.body;
+  const config = OAUTH_CONFIGS[provider];
+
+  if (!config || !config.clientId) {
+    return res.status(400).json({ error: `OAuth provider ${provider} is not configured` });
+  }
+
+  if (!code) {
+    return res.status(400).json({ error: 'Authorization code is required' });
+  }
+
+  try {
+    const tokenData = await exchangeOAuthCode(provider, code, redirectUri || `${process.env.API_BASE_URL || 'http://localhost:3000'}/api/auth/oauth/${provider}/callback`);
+    const profile = await fetchOAuthProfile(provider, tokenData.access_token);
+
+    if (!profile.email) {
+      return res.status(400).json({ error: 'OAuth provider did not return an email address' });
+    }
+
+    let user = await User.findOne({ where: { email: profile.email } });
+
+    if (!user) {
+      const crypto = require('crypto');
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      user = await User.create({
+        email: profile.email,
+        name: profile.name || profile.email.split('@')[0],
+        password: randomPassword,
+        role: 'user',
+        mustResetPassword: false
+      });
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user.id);
+
+    res.json({
+      accessToken,
+      refreshToken,
+      user: user.toJSON()
+    });
+  } catch (err) {
+    logger.error({ err: err.message, provider }, 'OAuth login error');
+    res.status(500).json({ error: 'OAuth login failed: ' + err.message });
+  }
+});
+
+async function exchangeOAuthCode(provider, code, redirectUri) {
+  const config = OAUTH_CONFIGS[provider];
+  
+  const body = {
+    code,
+    redirect_uri: redirectUri,
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    grant_type: 'authorization_code'
+  };
+
+  const res = await fetch(config.tokenUrl, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Accept': provider === 'github' ? 'application/json' : 'application/x-www-form-urlencoded'
+    },
+    body: provider === 'github' ? JSON.stringify(body) : new URLSearchParams(body).toString()
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Token exchange failed: ${res.status} ${errorText}`);
+  }
+
+  return res.json();
+}
+
+async function fetchOAuthProfile(provider, accessToken) {
+  if (provider === 'google') {
+    const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) throw new Error('Failed to fetch Google profile');
+    const data = await res.json();
+    return { email: data.email, name: data.name };
+  }
+
+  if (provider === 'github') {
+    const res = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'mcp-depot' }
+    });
+    if (!res.ok) throw new Error('Failed to fetch GitHub profile');
+    const data = await res.json();
+
+    let email = data.email;
+    if (!email) {
+      const emailsRes = await fetch('https://api.github.com/user/emails', {
+        headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'mcp-depot' }
+      });
+      if (emailsRes.ok) {
+        const emails = await emailsRes.json();
+        const primary = emails.find(e => e.primary && e.verified);
+        email = primary?.email;
+      }
+    }
+
+    return { email, name: data.name || data.login };
+  }
+
+  throw new Error(`Unsupported OAuth provider: ${provider}`);
+}
+
 module.exports = router;

@@ -2,6 +2,7 @@ const express = require('express');
 const Joi = require('joi');
 const { spawn } = require('child_process');
 const axios = require('axios');
+const crypto = require('crypto');
 const { sequelize, connectDB, loadModels } = require('../config/database');
 const { optionalApiKey, authWithApiKey, optionalAuth } = require('../middleware/auth');
 const { checkMcpAuth } = require('../middleware/mcpAuth');
@@ -16,6 +17,7 @@ const config = require('../config/env');
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
 const { checkRateLimit } = require('../services/rate-limiter');
 const logger = require('../services/logger');
+const pool = require('../services/mcp-connection-pool');
 
 const router = express.Router();
 
@@ -43,6 +45,10 @@ function coerceParam(value, paramDefs, key) {
   if (type === 'number' || type === 'integer') return Number(value);
   if (type === 'boolean') return value === 'true' || value === true;
   return value;
+}
+
+function sanitizeName(name) {
+  return name.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').substring(0, 32);
 }
 
 function substituteBodyTemplate(obj, params, paramDefs = {}) {
@@ -494,285 +500,92 @@ router.get('/fetch-url', optionalAuth, async (req, res) => {
 
 const fetchExternalMcpTools = async (userId, role) => {
   try {
-    const { ExternalMcpServer } = loadModels();
-    
+    const { ExternalMcpServer, ExternalMcpTool } = loadModels();
+
     const servers = await ExternalMcpServer.findAll({ where: { isActive: true } });
-    
+
     if (servers.length === 0) return [];
-    
-    const fetchTimeout = 10000;
-    
-    // Fetch all servers in parallel
-    async function fetchOneServer(server) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
-      
+
+    // Fetch all servers in parallel using the connection pool
+    const results = await Promise.allSettled(servers.map(async (server) => {
       try {
-        let tools = [];
-        
-        if (server.transportType === 'stdio') {
-          tools = await getStdioMcpTools(server.command, server.args, server.env, server.runtime, controller.signal);
-          clearTimeout(timeoutId);
-          const toolsList = tools?.tools || [];
-          return { server, tools: toolsList, error: null };
-        }
-        
-        const headers = {};
-        if (server.authType === 'bearer' && server.authToken) {
-          const encryption = require('../services/encryption');
-          const token = encryption.decrypt(server.authToken);
-          if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-          }
-        } else if (server.authType === 'apiKey' && server.authToken) {
-          const encryption = require('../services/encryption');
-          const token = encryption.decrypt(server.authToken);
-          if (token) {
-            const headerName = server.authHeader || 'X-API-Key';
-            headers[headerName] = token;
+        const tools = await pool.listTools(server);
+
+        // Hash-based change detection
+        const toolsHash = crypto.createHash('sha256')
+          .update(JSON.stringify(tools.map(t => ({ name: t.name, description: t.description })).sort((a, b) => a.name.localeCompare(b.name))))
+          .digest('hex');
+
+        // Compare with stored hash - if unchanged, skip DB update
+        const hashChanged = server.toolsHash !== toolsHash;
+
+        // Upsert discovered tools into ExternalMcpTool only when hash changed
+        if (hashChanged) {
+          const serverName = sanitizeName(server.name);
+          for (const tool of tools) {
+            await ExternalMcpTool.upsert({
+              externalMcpServerId: server.id,
+              toolName: tool.name,
+              namespacedName: `${serverName}__${tool.name}`,
+              description: tool.description || null,
+              inputSchema: tool.inputSchema || tool.input_schema || {},
+              lastSeenAt: new Date()
+            }, {
+              conflictFields: ['externalMcpServerId', 'toolName']
+            });
           }
         }
-        
-        let toolsUrl = server.url;
-        if (!toolsUrl.includes('/tools')) {
-          toolsUrl = toolsUrl.replace(/\/mcp$/, '') + '/tools';
-        }
-        
-        const response = await fetch(toolsUrl, { headers, signal: controller.signal });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const data = await response.json();
-        tools = data.tools || [];
-        
-        return { server, tools, error: null };
-      } catch (err) {
-        const msg = err.name === 'AbortError' ? 'Timeout' : err.message;
-        return { server, tools: [], error: msg };
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    }
-    
-    // Fetch all servers in parallel - total time = slowest single server
-    const results = await Promise.allSettled(servers.map(fetchOneServer));
-    
-    // Process results and collect tools
-    const allExternalTools = [];
-    const serverStatusUpdates = [];
-    
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        const { server, tools, error } = result.value;
-        
-        // Store update for later (outside the fetch loop)
-        serverStatusUpdates.push({ server, error });
-        
-        // Add tools to result
-        for (const tool of tools) {
-          allExternalTools.push({
-            ...tool,
-            input_schema: tool.input_schema || tool.inputSchema || null,
-            inputSchema: tool.inputSchema || tool.input_schema || null,
-            _id: `external-${server.id}-${tool.id || tool.name}`,
-            source: 'external',
-            externalServerId: server.id,
-            externalServerName: server.name,
-            externalServerUrl: server.transportType === 'stdio' ? 'stdio' : server.url
-          });
-        }
-      }
-    }
-    
-    // Update all servers after fetching (parallel to each other, not blocking fetches)
-    await Promise.allSettled(serverStatusUpdates.map(async ({ server, error }) => {
-      try {
+
+        // Store update for server
         await server.update({
           lastFetchedAt: new Date(),
-          lastFetchError: error
+          lastFetchError: null,
+          ...(hashChanged ? { toolsHash } : {})
         });
-      } catch (updateErr) {
-        logger.error({ err: updateErr.message }, 'Failed to update external MCP server status');
+
+        // Fetch only active tools from ExternalMcpTool for this server
+        const activeTools = await ExternalMcpTool.findAll({
+          where: { externalMcpServerId: server.id, isActive: true }
+        });
+
+        // Map to the format expected by the tools endpoint
+        const externalTools = activeTools.map(t => ({
+          ...t.inputSchema,
+          input_schema: t.inputSchema,
+          inputSchema: t.inputSchema,
+          name: t.namespacedName,
+          _originalName: t.toolName,
+          _id: `external-${server.id}-${t.toolName}`,
+          source: 'external',
+          externalServerId: server.id,
+          externalServerName: server.name,
+          externalServerUrl: server.transportType === 'stdio' ? 'stdio' : server.url
+        }));
+
+        return { server, tools: externalTools, error: null };
+      } catch (err) {
+        await server.update({
+          lastFetchedAt: new Date(),
+          lastFetchError: err.message
+        }).catch(() => {});
+        return { server, tools: [], error: err.message };
       }
     }));
-    
+
+    // Collect all external tools
+    const allExternalTools = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.tools) {
+        allExternalTools.push(...result.value.tools);
+      }
+    }
+
     return allExternalTools;
   } catch (error) {
     logger.error({ err: error.message }, 'Failed to fetch external MCP tools');
     return [];
   }
 };
-
-async function getStdioMcpTools(command, args, envVars, runtime = 'node', signal = null) {
-  return new Promise((resolve, reject) => {
-    const argsArray = safeJsonParse(args, []);
-    const envVarsObj = safeJsonParse(envVars, {});
-    
-    const fullEnv = { ...process.env, ...envVarsObj };
-    
-    let cmd = command;
-    let cmdArgs = argsArray;
-    
-    if (runtime === 'python') {
-      cmd = 'python3';
-      cmdArgs = ['-m', 'mcp', ...argsArray];
-    }
-    
-    const proc = spawn(cmd, cmdArgs, {
-      env: fullEnv,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to spawn process: ${err.message}`));
-    });
-    
-    proc.on('close', (code) => {
-      if (code !== 0 && stderr) {
-        reject(new Error(`Process exited with code ${code}: ${stderr}`));
-      }
-    });
-    
-    const request = {
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method: 'tools/list',
-      params: {}
-    };
-    
-    proc.stdin.write(JSON.stringify(request) + '\n');
-    
-    // Internal timeout as backstop - reduced from 30s to 10s
-    const internalTimeout = setTimeout(() => {
-      try { proc.kill(); } catch (e) {}
-      reject(new Error('Stdio timeout'));
-    }, 10000);
-    
-    // Listen for external abort signal
-    if (signal) {
-      signal.addEventListener('abort', () => {
-        clearTimeout(internalTimeout);
-        try { proc.kill(); } catch (e) {}
-        reject(new Error('Timeout'));
-      }, { once: true });
-    }
-    
-    // Check for response once stdout has data
-    const checkInterval = setInterval(() => {
-      const lines = stdout.trim().split('\n');
-      if (lines.length > 0) {
-        clearInterval(checkInterval);
-        clearTimeout(internalTimeout);
-        try {
-          const lastLine = lines[lines.length - 1];
-          const response = JSON.parse(lastLine);
-          
-          if (response.error) {
-            reject(new Error(response.error.message || response.error));
-          } else {
-            resolve(response.result);
-          }
-        } catch (e) {
-          reject(new Error(`Failed to parse response: ${e.message}. Output: ${stdout}`));
-        }
-      }
-    }, 100);
-    
-    // Clean up on resolve/reject
-    const cleanup = () => clearInterval(checkInterval);
-    resolve.then(cleanup).catch(cleanup);
-    reject.then(cleanup).catch(cleanup);
-  });
-}
-
-async function executeStdioMcpTool(command, args, envVars, toolName, params, runtime = 'node') {
-  return new Promise((resolve, reject) => {
-    const argsArray = safeJsonParse(args, []);
-    const envVarsObj = safeJsonParse(envVars, {});
-    
-    const fullEnv = { ...process.env, ...envVarsObj };
-    
-    let cmd = command;
-    let cmdArgs = argsArray;
-    
-    if (runtime === 'python') {
-      cmd = 'python3';
-      cmdArgs = ['-m', 'mcp', ...argsArray];
-    }
-    
-    const proc = spawn(cmd, cmdArgs, {
-      env: fullEnv,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to spawn process: ${err.message}`));
-    });
-    
-    proc.on('close', (code) => {
-      if (code !== 0 && stderr) {
-        reject(new Error(`Process exited with code ${code}: ${stderr}`));
-      }
-    });
-    
-    const request = {
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method: 'tools/call',
-      params: {
-        name: toolName,
-        arguments: arguments_ || {}
-      }
-    };
-    
-    proc.stdin.write(JSON.stringify(request) + '\n');
-    
-    setTimeout(() => {
-      try {
-        proc.kill();
-      } catch (e) {}
-      
-      try {
-        const lines = stdout.trim().split('\n');
-        const lastLine = lines[lines.length - 1];
-        const response = JSON.parse(lastLine);
-        
-        if (response.error) {
-          reject(new Error(response.error.message || response.error));
-        } else {
-          resolve(response.result);
-        }
-      } catch (e) {
-        reject(new Error(`Failed to parse response: ${e.message}. Output: ${stdout}`));
-      }
-    }, 30000);
-  });
-}
 
 router.get('/tools', checkMcpAuth, async (req, res) => {
   const cached = getCachedTools();
@@ -1139,52 +952,21 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       if (!server || !server.isActive) {
         return res.status(404).json({ error: 'External MCP server not found or inactive' });
       }
-      
-      if (server.transportType === 'stdio') {
-        const result = await executeStdioMcpTool(server.command, server.args, server.env, externalToolName, params || body || {}, server.runtime);
+
+      // Strip namespace prefix to get original tool name for the server
+      const originalToolName = externalToolName;
+
+      try {
+        const result = await pool.callTool(server, originalToolName, params || body || {});
         return res.json({
           success: true,
-          tool: externalToolName,
+          tool: originalToolName,
           source: 'external',
           result
         });
+      } catch (err) {
+        return res.status(500).json({ error: `External MCP error: ${err.message}` });
       }
-      
-      const extHeaders = {
-        'Content-Type': 'application/json'
-      };
-      
-      if (server.authType === 'bearer' && server.authToken) {
-        const token = encryption.decrypt(server.authToken);
-        if (token) {
-          extHeaders['Authorization'] = `Bearer ${token}`;
-        }
-      } else if (server.authType === 'apiKey' && server.authToken) {
-        const token = encryption.decrypt(server.authToken);
-        if (token) {
-          const headerName = server.authHeader || 'X-API-Key';
-          extHeaders[headerName] = token;
-        }
-      }
-      
-      const extResponse = await fetch(`${server.url}/execute`, {
-        method: 'POST',
-        headers: extHeaders,
-        body: JSON.stringify({ toolName: externalToolName, params, body })
-      });
-      
-      if (!extResponse.ok) {
-        const errorText = await extResponse.text();
-        return res.status(extResponse.status).json({ error: `External MCP error: ${errorText}` });
-      }
-      
-      const extResult = await extResponse.json();
-      return res.json({
-        success: true,
-        tool: externalToolName,
-        source: 'external',
-        result: extResult
-      });
     }
     
     if (toolId) {

@@ -18,7 +18,8 @@ const skillSchema = Joi.object({
   })).default([]),
   prompt: Joi.string().required(),
   outputFormat: Joi.string().valid('text', 'json', 'markdown').default('text'),
-  isShared: Joi.boolean().default(false)
+  isShared: Joi.boolean().default(false),
+  tags: Joi.array().items(Joi.string()).default([])
 });
 
 const skillUpdateSchema = Joi.object({
@@ -27,7 +28,8 @@ const skillUpdateSchema = Joi.object({
   inputs: Joi.array().items(Joi.object()).default([]),
   prompt: Joi.string(),
   outputFormat: Joi.string().valid('text', 'json', 'markdown'),
-  isShared: Joi.boolean()
+  isShared: Joi.boolean(),
+  tags: Joi.array().items(Joi.string())
 });
 
 const invokeSchema = Joi.object({
@@ -77,7 +79,7 @@ router.post('/', auth, async (req, res) => {
     }
 
     const { PromptLibrary } = loadModels();
-    const { name, description, inputs, prompt, outputFormat, isShared } = value;
+    const { name, description, inputs, prompt, outputFormat, isShared, tags } = value;
     
     const newSkill = await PromptLibrary.create({
       userId: req.user.id,
@@ -87,7 +89,8 @@ router.post('/', auth, async (req, res) => {
       prompt,
       outputFormat,
       isShared,
-      isDefault: false
+      isDefault: false,
+      tags
     });
     
     res.status(201).json(newSkill);
@@ -121,7 +124,8 @@ router.put('/:id', auth, async (req, res) => {
       inputs: value.inputs || existingSkill.inputs,
       prompt: value.prompt || existingSkill.prompt,
       outputFormat: value.outputFormat || existingSkill.outputFormat,
-      isShared: value.isShared !== undefined ? value.isShared : existingSkill.isShared
+      isShared: value.isShared !== undefined ? value.isShared : existingSkill.isShared,
+      tags: value.tags !== undefined ? value.tags : existingSkill.tags
     });
     
     res.json(existingSkill);

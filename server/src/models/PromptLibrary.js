@@ -39,6 +39,10 @@ module.exports = (sequelize) => {
     isDefault: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
+    },
+    tags: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
+      defaultValue: []
     }
   }, {
     tableName: 'prompt_library'

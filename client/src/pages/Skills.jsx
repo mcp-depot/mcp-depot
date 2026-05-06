@@ -3,18 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
+import { X } from 'lucide-react';
 
 function Skills() {
   const { user } = useAuth();
   const [customSkills, setCustomSkills] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editingSkill, setEditingSkill] = useState(null);
-  const [form, setForm] = useState({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false });
+  const [form, setForm] = useState({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false, tags: [] });
   const [formInputs, setFormInputs] = useState([{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
+  const [tagInput, setTagInput] = useState('');
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [inputValues, setInputValues] = useState({});
   const [testingSkill, setTestingSkill] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [selectedTag, setSelectedTag] = useState(null);
 
   useEffect(() => {
     fetchCustomSkills();
@@ -38,7 +41,8 @@ function Skills() {
         inputs: formInputs.filter(i => i.name),
         prompt: form.prompt,
         outputFormat: form.outputFormat,
-        isShared: form.isShared
+        isShared: form.isShared,
+        tags: form.tags
       };
       
       if (editingSkill) {
@@ -57,8 +61,19 @@ function Skills() {
   };
 
   const resetForm = () => {
-    setForm({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false });
+    setForm({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false, tags: [] });
     setFormInputs([{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
+  };
+
+  const addTag = (tag) => {
+    if (tag && !form.tags.includes(tag)) {
+      setForm({ ...form, tags: [...form.tags, tag] });
+    }
+    setTagInput('');
+  };
+
+  const removeTag = (tagToRemove) => {
+    setForm({ ...form, tags: form.tags.filter(t => t !== tagToRemove) });
   };
 
   const openEdit = (skill) => {
@@ -68,7 +83,8 @@ function Skills() {
       description: skill.description || '', 
       prompt: skill.prompt || '',
       outputFormat: skill.outputFormat || 'text',
-      isShared: skill.isShared || false
+      isShared: skill.isShared || false,
+      tags: skill.tags || []
     });
     setFormInputs(skill.inputs?.length ? skill.inputs : [{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
     setShowModal(true);
@@ -120,6 +136,8 @@ function Skills() {
   };
 
   const allSkills = customSkills.map(s => ({ ...s, isCustom: true }));
+  const allTags = [...new Set(customSkills.flatMap(s => s.tags || []).filter(Boolean))].sort();
+  const filteredSkills = selectedTag ? allSkills.filter(s => s.tags && s.tags.includes(selectedTag)) : allSkills;
 
   return (
     <div>
@@ -135,6 +153,30 @@ function Skills() {
             </button>
           </div>
         </div>
+
+        {allTags.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>Filter by tag:</span>
+            {allTags.map(tag => (
+              <button
+                key={tag}
+                onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                style={{
+                  background: selectedTag === tag ? 'var(--primary)' : 'var(--bg-tertiary)',
+                  color: selectedTag === tag ? 'white' : 'var(--text)',
+                  border: 'none',
+                  padding: '0.2rem 0.5rem',
+                  borderRadius: '4px',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer'
+                }}
+              >
+                {tag}
+              </button>
+            ))}
+            {selectedTag && <button onClick={() => setSelectedTag(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-light)', cursor: 'pointer', fontSize: '0.75rem' }}>Clear</button>}
+          </div>
+        )}
 
         {selectedSkill ? (
           <div className="card">
@@ -231,7 +273,7 @@ function Skills() {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-            {allSkills.map((skill, idx) => (
+            {filteredSkills.map((skill, idx) => (
               <div key={idx} className="card" style={{ cursor: 'pointer' }} onClick={() => { setSelectedSkill(skill); setInputValues({}); setTestResult(null); }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
@@ -239,10 +281,18 @@ function Skills() {
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>{skill.description}</p>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
                   <span className="badge">{skill.outputFormat || 'text'}</span>
                   {skill.isShared && <span className="badge" style={{ background: 'var(--success)', color: 'white' }}>Shared</span>}
                   <span className="badge">{skill.inputs?.length || 0} inputs</span>
+                  {skill.tags?.length > 0 && (
+                    <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                      {skill.tags.slice(0, 3).map(tag => (
+                        <span key={tag} style={{ background: 'var(--primary)', color: 'white', padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.7rem' }}>{tag}</span>
+                      ))}
+                      {skill.tags.length > 3 && <span style={{ fontSize: '0.7rem', color: 'var(--text-light)' }}>+{skill.tags.length - 3}</span>}
+                    </div>
+                  )}
                 </div>
                 {skill.isCustom && (
                   <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.75rem' }}>
@@ -311,6 +361,22 @@ function Skills() {
                     <input type="checkbox" checked={form.isShared} onChange={e => setForm({ ...form, isShared: e.target.checked })} />
                     Share with team members
                   </label>
+                </div>
+                <div className="form-group">
+                  <label>Tags</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    {form.tags.map(tag => (
+                      <span key={tag} style={{ background: 'var(--primary)', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        {tag}
+                        <X size={12} style={{ cursor: 'pointer' }} onClick={() => removeTag(tag)} />
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} placeholder="Add tag..." style={{ flex: 1 }} 
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagInput.trim()); } }} />
+                    <button type="button" className="btn btn-secondary" onClick={() => addTag(tagInput.trim())}>Add</button>
+                  </div>
                 </div>
               </div>
               <div className="modal-footer">

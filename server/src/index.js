@@ -13,12 +13,10 @@ const authRoutes = require('./routes/auth');
 const integrationRoutes = require('./routes/integrations');
 const consumeRoutes = require('./routes/consume');
 const platformRoutes = require('./routes/platform');
-const workflowRoutes = require('./routes/workflows');
 const { router: mcpRoutes, clearToolsCache } = require('./routes/mcp');
 const monitoringRoutes = require('./routes/monitoring');
 const userCredentialsRoutes = require('./routes/user-credentials');
 const { router: externalMcpRoutes, setClearToolsCache: setExternalMcpClearCache } = require('./routes/external-mcp');
-const promptLibraryRoutes = require('./routes/prompt-library');
 const skillsRoutes = require('./routes/skills');
 const sessionContextRoutes = require('./routes/session-context');
 const sessionChannelRoutes = require('./routes/session-channel');
@@ -26,6 +24,8 @@ const systemRoutes = require('./routes/system');
 const oauthRoutes = require('./routes/oauth');
 const personasRoutes = require('./routes/personas');
 const healthRoutes = require('./routes/health');
+const usersRoutes = require('./routes/users');
+const pool = require('./services/mcp-connection-pool');
 
 const app = express();
 
@@ -69,25 +69,23 @@ const v1Router = express.Router();
 v1Router.use('/auth', authRoutes);
 v1Router.use('/integrations', integrationRoutes);
 v1Router.use('/consume', consumeRoutes);
-v1Router.use('/jira', platformRoutes('jira'));
-v1Router.use('/jenkins', platformRoutes('jenkins'));
-v1Router.use('/bitbucket', platformRoutes('bitbucket'));
-v1Router.use('/github', platformRoutes('github'));
-v1Router.use('/gitlab', platformRoutes('gitlab'));
-v1Router.use('/workflows', workflowRoutes);
-v1Router.use('/mcp', mcpRoutes);
-v1Router.use('/monitoring', monitoringRoutes);
-v1Router.use('/user-credentials', userCredentialsRoutes);
-v1Router.use('/external-mcp', externalMcpRoutes);
-v1Router.use('/prompt-library', promptLibraryRoutes);
-v1Router.use('/skills-library', promptLibraryRoutes);
-v1Router.use('/skills', skillsRoutes);
-v1Router.use('/session-contexts', sessionContextRoutes);
-v1Router.use('/session-channels', sessionChannelRoutes);
-v1Router.use('/system', systemRoutes);
-v1Router.use('/oauth', oauthRoutes);
-v1Router.use('/personas', personasRoutes);
-v1Router.use('/health', healthRoutes);
+  v1Router.use('/jira', platformRoutes('jira'));
+  v1Router.use('/jenkins', platformRoutes('jenkins'));
+  v1Router.use('/bitbucket', platformRoutes('bitbucket'));
+  v1Router.use('/github', platformRoutes('github'));
+  v1Router.use('/gitlab', platformRoutes('gitlab'));
+  v1Router.use('/mcp', mcpRoutes);
+  v1Router.use('/monitoring', monitoringRoutes);
+  v1Router.use('/user-credentials', userCredentialsRoutes);
+  v1Router.use('/external-mcp', externalMcpRoutes);
+  v1Router.use('/skills', skillsRoutes);
+  v1Router.use('/session-contexts', sessionContextRoutes);
+  v1Router.use('/session-channels', sessionChannelRoutes);
+  v1Router.use('/system', systemRoutes);
+  v1Router.use('/oauth', oauthRoutes);
+  v1Router.use('/personas', personasRoutes);
+  v1Router.use('/health', healthRoutes);
+  v1Router.use('/users', usersRoutes);
 
 app.use('/api/v1', v1Router);
 app.use('/api', v1Router); // Backward compatibility
@@ -99,7 +97,7 @@ app.get('/metrics', async (req, res) => {
   res.end(await promClient.register.metrics());
 });
 
-logger.info('Routes loaded: auth, integrations, consume, jira, jenkins, bitbucket, github, gitlab, workflows, mcp, external-mcp');
+logger.info('Routes loaded: auth, integrations, consume, jira, jenkins, bitbucket, github, gitlab, mcp, external-mcp');
 
 if (process.env.SERVE_CLIENT === 'true') {
   const path = require('path');
@@ -143,6 +141,19 @@ const startServer = async () => {
           logger.error({ err: err.message }, 'Failed to start MCP stdio server');
         });
       }
+
+      // Pre-warm external MCP connections on startup
+      const pool = require('./services/mcp-connection-pool');
+      const db = require('./config/database');
+      const { ExternalMcpServer } = db.loadModels();
+      ExternalMcpServer.findAll({ where: { isActive: true } }).then(servers => {
+        servers.forEach(server => {
+          pool.getClient(server).catch(err =>
+            logger.warn({ serverId: server.id, err: err.message }, 'Startup pre-connect failed')
+          );
+        });
+        logger.info({ count: servers.length }, 'Pre-warmed external MCP connections');
+      }).catch(() => {});
     }
     
     // Start background context cleanup job
@@ -179,6 +190,13 @@ const startServer = async () => {
       server.close(() => {
         logger.info('HTTP server closed');
       });
+      
+      try {
+        await pool.closeAll();
+        logger.info('MCP connection pool closed');
+      } catch (e) {
+        logger.error({ err: e.message }, 'Error closing MCP connections');
+      }
       
       try {
         const { killAll } = require('./services/process-registry');

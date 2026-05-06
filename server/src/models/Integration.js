@@ -44,6 +44,10 @@ const Integration = sequelize.define('Integration', {
     type: DataTypes.JSONB,
     defaultValue: { requestsPerMinute: 0, requestsPerHour: 0 },
     comment: 'Integration-level rate limits: { requestsPerMinute, requestsPerHour }, 0 = unlimited'
+  },
+  tags: {
+    type: DataTypes.ARRAY(DataTypes.STRING),
+    defaultValue: []
   }
 }, {
   tableName: 'integrations',

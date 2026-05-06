@@ -5,8 +5,10 @@ const { auth, requireAdmin } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
+const ExternalMcpTool = require('../models/ExternalMcpTool');
 
 const router = express.Router();
+const pool = require('../services/mcp-connection-pool');
 
 function isCommandAvailable(cmd) {
   try {
@@ -51,115 +53,6 @@ const externalMcpCreateSchema = Joi.object({
   isActive: Joi.boolean().default(true)
 });
 
-const stdioMcpCache = new Map();
-
-function safeJsonParse(value, defaultValue) {
-  if (!value) return defaultValue;
-  try {
-    const parsed = JSON.parse(value);
-    return parsed;
-  } catch (e) {
-    logger.error({ error: e.message }, 'JSON parse error in external MCP');
-    return defaultValue;
-  }
-}
-
-async function callStdioMcp(command, args, envVars, method, params = {}, runtime = 'node') {
-  return new Promise((resolve, reject) => {
-    const argsArray = safeJsonParse(args, []);
-    const envVarsObj = safeJsonParse(envVars, {});
-    
-    const fullEnv = { ...process.env, ...envVarsObj };
-    
-    let cmd = command;
-    let cmdArgs = argsArray;
-    
-    if (runtime === 'python') {
-      cmd = process.platform === 'win32' ? 'python' : 'python3';
-      cmdArgs = ['-m', 'mcp', ...argsArray];
-    }
-    
-    const proc = spawn(cmd, cmdArgs, {
-      env: fullEnv,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: true
-    });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to spawn process: ${err.message}`));
-    });
-    
-    proc.on('close', (code) => {
-      if (code !== 0 && stderr) {
-        reject(new Error(`Process exited with code ${code}: ${stderr}`));
-      }
-    });
-    
-    const request = {
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method,
-      params
-    };
-    
-    proc.stdin.write(JSON.stringify(request) + '\n');
-    
-    setTimeout(() => {
-      try {
-        proc.kill();
-      } catch (e) {}
-      
-      try {
-        const lines = stdout.trim().split('\n');
-        const lastLine = lines[lines.length - 1];
-        const response = JSON.parse(lastLine);
-        
-        if (response.error) {
-          reject(new Error(response.error.message || response.error));
-        } else {
-          resolve(response.result);
-        }
-      } catch (e) {
-        reject(new Error(`Failed to parse response: ${e.message}. Output: ${stdout}`));
-      }
-    }, 30000);
-  });
-}
-
-async function getStdioMcpTools(command, args, envVars, runtime = 'node') {
-  try {
-    const result = await callStdioMcp(command, args, envVars, 'tools/list', {}, runtime);
-    return result;
-  } catch (error) {
-    logger.error({ error: error.message }, 'Stdio MCP tools error');
-    throw error;
-  }
-}
-
-async function executeStdioMcpTool(command, args, envVars, toolName, arguments_, runtime = 'node') {
-  try {
-    const result = await callStdioMcp(command, args, envVars, 'tools/call', {
-      name: toolName,
-      arguments: arguments_ || {}
-    }, runtime);
-    return result;
-  } catch (error) {
-    logger.error({ error: error.message }, 'Stdio MCP execute error');
-    throw error;
-  }
-}
-
 router.get('/', auth, async (req, res) => {
   try {
     const { ExternalMcpServer } = loadModels();
@@ -184,6 +77,15 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+router.get('/pool-status', auth, async (req, res) => {
+  try {
+    res.json(pool.getPoolStatus());
+  } catch (error) {
+    logger.error({ error: error.message }, 'Get pool status error');
+    res.status(500).json({ error: 'Failed to get pool status' });
+  }
+});
+
 router.post('/', auth, async (req, res) => {
   try {
     const { error, value } = externalMcpCreateSchema.validate(req.body);
@@ -203,9 +105,16 @@ router.post('/', auth, async (req, res) => {
       authToken,
       userId: req.user.id
     });
-    
+
     if (clearToolsCache) clearToolsCache();
-    
+
+    // Fire-and-forget: pre-warm connection pool
+    if (server.isActive) {
+      pool.getClient(server).catch(err =>
+        logger.warn({ serverId: server.id, err: err.message }, 'Background pre-connect failed')
+      );
+    }
+
     res.status(201).json({
       ...server.toJSON(),
       _id: server.id,
@@ -243,7 +152,16 @@ router.put('/:id', auth, async (req, res) => {
     }
     
     await server.update(updates);
-    
+
+    pool.disconnect(server.id);
+
+    // Fire-and-forget: re-connect with new config
+    if (server.isActive) {
+      pool.getClient(server).catch(err =>
+        logger.warn({ serverId: server.id, err: err.message }, 'Background re-connect failed')
+      );
+    }
+
     if (clearToolsCache) clearToolsCache();
     
     res.json({
@@ -272,6 +190,8 @@ router.delete('/:id', auth, async (req, res) => {
     
     await server.destroy();
     
+    pool.disconnect(req.params.id);
+    
     if (clearToolsCache) clearToolsCache();
     
     res.json({ message: 'External MCP server deleted' });
@@ -294,34 +214,8 @@ router.get('/:id/tools', auth, async (req, res) => {
       return res.status(404).json({ error: 'External MCP server not found' });
     }
     
-    if (server.transportType === 'stdio') {
-      const tools = await getStdioMcpTools(server.command, server.args, server.env, server.runtime);
-      res.json(tools);
-      return;
-    }
-    
-    const headers = {};
-    if (server.authType === 'bearer' && server.authToken) {
-      const token = encryption.decrypt(server.authToken);
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-    } else if (server.authType === 'apiKey' && server.authToken) {
-      const token = encryption.decrypt(server.authToken);
-      if (token) {
-        const headerName = server.authHeader || 'X-API-Key';
-        headers[headerName] = token;
-      }
-    }
-    
-    const response = await fetch(`${server.url}/tools`, { headers });
-    
-    if (!response.ok) {
-      return res.status(response.status).json({ error: `External MCP error: ${response.statusText}` });
-    }
-    
-    const data = await response.json();
-    res.json(data);
+    const tools = await pool.listTools(server);
+    res.json({ tools });
   } catch (error) {
     logger.error({ error: error.message }, 'Fetch external MCP tools error');
     res.status(500).json({ error: 'Failed to fetch tools from external MCP server: ' + error.message });
@@ -343,42 +237,8 @@ router.post('/:id/execute', auth, async (req, res) => {
     
     const { toolName, toolId, params, body } = req.body;
     
-    if (server.transportType === 'stdio') {
-      const result = await executeStdioMcpTool(server.command, server.args, server.env, toolName, params || body || {}, server.runtime);
-      res.json(result);
-      return;
-    }
-    
-    const headers = {
-      'Content-Type': 'application/json'
-    };
-    
-    if (server.authType === 'bearer' && server.authToken) {
-      const token = encryption.decrypt(server.authToken);
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-    } else if (server.authType === 'apiKey' && server.authToken) {
-      const token = encryption.decrypt(server.authToken);
-      if (token) {
-        const headerName = server.authHeader || 'X-API-Key';
-        headers[headerName] = token;
-      }
-    }
-    
-    const response = await fetch(`${server.url}/execute`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ toolName, toolId, params, body })
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      return res.status(response.status).json({ error: `External MCP error: ${errorText}` });
-    }
-    
-    const data = await response.json();
-    res.json(data);
+    const result = await pool.callTool(server, toolName, params || body || {});
+    res.json(result);
   } catch (error) {
     logger.error({ error: error.message }, 'Execute external MCP tool error');
     res.status(500).json({ error: 'Failed to execute tool on external MCP server: ' + error.message });
@@ -456,6 +316,62 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
   } catch (error) {
     logger.error({ error: error.message }, 'Install npm package error');
     res.status(500).json({ error: 'Failed to install package: ' + error.message });
+  }
+});
+
+// GET /:id/tools/managed - list tools with enable/disable status
+router.get('/:id/tools/managed', auth, async (req, res) => {
+  try {
+    const { ExternalMcpServer } = loadModels();
+
+    const where = req.user.role === 'admin'
+      ? { id: req.params.id }
+      : { id: req.params.id, userId: req.user.id };
+
+    const server = await ExternalMcpServer.findOne({ where });
+    if (!server) {
+      return res.status(404).json({ error: 'External MCP server not found' });
+    }
+
+    const tools = await ExternalMcpTool.findAll({
+      where: { externalMcpServerId: req.params.id },
+      order: [['namespacedName', 'ASC']]
+    });
+
+    res.json(tools);
+  } catch (error) {
+    logger.error({ error: error.message }, 'List managed external MCP tools error');
+    res.status(500).json({ error: 'Failed to list managed tools' });
+  }
+});
+
+// PATCH /:id/tools/:toolName - enable or disable a single tool
+router.patch('/:id/tools/:toolName', auth, async (req, res) => {
+  try {
+    const { ExternalMcpServer } = loadModels();
+
+    const where = req.user.role === 'admin'
+      ? { id: req.params.id }
+      : { id: req.params.id, userId: req.user.id };
+
+    const server = await ExternalMcpServer.findOne({ where });
+    if (!server) {
+      return res.status(404).json({ error: 'External MCP server not found' });
+    }
+
+    const tool = await ExternalMcpTool.findOne({
+      where: { externalMcpServerId: req.params.id, toolName: req.params.toolName }
+    });
+    if (!tool) {
+      return res.status(404).json({ error: 'Tool not found' });
+    }
+
+    await tool.update({ isActive: req.body.isActive });
+    if (clearToolsCache) clearToolsCache();
+    res.json(tool);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Update managed external MCP tool error');
+    res.status(500).json({ error: 'Failed to update tool' });
   }
 });
 

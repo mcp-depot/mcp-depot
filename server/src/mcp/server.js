@@ -14,7 +14,6 @@ const { checkRateLimit: checkToolRateLimit } = require('../services/rate-limiter
 const { filterFields } = require('../utils/fieldFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
 const transformerLoader = require('../transformers/loader');
-const { renderTemplate, applyDefaults, validateRequired } = require('../prompts/renderer');
 const { z } = require('zod/v3');
 
 function coerceParam(value, paramDefs, key) {
@@ -200,8 +199,6 @@ class MCPDepotServer {
     }
 
     this.registerPersonaTools();
-
-    this.registerPrompts();
 
     this.registerMetaTools();
 
@@ -708,58 +705,6 @@ class MCPDepotServer {
     logger.debug('Persona tools registered');
   }
 
-  async registerPrompts() {
-    const { PromptLibrary } = require('../config/database').loadModels();
-
-    this.server.prompt('list', async () => {
-      try {
-        const prompts = await PromptLibrary.findAll({
-          where: { isShared: true },
-          order: [['name', 'ASC']],
-          attributes: ['name', 'description', 'inputs']
-        });
-        return {
-          prompts: prompts.map(p => ({
-            name: p.name,
-            description: p.description || '',
-            arguments: (p.inputs || []).map(i => ({
-              name: i.name,
-              description: i.description || '',
-              required: !!i.required
-            }))
-          }))
-        };
-      } catch (error) {
-        logger.error({ err: error.message }, 'prompts/list failed');
-        return { prompts: [] };
-      }
-    });
-
-    this.server.prompt('get', async ({ name, arguments: args }) => {
-      try {
-        const prompt = await PromptLibrary.findOne({ where: { name } });
-        if (!prompt) {
-          throw new Error(`Prompt not found: ${name}`);
-        }
-        const inputs = prompt.inputs || [];
-        const missing = validateRequired(inputs, args || {});
-        if (missing.length > 0) {
-          throw new Error(`Missing required arguments: ${missing.join(', ')}`);
-        }
-        const merged = applyDefaults(inputs, args);
-        const text = renderTemplate(prompt.prompt, merged);
-        return {
-          description: prompt.description || '',
-          messages: [{ role: 'user', content: { type: 'text', text } }]
-        };
-      } catch (error) {
-        throw new Error(error.message);
-      }
-    });
-
-    logger.debug('MCP Prompts registered');
-  }
-
   registerMetaTools() {
     const { registerMetaTools } = require('./meta-tools');
     // Always register — each handler checks isActive at call time
@@ -1117,9 +1062,7 @@ class MCPDepotServer {
     }
     
     this.registerPersonaTools();
-    
-    this.registerPrompts();
-    
+
     this.registerMetaTools();
 
     this.registerWatchUntilDone();

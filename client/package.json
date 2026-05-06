@@ -20,7 +20,8 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.21.1",
     "react-select": "^5.8.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "sonner": "^1.7.4"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

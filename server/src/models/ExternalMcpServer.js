@@ -72,6 +72,16 @@ const ExternalMcpServer = sequelize.define('ExternalMcpServer', {
     type: DataTypes.STRING(500),
     description: 'Last fetch error message'
   },
+  sessionMode: {
+    type: DataTypes.STRING,
+    defaultValue: 'stateful',
+    description: '"stateful" = reuse persistent connection; "stateless" = new connection per call'
+  },
+  toolsHash: {
+    type: DataTypes.STRING(64),
+    allowNull: true,
+    description: 'SHA-256 hash of last fetched tool list for change detection'
+  },
   metadata: {
     type: DataTypes.JSONB,
     defaultValue: {}

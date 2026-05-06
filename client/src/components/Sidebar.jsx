@@ -16,7 +16,8 @@ import {
   User,
   Layers,
   MessagesSquare,
-  BookOpen
+  Users,
+  HeartPulse
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -49,7 +50,7 @@ function Sidebar() {
       // { path: '/workflows', icon: FileText, label: 'Workflows' },
       { path: '/skills', icon: FileText, label: 'Skills' },
       { path: '/personas', icon: User, label: 'Personas' },
-      { path: '/prompts', icon: BookOpen, label: 'Prompts' },
+      
     ]},
     { section: 'Sessions', items: [
       { path: '/session-contexts', icon: Layers, label: 'Contexts' },
@@ -57,9 +58,10 @@ function Sidebar() {
     ]},
     { section: 'Operations', items: [
       { path: '/monitoring', icon: Activity, label: 'Monitoring' },
-      { path: '/health', icon: Activity, label: 'Health' },
+      { path: '/health', icon: HeartPulse, label: 'Health' },
     ]},
     { section: 'System', items: [
+      ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users' }] : []),
       { path: '/settings', icon: Settings, label: 'Settings' },
     ]},
   ];

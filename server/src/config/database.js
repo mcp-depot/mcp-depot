@@ -46,6 +46,7 @@ const loadModels = () => {
   const ToolCall = require('../models/ToolCall');
   const UserIntegrationCredentials = require('../models/UserIntegrationCredentials');
   const ExternalMcpServer = require('../models/ExternalMcpServer');
+  const ExternalMcpTool = require('../models/ExternalMcpTool');
   const PromptLibrary = require('../models/PromptLibrary')(sequelize);
   const SystemSetting = require('../models/SystemSetting');
   const SessionContext = require('../models/SessionContext')(sequelize);
@@ -599,6 +600,17 @@ const connectDB = async (retries = 5, delay = 3000) => {
         logger.warn('Production mode: running sequelize.sync({ force: false }) to create missing tables');
         await sequelize.sync({ force: false });
         logger.info('Database synchronized');
+        
+        try {
+          await sequelize.query('ALTER TABLE integrations ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT \'{}\'', { type: sequelize.QueryTypes.RAW });
+          logger.info('Migration: added tags column to integrations');
+        } catch (e) { if (!e.message.includes('already exists')) logger.warn({ err: e.message }, 'Migration: tags column on integrations'); }
+        
+        try {
+          await sequelize.query('ALTER TABLE prompt_library ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT \'{}\'', { type: sequelize.QueryTypes.RAW });
+          logger.info('Migration: added tags column to prompt_library');
+        } catch (e) { if (!e.message.includes('already exists')) logger.warn({ err: e.message }, 'Migration: tags column on prompt_library'); }
+        
         await runMigrations(sequelize);
       }
       

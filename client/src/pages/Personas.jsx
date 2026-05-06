@@ -71,7 +71,7 @@ function Personas() {
   };
 
   return (
-    <div className="page">
+    <div className="container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>Agent Personas</h1>

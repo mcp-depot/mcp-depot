@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
-import { Zap } from 'lucide-react';
+import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
 
@@ -29,6 +29,28 @@ function Tools({ all: isAllTools }) {
   const [compositeTools, setCompositeTools] = useState([]);
   const [externalTools, setExternalTools] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
+  const [sortBy, setSortBy] = useState('name');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const filterInputRef = useRef(null);
+  const filteredToolsData = allToolsData
+    .filter(({ integration, tools }) => {
+      if (filter === '') return true;
+      const lowerFilter = filter.toLowerCase();
+      if (integration.name.toLowerCase().includes(lowerFilter)) return true;
+      return tools.some(t => t.name.toLowerCase().includes(lowerFilter) || t.description?.toLowerCase().includes(lowerFilter));
+    })
+    .map(({ integration, tools }) => ({
+      integration,
+      tools: [...tools].sort((a, b) => {
+        let aVal = sortBy === 'name' ? a.name : a.createdAt || '';
+        let bVal = sortBy === 'name' ? b.name : b.createdAt || '';
+        if (sortOrder === 'asc') {
+          return String(aVal).localeCompare(String(bVal));
+        }
+        return String(bVal).localeCompare(String(aVal));
+      })
+    }));
   const [showModal, setShowModal] = useState(false);
   const [showExploreModal, setShowExploreModal] = useState(false);
   const [showTestModal, setShowTestModal] = useState(false);
@@ -100,6 +122,17 @@ function Tools({ all: isAllTools }) {
       fetchData();
     }
   }, [id, isAllTools]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        filterInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const fetchExternalTools = async () => {
     try {
@@ -479,7 +512,17 @@ function Tools({ all: isAllTools }) {
     }
   };
 
-  if (loading) return <div className="loading-overlay"><div className="spinner"></div></div>;
+  if (loading) return (
+    <div className="container">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
+          <div className="skeleton skeleton-title"></div>
+          <div className="skeleton skeleton-text"></div>
+          <div className="skeleton skeleton-text short"></div>
+        </div>
+      ))}
+    </div>
+  );
 
   if (isAllTools) {
     return (
@@ -502,16 +545,46 @@ function Tools({ all: isAllTools }) {
             </div>
           </div>
           
+          <div style={{ marginBottom: '1rem' }}>
+            <div className="search-input-wrap" style={{ maxWidth: '400px' }}>
+              <Search size={14} className="search-icon" style={{ color: 'var(--text-dim)', position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                ref={filterInputRef}
+                className="search-input"
+                placeholder="Filter tools... (⌘K)"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+                style={{ paddingLeft: '36px' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', alignSelf: 'center', marginRight: '0.5rem' }}>Sort by:</span>
+              <button
+                className={`btn btn-small ${sortBy === 'name' ? 'btn-primary' : ''}`}
+                onClick={() => { setSortBy('name'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}
+                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+              >
+                Name {sortBy === 'name' ? (sortOrder === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : <ArrowUpDown size={12} />}
+              </button>
+            </div>
+          </div>
+
           {allToolsData.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">-</div>
+            <div className="empty-state-dashed">
+              <div className="empty-icon" style={{ fontSize: '48px' }}>-</div>
               <h3>No tools yet</h3>
               <p>Create tools in your integrations to get started</p>
               <Link to="/integrations" className="btn btn-primary">Go to Integrations</Link>
             </div>
+          ) : filteredToolsData.length === 0 ? (
+            <div className="empty-state-dashed">
+              <div className="empty-icon" style={{ fontSize: '48px' }}>🔍</div>
+              <h3>No tools match your filter</h3>
+              <p>Try adjusting your search query</p>
+            </div>
           ) : (
             <div>
-              {allToolsData.map(({ integration, tools }) => (
+              {filteredToolsData.map(({ integration, tools }) => (
                 <div key={integration._id} className="card" style={{ marginBottom: '1rem' }}>
                   <div 
                     className="card-header" 
@@ -616,6 +689,15 @@ function Tools({ all: isAllTools }) {
             <span className="breadcrumb-separator">/</span>
             <span>{integration?.name}</span>
           </div>
+          <div style={{ marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-dim)' }}>
+              <Link to="/integrations" style={{ color: 'var(--primary)' }}>Integrations</Link>
+              <span>/</span>
+              <span>{integration?.name}</span>
+              <span>/</span>
+              <span style={{ color: 'var(--text)' }}>Tools</span>
+            </div>
+          </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <h1>{integration?.name} - Tools</h1>
@@ -658,8 +740,8 @@ function Tools({ all: isAllTools }) {
         )}
 
         {tools.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">-</div>
+          <div className="empty-state-dashed">
+            <div className="empty-icon" style={{ fontSize: '48px' }}>-</div>
             <h3>No tools yet</h3>
             <p>Create tools to define API endpoints for this integration</p>
           </div>

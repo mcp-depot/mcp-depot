@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { Toaster } from 'sonner';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import PasswordReset from './pages/PasswordReset';
@@ -12,11 +13,12 @@ import Settings from './pages/Settings';
 import Monitoring from './pages/Monitoring';
 import Skills from './pages/Skills';
 import Personas from './pages/Personas';
-import Prompts from './pages/Prompts';
+
 import HealthDashboard from './pages/HealthDashboard';
 import SessionContexts from './pages/SessionContexts';
 import SessionChannels from './pages/SessionChannels';
 import CompositeToolBuilder from './pages/CompositeToolBuilder';
+import Users from './pages/Users';
 import Layout from './components/Layout';
 
 function PrivateRoute({ children }) {
@@ -60,9 +62,10 @@ function AppRoutes() {
       {/* <Route path="/workflows" element={<PrivateRoute><Layout><Workflows /></Layout></PrivateRoute>} /> */}
       <Route path="/monitoring" element={<PrivateRoute><Layout><Monitoring /></Layout></PrivateRoute>} />
       <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
+      <Route path="/users" element={<PrivateRoute><Layout><Users /></Layout></PrivateRoute>} />
       <Route path="/skills" element={<PrivateRoute><Layout><Skills /></Layout></PrivateRoute>} />
       <Route path="/personas" element={<PrivateRoute><Layout><Personas /></Layout></PrivateRoute>} />
-      <Route path="/prompts" element={<PrivateRoute><Layout><Prompts /></Layout></PrivateRoute>} />
+      
       <Route path="/health" element={<PrivateRoute><Layout><HealthDashboard /></Layout></PrivateRoute>} />
       <Route path="/session-contexts" element={<PrivateRoute><Layout><SessionContexts /></Layout></PrivateRoute>} />
       <Route path="/session-channels" element={<PrivateRoute><Layout><SessionChannels /></Layout></PrivateRoute>} />
@@ -77,6 +80,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <ThemeProvider>
+          <Toaster position="bottom-right" richColors />
           <AppRoutes />
         </ThemeProvider>
       </AuthProvider>

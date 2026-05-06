@@ -14,7 +14,6 @@ const importDataSchema = Joi.object({
   externalMcp: Joi.array().items(Joi.object()).default([]),
   integrations: Joi.array().items(Joi.object()).default([]),
   tools: Joi.array().items(Joi.object()).default([]),
-  workflows: Joi.array().items(Joi.object()).default([]),
   skills: Joi.array().items(Joi.object()).default([]),
   sessionContexts: Joi.array().items(Joi.object()).default([]),
   externalMcpServers: Joi.array().items(Joi.object()).default([])
@@ -77,8 +76,8 @@ router.put('/:key', auth, requireAdmin, async (req, res) => {
 });
 
 router.post('/export', auth, async (req, res) => {
-  try {
-    const { externalMcp, integrations, tools, workflows, skills, sessionContexts } = req.body;
+    try {
+    const { externalMcp, integrations, tools, skills, sessionContexts } = req.body;
     const { loadModels } = require('../config/database');
     const exportData = { exportedAt: new Date().toISOString(), version: '1.0' };
     
@@ -141,18 +140,7 @@ router.post('/export', auth, async (req, res) => {
         isDefault: s.isDefault
       }));
     }
-    
-    if (workflows) {
-      const { Workflow } = loadModels();
-      const items = await Workflow.findAll({ where: { userId: req.user.id } });
-      exportData.workflows = items.map(w => ({
-        name: w.name,
-        type: w.type,
-        nodes: w.nodes,
-        edges: w.edges
-      }));
-    }
-    
+
     if (sessionContexts) {
       const { SessionContext } = loadModels();
       const items = await SessionContext.findAll({ 
@@ -182,7 +170,7 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
     }
 
     const { loadModels } = require('../config/database');
-    const result = { externalMcp: 0, integrations: 0, tools: 0, skills: 0, workflows: 0, sessionContexts: 0 };
+    const result = { externalMcp: 0, integrations: 0, tools: 0, skills: 0, sessionContexts: 0 };
     
     if (value.integrations) {
       const { Integration } = loadModels();
@@ -259,21 +247,7 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
         result.skills++;
       }
     }
-    
-    if (value.workflows) {
-      const { Workflow } = loadModels();
-      for (const w of value.workflows) {
-        await Workflow.create({
-          name: w.name,
-          type: w.type,
-          nodes: w.nodes,
-          edges: w.edges,
-          userId: req.user.id
-        });
-        result.workflows++;
-      }
-    }
-    
+
     if (value.sessionContexts) {
       const { SessionContext } = loadModels();
       for (const ctx of value.sessionContexts) {
@@ -342,14 +316,7 @@ router.post('/import-preview', auth, async (req, res) => {
           || (t.integrationId != null ? `Integration #${t.integrationId}` : null)
       }));
     }
-    
-    if (req.body.workflows) {
-      preview.workflows = req.body.workflows.map(w => ({
-        name: w.name,
-        description: w.description || ''
-      }));
-    }
-    
+
     res.json(preview);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -4,6 +4,9 @@ import { useTheme } from '../context/ThemeContext';
 import themes from '../config/themes';
 import api from '../services/api';
 import { StyledSelect } from '../components/StyledSelect';
+import { DropdownMenu, DropdownItem, DropdownSeparator } from '../components/Dropdown';
+import { showSuccess, showError } from '../utils/toast';
+import { Copy, Trash2, Edit2, Wrench } from 'lucide-react';
 
 function LoadingDots({ text = 'Loading' }) {
   const [dots, setDots] = useState('');
@@ -150,6 +153,7 @@ function Settings() {
   const [generatedApiKey, setGeneratedApiKey] = useState(null);
   const [externalServers, setExternalServers] = useState([]);
   const [externalLoading, setExternalLoading] = useState(true);
+  const [poolStatus, setPoolStatus] = useState([]);
   const [showServerModal, setShowServerModal] = useState(false);
   const [showTestToolModal, setShowTestToolModal] = useState(false);
   const [testingTool, setTestingTool] = useState(null);
@@ -196,6 +200,23 @@ function Settings() {
     }
   }
 
+  async function fetchPoolStatus() {
+    try {
+      const res = await api.get('/external-mcp/pool-status');
+      setPoolStatus(res.data);
+    } catch (err) {
+      console.error('Failed to fetch pool status:', err);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'external-mcp' && externalTab === 'servers') {
+      fetchPoolStatus();
+      const interval = setInterval(fetchPoolStatus, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, externalTab]);
+
   async function saveExternalServer() {
     try {
       const envJson = serverForm.envPairs
@@ -232,18 +253,20 @@ function Settings() {
     if (!confirm('Are you sure you want to delete this external MCP server?')) return;
     try {
       await api.delete(`/external-mcp/${id}`);
+      showSuccess('External MCP server deleted');
       fetchExternalServers();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete');
+      showError(err.response?.data?.error || 'Failed to delete');
     }
   }
 
   async function toggleExternalServer(id, isActive) {
     try {
       await api.put(`/external-mcp/${id}`, { isActive });
+      showSuccess(`External MCP server ${isActive ? 'enabled' : 'disabled'}`);
       fetchExternalServers();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to update');
+      showError(err.response?.data?.error || 'Failed to update');
     }
   }
 
@@ -669,11 +692,23 @@ function Settings() {
                     <div style={{ marginBottom: '1rem' }}><button className="btn btn-primary" onClick={() => { setEditingServer(null); setServerForm({ name: '', transportType: 'http', runtime: 'node', url: '', command: 'npx', args: '', env: '', envPairs: [{ key: '', value: '' }], authType: 'none', authToken: '', authHeader: '' }); setShowServerModal(true); }}>+ Add External MCP Server</button></div>
                       {externalLoading ? <p><LoadingDots text="External servers" /></p> : externalServers.length === 0 ? <div className="empty-state"><p>No external MCP servers configured</p></div> : (
                       <div>
-                        {externalServers.map(server => (
+                        {externalServers.map(server => {
+                          const entry = poolStatus.find(e => e.serverId === server._id);
+                          return (
                           <div key={server._id} className="card" style={{ marginBottom: '0.5rem', padding: '1rem', borderLeft: server.lastFetchError ? '3px solid var(--danger)' : !server.isActive ? '3px solid var(--warning)' : server.lastFetchedAt ? '3px solid var(--success)' : '3px solid var(--border)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div>
-                                <strong>{server.name}</strong>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    display: 'inline-block',
+                                    background: entry?.state === 'connected' ? '#10b981' : entry?.state === 'connecting' ? '#f59e0b' : server.lastFetchError ? '#ef4444' : '#6b7280',
+                                    animation: entry?.state === 'connected' ? 'pulse 2s infinite' : entry?.state === 'connecting' ? 'spin 1s linear infinite' : 'none'
+                                  }} title={entry?.state === 'connected' ? `Connected · idle ${entry.idleSecs}s` : entry?.state === 'connecting' ? 'Connecting...' : server.lastFetchError ? 'Error' : 'Not connected'} />
+                                  <strong>{server.name}</strong>
+                                </div>
                                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0.25rem 0' }}>{server.transportType === 'stdio' ? `${server.command} ${server.args}` : server.url}</p>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                                   <span className={`badge ${server.isActive ? 'badge-success' : 'badge-warning'}`}>{server.isActive ? 'Active' : 'Disabled'}</span>
@@ -690,17 +725,40 @@ function Settings() {
                                   )}
                                 </div>
                               </div>
-                              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <button className="btn btn-small" onClick={() => fetchServerTools(server._id)} disabled={loadingServerTools === server._id}>
-                                  {loadingServerTools === server._id ? <LoadingDots text="Tools" /> : 'Tools'}
+                              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                <button className="btn btn-primary btn-small" onClick={() => fetchServerTools(server._id)} disabled={loadingServerTools === server._id}>
+                                  {loadingServerTools === server._id ? <LoadingDots text="Tools" /> : <><Wrench size={14} /> Tools</>}
                                 </button>
-                                <button className={`btn btn-small ${server.isActive ? 'btn-warning' : 'btn-success'}`} onClick={() => toggleExternalServer(server._id, !server.isActive)}>{server.isActive ? 'Disable' : 'Enable'}</button>
-                                <button className="btn btn-small" onClick={() => { setEditingServer(server); const envPairs = server.env ? Object.entries(JSON.parse(server.env)).map(([key, value]) => ({ key, value: String(value) })) : [{ key: '', value: '' }]; setServerForm({ name: server.name, transportType: server.transportType || 'http', runtime: server.runtime || 'node', url: server.url || '', command: server.command || 'npx', args: server.args || '', env: server.env || '', envPairs, authType: server.authType || 'none', authToken: '', authHeader: server.authHeader || '' }); setShowServerModal(true); }}>Edit</button>
-                                <button className="btn btn-small btn-danger" onClick={() => deleteExternalServer(server._id)}>Delete</button>
+                                <DropdownMenu>
+                                  <DropdownItem onClick={() => toggleExternalServer(server._id, !server.isActive)}>
+                                    {server.isActive ? 'Disable' : 'Enable'}
+                                  </DropdownItem>
+                                  <DropdownItem onClick={() => {
+                                    const config = {
+                                      name: server.name,
+                                      transportType: server.transportType,
+                                      command: server.command,
+                                      args: server.args ? JSON.parse(server.args) : [],
+                                      env: server.env ? JSON.parse(server.env) : {}
+                                    };
+                                    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+                                    showSuccess('Config copied to clipboard');
+                                  }}>
+                                    <Copy size={14} /> Copy Config
+                                  </DropdownItem>
+                                  <DropdownSeparator />
+                                  <DropdownItem onClick={() => { setEditingServer(server); const envPairs = server.env ? Object.entries(JSON.parse(server.env)).map(([key, value]) => ({ key, value: String(value) })) : [{ key: '', value: '' }]; setServerForm({ name: server.name, transportType: server.transportType || 'http', runtime: server.runtime || 'node', url: server.url || '', command: server.command || 'npx', args: server.args || '', env: server.env || '', envPairs, authType: server.authType || 'none', authToken: '', authHeader: server.authHeader || '' }); setShowServerModal(true); }}>
+                                    <Edit2 size={14} /> Edit
+                                  </DropdownItem>
+                                  <DropdownItem onClick={() => deleteExternalServer(server._id)} danger>
+                                    <Trash2 size={14} /> Delete
+                                  </DropdownItem>
+                                </DropdownMenu>
                               </div>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

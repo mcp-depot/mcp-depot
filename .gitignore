@@ -19,3 +19,4 @@ scripts/backups/
 internal/
 *.tgz
 error.png
+opencode.json

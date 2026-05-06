@@ -149,8 +149,8 @@ function Dashboard() {
         {loading ? (
           <div className="loading-overlay"><div className="spinner"></div></div>
         ) : (
-          <>
-            <div className="grid-4" style={{ marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <div className="grid-4">
               <div className="stat-card">
                 <div className="stat-card-icon"><Plug size={20} /></div>
                 <div className="stat-card-value">{stats.integrations.total}</div>
@@ -277,15 +277,15 @@ function Dashboard() {
                   No clients connected yet
                 </div>
               ) : (
-                <table className="table">
+                <table className="data-table" style={{ tableLayout: 'fixed' }}>
                   <thead>
                     <tr>
-                      <th>Client</th>
-                      <th>Session</th>
-                      <th>Connected</th>
-                      <th>Last Call</th>
-                      <th>Calls</th>
-                      <th>Last Tool</th>
+                      <th style={{ width: '20%' }}>Client</th>
+                      <th style={{ width: '12%' }}>Session</th>
+                      <th style={{ width: '15%' }}>Connected</th>
+                      <th style={{ width: '15%' }}>Last Call</th>
+                      <th style={{ width: '8%' }}>Calls</th>
+                      <th style={{ width: '30%' }}>Last Tool</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -295,7 +295,7 @@ function Dashboard() {
                           <strong>{s.clientName || 'Unknown'}</strong>
                           {s.clientVersion && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-light)' }}>v{s.clientVersion}</span>}
                         </td>
-                        <td><code style={{ fontSize: '0.75rem' }}>{s.sessionId}</code></td>
+                        <td><code style={{ fontSize: '0.75rem' }} title={s.sessionId}>{s.sessionId.slice(0, 8)}…</code></td>
                         <td><span title={s.connectedAt}>{fmtTime(s.connectedAt)}</span></td>
                         <td><span title={s.lastCallAt}>{s.lastCallAt ? fmtTime(s.lastCallAt) : '—'}</span></td>
                         <td>{s.callCount}</td>
@@ -306,7 +306,7 @@ function Dashboard() {
                 </table>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

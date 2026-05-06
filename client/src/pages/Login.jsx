@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Network } from 'lucide-react';
+import { Network, Chrome, Github } from 'lucide-react';
 import api from '../services/api';
 
 function Login() {
@@ -41,6 +41,38 @@ const [allowRegistration, setAllowRegistration] = useState(false);
       setLoading(false);
     }
   };
+
+  const handleOAuthLogin = async (provider) => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await api.get(`/auth/oauth-url/${provider}`, { params: { redirect_uri: window.location.origin + '/login' } });
+      if (res.data.url) {
+        window.location.href = res.data.url;
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || `Failed to initiate ${provider} login`);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const provider = params.get('state');
+    if (code && provider) {
+      setLoading(true);
+      api.post(`/auth/oauth/${provider}`, { code, redirectUri: window.location.origin + '/login' })
+        .then(res => {
+          login(res.data.accessToken, null, res.data.user, res.data.refreshToken);
+          navigate('/');
+        })
+        .catch(err => {
+          setError(err.response?.data?.error || 'OAuth login failed');
+          setLoading(false);
+        });
+    }
+  }, [navigate, login]);
 
   return (
     <div className="login-page">
@@ -91,6 +123,23 @@ const [allowRegistration, setAllowRegistration] = useState(false);
             {loading ? <><span className="spinner" style={{ width: '16px', height: '16px' }}></span> Signing in...</> : 'Sign In'}
           </button>
         </form>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '1.5rem 0' }}>
+          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
+          <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>or</span>
+          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button type="button" className="btn btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={() => handleOAuthLogin('google')} disabled={loading}>
+            <Chrome size={18} />
+            Google
+          </button>
+          <button type="button" className="btn btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={() => handleOAuthLogin('github')} disabled={loading}>
+            <Github size={18} />
+            GitHub
+          </button>
+        </div>
         
         {allowRegistration && (
           <p style={{ textAlign: 'center', marginTop: '1.5rem', color: 'var(--text-light)', fontSize: '0.9rem' }}>

@@ -29,7 +29,8 @@ const integrationSchema = Joi.object({
     headers: Joi.object().default({}),
     timeout: Joi.number().default(30000)
   }).required(),
-  metadata: Joi.object().default({})
+  metadata: Joi.object().default({}),
+  tags: Joi.array().items(Joi.string()).default([])
 });
 
 const toolSchema = Joi.object({
@@ -394,7 +395,7 @@ router.post('/', authWithApiKey, async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { type, name, description, config, metadata } = value;
+    const { type, name, description, config, metadata, tags } = value;
 
     let finalConfig = config;
     if (config && config.auth && config.auth.credentials && config.auth.type !== 'none') {
@@ -417,7 +418,8 @@ router.post('/', authWithApiKey, async (req, res) => {
       name,
       description,
       config: finalConfig,
-      metadata
+      metadata,
+      tags
     });
 
     await audit.log({
@@ -459,12 +461,13 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    const { name, description, config, metadata, isActive, visibility } = req.body;
+    const { name, description, config, metadata, isActive, visibility, tags } = req.body;
 
     if (name !== undefined) integration.name = name;
     if (description !== undefined) integration.description = description;
     if (metadata !== undefined) integration.metadata = metadata;
     if (isActive !== undefined) integration.isActive = isActive;
+    if (tags !== undefined) integration.tags = tags;
     if (visibility !== undefined && ['private', 'shared'].includes(visibility)) {
       integration.visibility = visibility;
     }
