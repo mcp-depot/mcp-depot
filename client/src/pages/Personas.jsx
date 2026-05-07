@@ -163,9 +163,9 @@ function Personas() {
                   <label>System Prompt</label>
                   <textarea rows="8" value={form.systemPrompt} onChange={e => setForm({ ...form, systemPrompt: e.target.value })} placeholder="You are a security expert..." required />
                 </div>
-                <div className="form-group" style={{ marginTop: '1rem' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'normal' }}>
-                    <input type="checkbox" checked={form.isShared} onChange={e => setForm({ ...form, isShared: e.target.checked })} />
+                <div style={{ marginTop: '0.5rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 'normal' }}>
+                    <input type="checkbox" checked={form.isShared} onChange={e => setForm({ ...form, isShared: e.target.checked })} style={{ width: 'auto', margin: 0 }} />
                     Share with all team members
                   </label>
                 </div>
