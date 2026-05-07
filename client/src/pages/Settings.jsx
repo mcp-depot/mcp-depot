@@ -205,12 +205,14 @@ function Settings() {
 
   async function saveFeatures(enabledFeatures) {
     setFeaturesSaving(true);
+    const previousAppConfig = appConfig;
+    setAppConfig({ ...appConfig, enabledFeatures });
     try {
       await api.put('/system/features', { features: enabledFeatures });
       setFeatures(enabledFeatures);
-      setAppConfig({ ...appConfig, enabledFeatures });
       showSuccess('Features updated successfully');
     } catch (err) {
+      setAppConfig(previousAppConfig);
       showError(err.response?.data?.error || 'Failed to update features');
     } finally {
       setFeaturesSaving(false);

@@ -85,7 +85,7 @@ function Sidebar() {
       </div>
 
       <nav className="sidebar-nav">
-        {navItems.map((section, idx) => (
+        {navItems.filter(section => section.items.length > 0).map((section, idx) => (
           <div key={section.section} className="sidebar-section">
             {!collapsed && <div className="sidebar-section-title">{section.section}</div>}
             {section.items.map((item) => (
