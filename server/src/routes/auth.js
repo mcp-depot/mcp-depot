@@ -321,6 +321,14 @@ const OAUTH_CONFIGS = {
     authUrl: 'https://github.com/login/oauth/authorize',
     tokenUrl: 'https://github.com/login/oauth/access_token',
     scope: 'read:user user:email'
+  },
+  oidc: {
+    clientId: process.env.OIDC_CLIENT_ID,
+    clientSecret: process.env.OIDC_CLIENT_SECRET,
+    issuerUrl: process.env.OIDC_ISSUER_URL,
+    authUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/authorize` : null,
+    tokenUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/token` : null,
+    scope: 'openid email profile'
   }
 };
 
@@ -458,9 +466,19 @@ async function fetchOAuthProfile(provider, accessToken) {
 }
 
 router.get('/config', (req, res) => {
+  const defaultFeatures = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'users'];
+  const enabledFeaturesEnv = process.env.ENABLED_FEATURES;
+  const enabledFeatures = enabledFeaturesEnv 
+    ? enabledFeaturesEnv.split(',').map(f => f.trim()).filter(f => defaultFeatures.includes(f))
+    : defaultFeatures;
+  
   res.json({
     googleEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
     githubEnabled: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
+    oidcEnabled: !!(process.env.OIDC_ENABLED === 'true' && process.env.OIDC_ISSUER_URL && process.env.OIDC_CLIENT_ID),
+    oidcDisplayName: process.env.OIDC_DISPLAY_NAME || 'Login with SSO',
+    enabledFeatures,
+    serveClient: process.env.SERVE_CLIENT !== 'false',
   });
 });
 
