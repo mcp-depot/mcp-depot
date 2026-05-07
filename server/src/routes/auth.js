@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const Joi = require('joi');
 const User = require('../models/User');
+const SystemSetting = require('../models/SystemSetting');
 const config = require('../config/env');
 const logger = require('../services/logger');
 const { auth, requireAdmin } = require('../middleware/auth');
@@ -465,20 +466,32 @@ async function fetchOAuthProfile(provider, accessToken) {
   throw new Error(`Unsupported OAuth provider: ${provider}`);
 }
 
-router.get('/config', (req, res) => {
+router.get('/config', async (req, res) => {
   const defaultFeatures = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'users'];
   const enabledFeaturesEnv = process.env.ENABLED_FEATURES;
-  const enabledFeatures = enabledFeaturesEnv 
-    ? enabledFeaturesEnv.split(',').map(f => f.trim()).filter(f => defaultFeatures.includes(f))
-    : defaultFeatures;
+  
+  let enabledFeatures;
+  try {
+    const dbSetting = await SystemSetting.findByPk('enabled_features');
+    enabledFeatures = dbSetting?.value?.features || 
+      (enabledFeaturesEnv ? enabledFeaturesEnv.split(',').map(f => f.trim()).filter(f => defaultFeatures.includes(f)) : 
+      defaultFeatures);
+  } catch (e) {
+    enabledFeatures = enabledFeaturesEnv 
+      ? enabledFeaturesEnv.split(',').map(f => f.trim()).filter(f => defaultFeatures.includes(f))
+      : defaultFeatures;
+  }
   
   res.json({
+    allowRegistration: process.env.ALLOW_REGISTRATION === 'true',
     googleEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
     githubEnabled: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
     oidcEnabled: !!(process.env.OIDC_ENABLED === 'true' && process.env.OIDC_ISSUER_URL && process.env.OIDC_CLIENT_ID),
     oidcDisplayName: process.env.OIDC_DISPLAY_NAME || 'Login with SSO',
     enabledFeatures,
     serveClient: process.env.SERVE_CLIENT !== 'false',
+    apiOnly: process.env.API_ONLY === 'true',
+    version: '1.0.0'
   });
 });
 

@@ -185,8 +185,42 @@ function Settings() {
     tools: [],
     workflows: []
   });
+  const [features, setFeatures] = useState(null);
+  const [featuresLoading, setFeaturesLoading] = useState(false);
+  const [featuresSaving, setFeaturesSaving] = useState(false);
 
   const abortControllers = {};
+
+  async function fetchFeatures() {
+    setFeaturesLoading(true);
+    try {
+      const res = await api.get('/system/features');
+      setFeatures(res.data.enabledFeatures);
+    } catch (err) {
+      console.error('Failed to fetch features:', err);
+    } finally {
+      setFeaturesLoading(false);
+    }
+  }
+
+  async function saveFeatures(enabledFeatures) {
+    setFeaturesSaving(true);
+    try {
+      await api.put('/system/features', { features: enabledFeatures });
+      setFeatures(enabledFeatures);
+      showSuccess('Features updated successfully');
+    } catch (err) {
+      showError(err.response?.data?.error || 'Failed to update features');
+    } finally {
+      setFeaturesSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'features') {
+      fetchFeatures();
+    }
+  }, [activeTab]);
 
   async function fetchExternalServers() {
     setExternalLoading(true);
@@ -378,6 +412,7 @@ function Settings() {
               <div className={`tab ${activeTab === 'preferences' ? 'active' : ''}`} onClick={() => setActiveTab('preferences')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>Preferences</div>
               <div className={`tab ${activeTab === 'external-mcp' ? 'active' : ''}`} onClick={() => { setActiveTab('external-mcp'); fetchExternalServers(); }} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>External MCP</div>
               <div className={`tab ${activeTab === 'oauth' ? 'active' : ''}`} onClick={() => setActiveTab('oauth')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>OAuth Providers</div>
+              <div className={`tab ${activeTab === 'features' ? 'active' : ''}`} onClick={() => setActiveTab('features')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>Features</div>
               <div className={`tab ${activeTab === 'import-export' ? 'active' : ''}`} onClick={() => setActiveTab('import-export')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>Import / Export</div>
               <div className={`tab ${activeTab === 'mcp-server' ? 'active' : ''}`} onClick={() => setActiveTab('mcp-server')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>MCP Server (For AI Assistants)</div>
             </div>
@@ -993,6 +1028,44 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                     Configure these in your environment and restart the server to enable OAuth providers.
                   </p>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'features' && (
+              <div>
+                <h2 className="card-title" style={{ marginBottom: '1rem' }}>Feature Flags</h2>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                  Enable or disable features in the application. Changes take effect immediately.
+                </p>
+                {user?.role !== 'admin' ? (
+                  <div className="card" style={{ padding: '1rem', background: 'var(--surface-hover)' }}>
+                    <p style={{ color: 'var(--text-secondary)' }}>You need admin privileges to modify features.</p>
+                  </div>
+                ) : featuresLoading ? (
+                  <div className="card" style={{ padding: '1rem' }}><LoadingDots text="Loading features" /></div>
+                ) : (
+                  <div className="card" style={{ padding: '1rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+                      {['integrations', 'tools', 'skills', 'sessions', 'channels', 'personas', 'users', 'monitoring', 'health'].map(feature => (
+                        <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={features?.includes(feature) || false}
+                            onChange={(e) => {
+                              const newFeatures = e.target.checked
+                                ? [...(features || []), feature]
+                                : (features || []).filter(f => f !== feature);
+                              saveFeatures(newFeatures);
+                            }}
+                            disabled={featuresSaving}
+                          />
+                          <span style={{ textTransform: 'capitalize' }}>{feature}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {featuresSaving && <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>Saving...</p>}
+                  </div>
+                )}
               </div>
             )}
 

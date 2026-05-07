@@ -75,6 +75,81 @@ router.put('/:key', auth, requireAdmin, async (req, res) => {
   }
 });
 
+const DEFAULT_FEATURES = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'personas', 'users', 'monitoring', 'health'];
+
+router.get('/features', auth, async (req, res) => {
+  try {
+    const setting = await SystemSetting.findByPk('enabled_features');
+    res.json({ enabledFeatures: setting?.value?.features || DEFAULT_FEATURES });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/features', auth, requireAdmin, async (req, res) => {
+  try {
+    const { features } = req.body;
+    if (!Array.isArray(features)) {
+      return res.status(400).json({ error: 'features must be an array' });
+    }
+    await SystemSetting.upsert({ 
+      key: 'enabled_features', 
+      value: { features },
+      description: 'Enabled UI feature sections'
+    });
+    res.json({ enabledFeatures: features });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/setup-status', auth, async (req, res) => {
+  try {
+    const setting = await SystemSetting.findByPk('setup_complete');
+    res.json({ setupComplete: setting?.value?.complete === true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/setup-complete', auth, requireAdmin, async (req, res) => {
+  try {
+    const { mode, enabledFeatures } = req.body;
+    await SystemSetting.upsert({ 
+      key: 'setup_complete', 
+      value: { complete: true, mode, completedAt: new Date().toISOString() }
+    });
+    if (enabledFeatures) {
+      await SystemSetting.upsert({ key: 'enabled_features', value: { features: enabledFeatures } });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/:key', auth, requireAdmin, async (req, res) => {
+  try {
+    const { error, value } = updateSettingSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { key } = req.params;
+    const { value: settingValue, description } = value;
+    
+    const [setting, created] = await SystemSetting.upsert({
+      key,
+      value: settingValue,
+      description
+    });
+    
+    res.json({ success: true, setting: { key: setting.key, value: setting.value } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post('/export', auth, async (req, res) => {
     try {
     const { externalMcp, integrations, tools, skills, sessionContexts } = req.body;

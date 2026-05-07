@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Network, Chrome, Github } from 'lucide-react';
+import { Network, Chrome, Github, Key } from 'lucide-react';
 import api from '../services/api';
 
 function Login() {
@@ -12,13 +12,18 @@ function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [allowRegistration, setAllowRegistration] = useState(false);
-  const [oauthConfig, setOauthConfig] = useState({ googleEnabled: false, githubEnabled: false });
+  const [oauthConfig, setOauthConfig] = useState({ googleEnabled: false, githubEnabled: false, oidcEnabled: false, oidcDisplayName: 'Login with SSO' });
 
   useEffect(() => {
     api.get('/auth/config')
       .then(res => {
         setAllowRegistration(res.data.allowRegistration === true);
-        setOauthConfig({ googleEnabled: res.data.googleEnabled, githubEnabled: res.data.githubEnabled });
+        setOauthConfig({ 
+          googleEnabled: res.data.googleEnabled, 
+          githubEnabled: res.data.githubEnabled,
+          oidcEnabled: res.data.oidcEnabled,
+          oidcDisplayName: res.data.oidcDisplayName || 'Login with SSO'
+        });
       })
       .catch(() => {});
   }, []);
@@ -59,6 +64,8 @@ function Login() {
       setLoading(false);
     }
   };
+
+  const handleOIDCLogin = () => handleOAuthLogin('oidc');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -150,6 +157,20 @@ function Login() {
                 </button>
               )}
             </div>
+          </>
+        )}
+
+        {oauthConfig.oidcEnabled && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', margin: '1.5rem 0' }}>
+              <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
+              <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>or</span>
+              <div style={{ flex: 1, height: '1px', background: 'var(--border)' }}></div>
+            </div>
+            <button type="button" className="btn btn-primary" style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }} onClick={handleOIDCLogin} disabled={loading}>
+              <Key size={18} />
+              {oauthConfig.oidcDisplayName}
+            </button>
           </>
         )}
         

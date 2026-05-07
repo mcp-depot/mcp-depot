@@ -19,10 +19,11 @@ import SessionContexts from './pages/SessionContexts';
 import SessionChannels from './pages/SessionChannels';
 import CompositeToolBuilder from './pages/CompositeToolBuilder';
 import Users from './pages/Users';
+import SetupWizard from './pages/SetupWizard';
 import Layout from './components/Layout';
 
 function PrivateRoute({ children }) {
-  const { isAuthenticated, loading, needsPasswordReset } = useAuth();
+  const { isAuthenticated, loading, needsPasswordReset, setupComplete } = useAuth();
   
   if (loading) {
     return <div>Loading...</div>;
@@ -34,6 +35,10 @@ function PrivateRoute({ children }) {
   
   if (needsPasswordReset) {
     return <Navigate to="/reset-password" />;
+  }
+  
+  if (setupComplete === false) {
+    return <Navigate to="/setup" />;
   }
   
   return children;
@@ -55,6 +60,7 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
       <Route path="/reset-password" element={<PasswordReset />} />
+      <Route path="/setup" element={<SetupWizard />} />
       <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
       <Route path="/integrations" element={<PrivateRoute><Layout><Integrations /></Layout></PrivateRoute>} />
       <Route path="/integrations/:id/tools" element={<PrivateRoute><Layout><Tools /></Layout></PrivateRoute>} />

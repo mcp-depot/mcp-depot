@@ -22,11 +22,13 @@ import {
 import { useState } from 'react';
 
 function Sidebar() {
-  const { user, logout } = useAuth();
+  const { user, logout, appConfig } = useAuth();
   const { themeName, setThemeName } = useTheme();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const enabledFeatures = appConfig?.enabledFeatures;
 
   const isActive = (path) => location.pathname === path ? 'active' : '';
 
@@ -40,26 +42,26 @@ function Sidebar() {
     setThemeName(newTheme);
   };
 
+  const filterItems = (items) => items.filter(item => !item.feature || !enabledFeatures || enabledFeatures.includes(item.feature));
+
   const navItems = [
-    { section: 'Common', items: [
-      { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-      { path: '/integrations', icon: Plug, label: 'Integrations' },
-    ]},
-    { section: 'Tools', items: [
-      { path: '/tools', icon: Wrench, label: 'Tools' },
-      // { path: '/workflows', icon: FileText, label: 'Workflows' },
-      { path: '/skills', icon: FileText, label: 'Skills' },
-      { path: '/personas', icon: User, label: 'Personas' },
-      
-    ]},
-    { section: 'Sessions', items: [
-      { path: '/session-contexts', icon: Layers, label: 'Contexts' },
-      { path: '/session-channels', icon: MessagesSquare, label: 'Channels' },
-    ]},
-    { section: 'Operations', items: [
-      { path: '/monitoring', icon: Activity, label: 'Monitoring' },
+    { section: 'Common', items: filterItems([
+      { path: '/', icon: LayoutDashboard, label: 'Dashboard', feature: 'dashboard' },
+      { path: '/integrations', icon: Plug, label: 'Integrations', feature: 'integrations' },
+    ])},
+    { section: 'Tools', items: filterItems([
+      { path: '/tools', icon: Wrench, label: 'Tools', feature: 'tools' },
+      { path: '/skills', icon: FileText, label: 'Skills', feature: 'skills' },
+      { path: '/personas', icon: User, label: 'Personas', feature: 'personas' },
+    ])},
+    { section: 'Sessions', items: filterItems([
+      { path: '/session-contexts', icon: Layers, label: 'Contexts', feature: 'sessions' },
+      { path: '/session-channels', icon: MessagesSquare, label: 'Channels', feature: 'channels' },
+    ])},
+    { section: 'Operations', items: filterItems([
+      { path: '/monitoring', icon: Activity, label: 'Monitoring', feature: 'monitoring' },
       { path: '/health', icon: HeartPulse, label: 'Health' },
-    ]},
+    ])},
     { section: 'System', items: [
       ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users' }] : []),
       { path: '/settings', icon: Settings, label: 'Settings' },
