@@ -467,7 +467,7 @@ async function fetchOAuthProfile(provider, accessToken) {
 }
 
 router.get('/config', async (req, res) => {
-  const defaultFeatures = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'users'];
+  const defaultFeatures = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'personas', 'users', 'monitoring', 'health'];
   const enabledFeaturesEnv = process.env.ENABLED_FEATURES;
   
   let enabledFeatures;

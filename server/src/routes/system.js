@@ -41,40 +41,6 @@ router.get('/mcp', auth, async (req, res) => {
   }
 });
 
-router.get('/:key', auth, async (req, res) => {
-  try {
-    const setting = await SystemSetting.findByPk(req.params.key);
-    if (!setting) {
-      return res.status(404).json({ error: 'Setting not found' });
-    }
-    res.json(setting.value);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.put('/:key', auth, requireAdmin, async (req, res) => {
-  try {
-    const { error, value } = updateSettingSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { key } = req.params;
-    const { value: settingValue, description } = value;
-    
-    const [setting, created] = await SystemSetting.upsert({
-      key,
-      value: settingValue,
-      description
-    });
-    
-    res.json({ success: true, setting: { key: setting.key, value: setting.value } });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 const DEFAULT_FEATURES = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'personas', 'users', 'monitoring', 'health'];
 
 router.get('/features', auth, async (req, res) => {
@@ -123,6 +89,18 @@ router.post('/setup-complete', auth, requireAdmin, async (req, res) => {
       await SystemSetting.upsert({ key: 'enabled_features', value: { features: enabledFeatures } });
     }
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/:key', auth, async (req, res) => {
+  try {
+    const setting = await SystemSetting.findByPk(req.params.key);
+    if (!setting) {
+      return res.status(404).json({ error: 'Setting not found' });
+    }
+    res.json(setting.value);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
