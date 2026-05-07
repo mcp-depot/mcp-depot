@@ -46,7 +46,7 @@ function Sidebar() {
 
   const navItems = [
     { section: 'Common', items: filterItems([
-      { path: '/', icon: LayoutDashboard, label: 'Dashboard', feature: 'dashboard' },
+      { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
       { path: '/integrations', icon: Plug, label: 'Integrations', feature: 'integrations' },
     ])},
     { section: 'Tools', items: filterItems([
@@ -60,10 +60,10 @@ function Sidebar() {
     ])},
     { section: 'Operations', items: filterItems([
       { path: '/monitoring', icon: Activity, label: 'Monitoring', feature: 'monitoring' },
-      { path: '/health', icon: HeartPulse, label: 'Health' },
+      { path: '/health', icon: HeartPulse, label: 'Health', feature: 'health' },
     ])},
     { section: 'System', items: [
-      ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users' }] : []),
+      ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users', feature: 'users' }] : []),
       { path: '/settings', icon: Settings, label: 'Settings' },
     ]},
   ];

@@ -145,7 +145,7 @@ mcp-depot
 }
 
 function Settings() {
-  const { user, logout } = useAuth();
+  const { user, logout, appConfig, setAppConfig } = useAuth();
   const { themeName, setThemeName, themes: availableThemes, customColors, previewColors, setPreviewColors, confirmColors, resetPreview, setCustomColors } = useTheme();
   const [activeTab, setActiveTab] = useState('profile');
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
@@ -208,6 +208,7 @@ function Settings() {
     try {
       await api.put('/system/features', { features: enabledFeatures });
       setFeatures(enabledFeatures);
+      setAppConfig({ ...appConfig, enabledFeatures });
       showSuccess('Features updated successfully');
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to update features');
