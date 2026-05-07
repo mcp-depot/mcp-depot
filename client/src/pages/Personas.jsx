@@ -128,7 +128,7 @@ function Personas() {
             <div className="modal-body">
               <p style={{ color: '#8899aa', margin: '0 0 1rem' }}>{viewingPersona.name}{viewingPersona.isShared && ' · Shared'}</p>
               {viewingPersona.description && <p style={{ marginBottom: '1rem' }}>{viewingPersona.description}</p>}
-              <pre style={{ background: '#1a1a2e', padding: '1rem', borderRadius: '8px', whiteSpace: 'pre-wrap', fontSize: '0.85rem', lineHeight: '1.6' }}>
+              <pre style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: '8px', whiteSpace: 'pre-wrap', fontSize: '0.85rem', lineHeight: '1.6', color: 'var(--text)' }}>
                 {viewingPersona.systemPrompt}
               </pre>
             </div>
@@ -145,26 +145,26 @@ function Personas() {
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
-                <div className="form-grid">
-                  <div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-group">
                     <label>Key</label>
-                    <input className="form-control" value={form.name} onChange={e => setForm({ ...form, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} placeholder="security-reviewer" required />
+                    <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} placeholder="security-reviewer" required />
                   </div>
-                  <div>
+                  <div className="form-group">
                     <label>Display Name</label>
-                    <input className="form-control" value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} placeholder="Security Reviewer" required />
+                    <input value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} placeholder="Security Reviewer" required />
                   </div>
                 </div>
-                <div style={{ marginTop: '1rem' }}>
+                <div className="form-group" style={{ marginTop: '1rem' }}>
                   <label>Description</label>
-                  <input className="form-control" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Reviews code for security vulnerabilities" />
+                  <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Reviews code for security vulnerabilities" />
                 </div>
-                <div style={{ marginTop: '1rem' }}>
+                <div className="form-group" style={{ marginTop: '1rem' }}>
                   <label>System Prompt</label>
-                  <textarea className="form-control" rows="8" value={form.systemPrompt} onChange={e => setForm({ ...form, systemPrompt: e.target.value })} placeholder="You are a security expert..." required />
+                  <textarea rows="8" value={form.systemPrompt} onChange={e => setForm({ ...form, systemPrompt: e.target.value })} placeholder="You are a security expert..." required />
                 </div>
-                <div style={{ marginTop: '1rem' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div className="form-group" style={{ marginTop: '1rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'normal' }}>
                     <input type="checkbox" checked={form.isShared} onChange={e => setForm({ ...form, isShared: e.target.checked })} />
                     Share with all team members
                   </label>
