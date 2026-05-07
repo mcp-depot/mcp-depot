@@ -58,12 +58,14 @@ router.put('/features', auth, requireAdmin, async (req, res) => {
     if (!Array.isArray(features)) {
       return res.status(400).json({ error: 'features must be an array' });
     }
+    const LOCKED_FEATURES = ['integrations', 'tools'];
+    const merged = [...new Set([...LOCKED_FEATURES, ...features])];
     await SystemSetting.upsert({ 
       key: 'enabled_features', 
-      value: { features },
+      value: { features: merged },
       description: 'Enabled UI feature sections'
     });
-    res.json({ enabledFeatures: features });
+    res.json({ enabledFeatures: merged });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

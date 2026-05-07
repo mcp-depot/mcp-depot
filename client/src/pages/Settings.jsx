@@ -1049,22 +1049,28 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                 ) : (
                   <div className="card" style={{ padding: '1rem' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
-                      {['integrations', 'tools', 'skills', 'sessions', 'channels', 'personas', 'users', 'monitoring', 'health'].map(feature => (
-                        <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={features?.includes(feature) || false}
-                            onChange={(e) => {
-                              const newFeatures = e.target.checked
-                                ? [...(features || []), feature]
-                                : (features || []).filter(f => f !== feature);
-                              saveFeatures(newFeatures);
-                            }}
-                            disabled={featuresSaving}
-                          />
-                          <span style={{ textTransform: 'capitalize' }}>{feature}</span>
-                        </label>
-                      ))}
+                      {['integrations', 'tools', 'skills', 'sessions', 'channels', 'personas', 'users', 'monitoring', 'health'].map(feature => {
+                        const locked = ['integrations', 'tools'].includes(feature);
+                        return (
+                          <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.7 : 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={locked || (features?.includes(feature) ?? false)}
+                              disabled={locked || featuresSaving}
+                              onChange={(e) => {
+                                if (locked) return;
+                                const newFeatures = e.target.checked
+                                  ? [...(features || []), feature]
+                                  : (features || []).filter(f => f !== feature);
+                                saveFeatures(newFeatures);
+                              }}
+                              style={{ width: 'auto' }}
+                            />
+                            <span style={{ textTransform: 'capitalize' }}>{feature}</span>
+                            {locked && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>required</span>}
+                          </label>
+                        );
+                      })}
                     </div>
                     {featuresSaving && <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>Saving...</p>}
                   </div>

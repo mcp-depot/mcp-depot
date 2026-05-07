@@ -42,7 +42,14 @@ function Sidebar() {
     setThemeName(newTheme);
   };
 
-  const filterItems = (items) => items.filter(item => !item.feature || !enabledFeatures || enabledFeatures.includes(item.feature));
+  const LOCKED_FEATURES = ['integrations', 'tools'];
+
+  const filterItems = (items) => items.filter(item =>
+    !item.feature ||
+    LOCKED_FEATURES.includes(item.feature) ||
+    !enabledFeatures ||
+    enabledFeatures.includes(item.feature)
+  );
 
   const navItems = [
     { section: 'Common', items: filterItems([
