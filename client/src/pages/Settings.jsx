@@ -1066,6 +1066,24 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                     {featuresSaving && <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>Saving...</p>}
                   </div>
                 )}
+                {user?.role === 'admin' && (
+                  <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+                    <h3 style={{ marginBottom: '0.5rem' }}>Setup Wizard</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                      Re-run the initial setup wizard to reconfigure features and deployment mode.
+                    </p>
+                    <button className="btn btn-secondary" onClick={async () => {
+                      try {
+                        await api.delete('/system/setup-complete');
+                      } catch (e) {
+                        await api.post('/system/setup-complete-reset').catch(() => {});
+                      }
+                      window.location.href = '/setup';
+                    }}>
+                      Re-run Setup Wizard
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

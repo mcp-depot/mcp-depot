@@ -23,7 +23,7 @@ import SetupWizard from './pages/SetupWizard';
 import Layout from './components/Layout';
 
 function PrivateRoute({ children }) {
-  const { isAuthenticated, loading, needsPasswordReset, setupComplete } = useAuth();
+  const { isAuthenticated, loading, needsPasswordReset, setupComplete, user } = useAuth();
   
   if (loading) {
     return <div>Loading...</div>;
@@ -37,11 +37,20 @@ function PrivateRoute({ children }) {
     return <Navigate to="/reset-password" />;
   }
   
-  if (setupComplete === false) {
+  if (setupComplete === false && user?.role === 'admin') {
     return <Navigate to="/setup" />;
   }
   
   return children;
+}
+
+function SetupWizardRoute() {
+  const { isAuthenticated, loading, user, setupComplete } = useAuth();
+  if (loading) return <div>Loading...</div>;
+  if (!isAuthenticated) return <Navigate to="/login" />;
+  if (user?.role !== 'admin') return <Navigate to="/" />;
+  if (setupComplete === true) return <Navigate to="/" />;
+  return <SetupWizard />;
 }
 
 function PublicRoute({ children }) {
@@ -60,7 +69,7 @@ function AppRoutes() {
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
       <Route path="/reset-password" element={<PasswordReset />} />
-      <Route path="/setup" element={<SetupWizard />} />
+      <Route path="/setup" element={<SetupWizardRoute />} />
       <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
       <Route path="/integrations" element={<PrivateRoute><Layout><Integrations /></Layout></PrivateRoute>} />
       <Route path="/integrations/:id/tools" element={<PrivateRoute><Layout><Tools /></Layout></PrivateRoute>} />

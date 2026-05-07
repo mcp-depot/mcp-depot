@@ -96,6 +96,7 @@ export function AuthProvider({ children }) {
       needsPasswordReset,
       appConfig,
       setupComplete,
+      setSetupComplete,
       login, 
       register, 
       changePassword,

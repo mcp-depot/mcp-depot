@@ -94,6 +94,15 @@ router.post('/setup-complete', auth, requireAdmin, async (req, res) => {
   }
 });
 
+router.delete('/setup-complete', auth, requireAdmin, async (req, res) => {
+  try {
+    await SystemSetting.destroy({ where: { key: 'setup_complete' } });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/:key', auth, async (req, res) => {
   try {
     const setting = await SystemSetting.findByPk(req.params.key);

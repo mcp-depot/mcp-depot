@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { showSuccess, showError } from '../utils/toast';
 import { CheckCircle, Circle, User, Shield, Bell, Database } from 'lucide-react';
@@ -13,6 +14,7 @@ const STEPS = [
 
 export default function SetupWizard() {
   const navigate = useNavigate();
+  const { setSetupComplete } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -43,8 +45,9 @@ export default function SetupWizard() {
       }
 
       await api.post('/system/setup-complete');
+      setSetupComplete(true);
       showSuccess('Setup complete! Redirecting...');
-      navigate('/dashboard');
+      navigate('/');
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to complete setup');
     } finally {
