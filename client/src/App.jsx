@@ -23,7 +23,7 @@ import SetupWizard from './pages/SetupWizard';
 import Layout from './components/Layout';
 
 function PrivateRoute({ children }) {
-  const { isAuthenticated, loading, needsPasswordReset, setupComplete, user } = useAuth();
+  const { isAuthenticated, loading, needsPasswordReset } = useAuth();
   
   if (loading) {
     return <div>Loading...</div>;
@@ -35,10 +35,6 @@ function PrivateRoute({ children }) {
   
   if (needsPasswordReset) {
     return <Navigate to="/reset-password" />;
-  }
-  
-  if (setupComplete === false && user?.role === 'admin') {
-    return <Navigate to="/setup" />;
   }
   
   return children;
