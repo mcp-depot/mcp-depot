@@ -2,6 +2,12 @@
   "name": "mcp-depot",
   "version": "1.0.1",
   "description": "Self-hosted MCP server — connect AI assistants to your APIs and platforms",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bscideas/mcp-depot.git"
+  },
+  "author": "BSC Ideas <hello@bscideas.com>",
   "bin": {
     "mcp-depot": "bin/cli.js"
   },

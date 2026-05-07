@@ -9,7 +9,7 @@ services:
       - "5433:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}  # CHANGE IN PRODUCTION
       POSTGRES_DB: ${POSTGRES_DB:-mcp-depot}
       PGTZ: UTC
     volumes:
@@ -52,7 +52,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcpconnect
+      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcpconnect  # CHANGE IN PRODUCTION
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       - JWT_EXPIRE=15m
@@ -124,7 +124,7 @@ services:
     environment:
       - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
       - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
-      - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical
+      - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical  # CHANGE IN PRODUCTION
       - REDIS_URL=redis://valkey:6379
       - SITE_URL=http://localhost:8181
     depends_on:

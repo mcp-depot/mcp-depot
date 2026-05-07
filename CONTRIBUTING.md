@@ -15,7 +15,7 @@ docker compose up -d
 # Access the application
 # Server: http://localhost:3000
 # Client: http://localhost:5173
-# Admin: admin@mcpdepot.io / Demo@123
+# Default login credentials are set during first startup
 ```
 
 ## Development

@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const logger = require('./logger');
 
 let cleanupInterval = null;
 
@@ -9,7 +10,7 @@ function startContextCleanup(getModels) {
     try {
       const { SessionContext } = getModels();
       if (!SessionContext) {
-        console.log('[context-cleanup] SessionContext table not found, skipping');
+        logger.info('SessionContext table not found, skipping');
         return;
       }
 
@@ -17,7 +18,7 @@ function startContextCleanup(getModels) {
       try {
         await SessionContext.findOne({ attributes: ['id'], limit: 1 });
       } catch (tableErr) {
-        console.log('[context-cleanup] SessionContext table not ready, skipping');
+        logger.info('SessionContext table not ready, skipping');
         return;
       }
 
@@ -39,10 +40,10 @@ function startContextCleanup(getModels) {
       }
 
       if (deletedCount > 0) {
-        console.log(`[context-cleanup] Deleted ${deletedCount} expired session contexts`);
+        logger.info({ deletedCount }, 'Deleted expired session contexts');
       }
     } catch (err) {
-      console.error('[context-cleanup] Error:', err.message);
+      logger.warn({ err: err.message }, 'Context cleanup error');
     }
   };
 
