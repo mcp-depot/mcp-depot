@@ -95,10 +95,10 @@ class MCPDepotServer {
         UnsubscribeRequestSchema
       } = require('@modelcontextprotocol/sdk/types.js');
       this.server.server.setRequestHandler(
-        require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
+require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         async (req, extra) => {
           const clientInfo = req.params?.clientInfo ?? { name: 'unknown', version: '0.0.0' };
-const sessionId = this._httpTransport?.sessionId || extra?.sessionId || 'stdio';
+          const sessionId = randomUUID();
           this._sessionClientMap.set(sessionId, {
             sessionId,
             clientName: clientInfo.name,
@@ -264,7 +264,7 @@ const sessionId = this._httpTransport?.sessionId || extra?.sessionId || 'stdio';
       },
       async (params, extra) => {
         const startTime = Date.now();
-        const sessionId = extra?.sessionId || 'stdio';
+        const sessionId = extra?.requestInfo?.headers?.['mcp-session-id'] || extra?.sessionId || this._httpTransport?.sessionId || 'stdio';
         const clientInfo = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
 
         try {
@@ -1017,7 +1017,7 @@ const sessionId = this._httpTransport?.sessionId || extra?.sessionId || 'stdio';
 
   async startHttp(app) {
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID()
+      sessionIdGenerator: undefined
     });
 
     this._httpTransport = transport;
