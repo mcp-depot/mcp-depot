@@ -1210,7 +1210,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       config.auth = { ...integration.config.auth, credentials: userCreds };
     }
     
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {

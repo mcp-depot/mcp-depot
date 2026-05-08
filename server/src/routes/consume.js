@@ -191,7 +191,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       }
     }
     
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {
@@ -379,7 +379,7 @@ router.post('/trigger', optionalApiKey, async (req, res) => {
     }
 
     let config = { ...integration.config };
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {
