@@ -98,7 +98,7 @@ class MCPDepotServer {
         require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         async (req, extra) => {
           const clientInfo = req.params?.clientInfo ?? { name: 'unknown', version: '0.0.0' };
-          const sessionId = extra?.sessionId || 'stdio';
+const sessionId = this._httpTransport?.sessionId || extra?.sessionId || 'stdio';
           this._sessionClientMap.set(sessionId, {
             sessionId,
             clientName: clientInfo.name,
@@ -1020,6 +1020,7 @@ class MCPDepotServer {
       sessionIdGenerator: () => randomUUID()
     });
 
+    this._httpTransport = transport;
     const self = this;
     transport.onclose = () => {
       const sid = transport.sessionId;
