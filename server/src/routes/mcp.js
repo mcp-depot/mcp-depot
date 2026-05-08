@@ -842,7 +842,7 @@ router.post('/skills/invoke/:id', async (req, res) => {
 });
 
 // Meta-tool HTTP routes — mirrors MCP Depot - AI Tools
-router.get('/list-integrations', checkMcpAuth, async (req, res) => {
+router.get('/list-integrations', optionalAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_list_integrations');
@@ -852,7 +852,7 @@ router.get('/list-integrations', checkMcpAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.get('/describe-tool', checkMcpAuth, async (req, res) => {
+router.get('/describe-tool', optionalAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_describe_tool');
@@ -862,7 +862,7 @@ router.get('/describe-tool', checkMcpAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/register-integration', checkMcpAuth, async (req, res) => {
+router.post('/register-integration', optionalAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_integration');
@@ -873,7 +873,7 @@ router.post('/register-integration', checkMcpAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/register-tool', checkMcpAuth, async (req, res) => {
+router.post('/register-tool', optionalAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_tool');
@@ -884,7 +884,7 @@ router.post('/register-tool', checkMcpAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/remove-tool', checkMcpAuth, async (req, res) => {
+router.delete('/remove-tool', optionalAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_remove_tool');
