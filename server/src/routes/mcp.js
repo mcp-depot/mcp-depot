@@ -1050,7 +1050,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { toolId, toolName, params, headers, body } = value;
+    const { toolId, toolName, params, headers, body, sessionId: cliSessionId } = value;
     const { Tool, Integration, UserIntegrationCredentials, ExternalMcpServer } = loadModels();
     
     let tool;
@@ -1390,6 +1390,9 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       });
 
       mcpServer._updateSession?.(sessionKey, tool.name, true);
+      if (cliSessionId && cliSessionId !== sessionKey) {
+        mcpServer._updateSession?.(cliSessionId, tool.name, true);
+      }
 
       const userId = req.user?.id || req.apiKey?.userId;
       const fullUrl = `${integration.config.baseUrl}${path}${Object.keys(queryParams).length > 0 ? '?' + new URLSearchParams(queryParams).toString() : ''}`;
@@ -1418,6 +1421,9 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       res.status(500).json({ error: errorDetail });
 
       mcpServer._updateSession?.(sessionKey, tool?.name, false);
+      if (cliSessionId && cliSessionId !== sessionKey) {
+        mcpServer._updateSession?.(cliSessionId, tool?.name, false);
+      }
 
       await logToolCall({
         toolId: tool.id,
