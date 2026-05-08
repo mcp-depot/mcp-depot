@@ -98,7 +98,7 @@ class MCPDepotServer {
 require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         async (req, extra) => {
           const clientInfo = req.params?.clientInfo ?? { name: 'unknown', version: '0.0.0' };
-          const sessionId = randomUUID();
+          const sessionId = extra?.sessionId || 'stdio';
           this._sessionClientMap.set(sessionId, {
             sessionId,
             clientName: clientInfo.name,
@@ -108,6 +108,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
             lastTool: null,
             callCount: 0
           });
+          this._broadcastSessions();
           return {
             protocolVersion: LATEST_PROTOCOL_VERSION,
             serverInfo: { name: 'mcp-depot', version: '1.0.0' },
@@ -264,7 +265,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       },
       async (params, extra) => {
         const startTime = Date.now();
-        const sessionId = extra?.requestInfo?.headers?.['mcp-session-id'] || extra?.sessionId || this._httpTransport?.sessionId || 'stdio';
+        const sessionId = extra?.sessionId || 'stdio';
         const clientInfo = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
 
         try {
@@ -1017,7 +1018,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
   async startHttp(app) {
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined
+      sessionIdGenerator: () => randomUUID()
     });
 
     this._httpTransport = transport;
