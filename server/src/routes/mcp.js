@@ -842,7 +842,7 @@ router.post('/skills/invoke/:id', async (req, res) => {
 });
 
 // Meta-tool HTTP routes — mirrors MCP Depot - AI Tools
-router.get('/list-integrations', checkMcpAuth, async (req, res) => {
+router.get('/list-integrations', authWithApiKey, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_list_integrations');
@@ -852,7 +852,7 @@ router.get('/list-integrations', checkMcpAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.get('/describe-tool', checkMcpAuth, async (req, res) => {
+router.get('/describe-tool', authWithApiKey, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_describe_tool');
@@ -862,7 +862,7 @@ router.get('/describe-tool', checkMcpAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/register-integration', checkMcpAuth, async (req, res) => {
+router.post('/register-integration', authWithApiKey, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_integration');
@@ -873,7 +873,7 @@ router.post('/register-integration', checkMcpAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/register-tool', checkMcpAuth, async (req, res) => {
+router.post('/register-tool', authWithApiKey, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_tool');
@@ -884,7 +884,7 @@ router.post('/register-tool', checkMcpAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/remove-tool', checkMcpAuth, async (req, res) => {
+router.delete('/remove-tool', authWithApiKey, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_remove_tool');
@@ -896,7 +896,7 @@ router.delete('/remove-tool', checkMcpAuth, async (req, res) => {
 });
 
 // Create/Update skill via MCP
-router.post('/skills', checkMcpAuth, async (req, res) => {
+router.post('/skills', authWithApiKey, async (req, res) => {
   try {
     const { PromptLibrary, User } = loadModels();
     const { name, description, prompt, inputs, outputFormat, isShared, tags } = req.body;
@@ -926,7 +926,7 @@ router.post('/skills', checkMcpAuth, async (req, res) => {
   }
 });
 
-router.put('/skills/:name', checkMcpAuth, async (req, res) => {
+router.put('/skills/:name', authWithApiKey, async (req, res) => {
   try {
     const { PromptLibrary } = loadModels();
     const skill = await PromptLibrary.findOne({ where: { name: req.params.name } });
