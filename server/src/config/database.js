@@ -546,17 +546,32 @@ const createDefaultTool = async () => {
   let aiToolsIntegration = await Integration.findOne({
     where: { name: 'MCP Depot - AI Tools' }
   });
+  const adminUser = await User.findOne({ where: { role: 'admin' } });
+  let adminApiKey = null;
+  if (adminUser) {
+    if (!adminUser.apiKey) {
+      const crypto = require('crypto');
+      adminUser.apiKey = crypto.randomBytes(32).toString('hex');
+      adminUser.apiKeyEnabled = true;
+      await adminUser.save();
+    }
+    adminApiKey = adminUser.apiKey;
+  }
   if (!aiToolsIntegration) {
     aiToolsIntegration = await Integration.create({
       userId,
       type: 'custom',
       name: 'MCP Depot - AI Tools',
       description: 'AI-driven integration builder — meta-tools for creating and managing integrations from chat. Disable to hide meta-tools.',
-      config: { baseUrl: `http://localhost:${process.env.PORT || 3000}`, auth: { type: 'none' } },
+      config: { baseUrl: `http://localhost:${process.env.PORT || 3000}`, auth: { type: 'apikey', key: adminApiKey, header: 'X-API-Key' } },
       isActive: true,
       metadata: { source: 'built-in' }
     });
     logger.info('MCP Depot - AI Tools integration created (enable/disable via the UI card to toggle meta-tools)');
+  } else if (adminApiKey && aiToolsIntegration.config?.auth?.type !== 'apikey') {
+    await aiToolsIntegration.update({
+      config: { baseUrl: `http://localhost:${process.env.PORT || 3000}`, auth: { type: 'apikey', key: adminApiKey, header: 'X-API-Key' } }
+    });
   }
 
   // Seed meta-tool records so they appear in the UI (actual handlers are on McpServer, not HTTP endpoints)
