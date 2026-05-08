@@ -621,13 +621,13 @@ const createDefaultTool = async () => {
     {
       name: 'create-skill',
       description: 'Create or update a skill in MCP Depot by name. If a skill with the given name already exists it will be updated.',
-      endpoint: { path: '/api/mcp/skills', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { properties: { name: { type: 'string', description: 'Unique skill key, e.g. "code-reviewer"' }, prompt: { type: 'string', description: 'Full skill prompt (supports {{variable}} placeholders)' }, description: { type: 'string', description: 'Short description' }, inputs: { type: 'array', description: 'Input variable definitions' }, outputFormat: { type: 'string', description: 'text, json, or markdown (default: text)' }, isShared: { type: 'boolean', description: 'Visible to all team members' }, tags: { type: 'array', description: 'Tags for categorization' } }, required: ['name', 'prompt'] } },
+      endpoint: { path: '/api/mcp/skills', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: '{name}', prompt: '{prompt}', description: '{description}', inputs: '{inputs}', outputFormat: '{outputFormat}', isShared: '{isShared}', tags: '{tags}' } },
       inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Unique skill key, e.g. "code-reviewer"' }, prompt: { type: 'string', description: 'Full skill prompt (supports {{variable}} placeholders)' }, description: { type: 'string', description: 'Short description' }, inputs: { type: 'array', description: 'Input variable definitions' }, outputFormat: { type: 'string', description: 'text, json, or markdown (default: text)' }, isShared: { type: 'boolean', description: 'Visible to all team members' }, tags: { type: 'array', description: 'Tags for categorization' } }, required: ['name', 'prompt'] }
     },
     {
       name: 'update-skill',
       description: 'Update specific fields of an existing skill in MCP Depot by name.',
-      endpoint: { path: '/api/mcp/skills/{name}', method: 'PUT', params: {}, headers: { 'Content-Type': 'application/json' }, body: { properties: { name: { type: 'string', description: 'Name of the skill to update (used in URL path)' }, prompt: { type: 'string', description: 'Updated skill prompt' }, description: { type: 'string', description: 'Updated description' }, inputs: { type: 'array', description: 'Updated input definitions' }, outputFormat: { type: 'string', description: 'text, json, or markdown' }, isShared: { type: 'boolean', description: 'Visibility setting' }, tags: { type: 'array', description: 'Updated tags' } }, required: ['name'] } },
+      endpoint: { path: '/api/mcp/skills/{name}', method: 'PUT', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: '{name}', prompt: '{prompt}', description: '{description}', inputs: '{inputs}', outputFormat: '{outputFormat}', isShared: '{isShared}', tags: '{tags}' } },
       inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Name of the skill to update (used in URL path)' }, prompt: { type: 'string', description: 'Updated skill prompt' }, description: { type: 'string', description: 'Updated description' }, inputs: { type: 'array', description: 'Updated input definitions' }, outputFormat: { type: 'string', description: 'text, json, or markdown' }, isShared: { type: 'boolean', description: 'Visibility setting' }, tags: { type: 'array', description: 'Updated tags' } }, required: ['name'] }
     }
   ];
@@ -637,7 +637,7 @@ const createDefaultTool = async () => {
       where: { name: toolDef.name },
       defaults: { userId, integrationId: mcpDepotIntegration.id, name: toolDef.name, description: toolDef.description, endpoint: toolDef.endpoint, inputSchema: toolDef.inputSchema, isActive: true }
     });
-    if (!created && !tool.inputSchema) {
+    if (!created) {
       await tool.update({ inputSchema: toolDef.inputSchema, endpoint: toolDef.endpoint });
     }
   }
