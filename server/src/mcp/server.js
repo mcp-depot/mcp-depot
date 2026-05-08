@@ -982,10 +982,12 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   getActiveSessions() {
     const sessions = [];
     for (const [id, session] of this._sessionClientMap.entries()) {
+      if (id.startsWith('user-')) continue;
       sessions.push({
         sessionId: id,
         clientName: session.clientName,
         clientVersion: session.clientVersion,
+        userName: session.userName || null,
         userId: session.userId,
         connectedAt: session.connectedAt,
         lastCallAt: session.lastCallAt,

@@ -280,12 +280,13 @@ function Dashboard() {
                 <table className="data-table" style={{ tableLayout: 'fixed' }}>
                   <thead>
                     <tr>
-                      <th style={{ width: '20%' }}>Client</th>
-                      <th style={{ width: '12%' }}>Session</th>
-                      <th style={{ width: '15%' }}>Connected</th>
-                      <th style={{ width: '15%' }}>Last Call</th>
-                      <th style={{ width: '8%' }}>Calls</th>
-                      <th style={{ width: '30%' }}>Last Tool</th>
+                      <th style={{ width: '18%' }}>Client</th>
+                      <th style={{ width: '14%' }}>User</th>
+                      <th style={{ width: '10%' }}>Session</th>
+                      <th style={{ width: '13%' }}>Connected</th>
+                      <th style={{ width: '13%' }}>Last Call</th>
+                      <th style={{ width: '7%' }}>Calls</th>
+                      <th style={{ width: '25%' }}>Last Tool</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -295,6 +296,7 @@ function Dashboard() {
                           <strong>{s.clientName || 'Unknown'}</strong>
                           {s.clientVersion && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-light)' }}>v{s.clientVersion}</span>}
                         </td>
+                        <td style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>{s.userName || '—'}</td>
                         <td><code style={{ fontSize: '0.75rem' }} title={s.sessionId}>{s.sessionId.slice(0, 8)}…</code></td>
                         <td><span title={s.connectedAt}>{fmtTime(s.connectedAt)}</span></td>
                         <td><span title={s.lastCallAt}>{s.lastCallAt ? fmtTime(s.lastCallAt) : '—'}</span></td>

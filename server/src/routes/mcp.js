@@ -1024,19 +1024,21 @@ router.get('/endpoints', checkMcpAuth, async (req, res) => {
 router.post('/execute', checkMcpAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
-    const sessionKey = req.user?.id ? `user-${req.user.id}` : 'rest-proxy';
-    const existingSession = mcpServer._sessionClientMap?.get(sessionKey);
-    if (!existingSession) {
-      mcpServer._sessionClientMap?.set(sessionKey, {
-        sessionId: sessionKey,
-        clientName: req.user ? `${req.user.name || req.user.email} (API)` : 'REST Client',
-        clientVersion: null,
-        connectedAt: new Date().toISOString(),
-        lastCallAt: new Date().toISOString(),
-        lastTool: null,
-        callCount: 0
-      });
-      mcpServer._broadcastSessions?.();
+
+    const { error, value } = executeToolSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+
+    const { toolId, toolName, params, headers, body, sessionId: cliSessionId } = value;
+
+    if (cliSessionId && mcpServer._sessionClientMap?.has(cliSessionId)) {
+      const cliSession = mcpServer._sessionClientMap.get(cliSessionId);
+      if (!cliSession.userName && req.user) {
+        cliSession.userName = req.user.name || req.user.email || null;
+        cliSession.userId = req.user.id;
+        mcpServer._broadcastSessions?.();
+      }
     }
 
     for (const [key, sess] of mcpServer._sessionClientMap?.entries() || []) {
@@ -1045,12 +1047,6 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       }
     }
 
-    const { error, value } = executeToolSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { toolId, toolName, params, headers, body, sessionId: cliSessionId } = value;
     const { Tool, Integration, UserIntegrationCredentials, ExternalMcpServer } = loadModels();
     
     let tool;
@@ -1389,8 +1385,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         result
       });
 
-      mcpServer._updateSession?.(sessionKey, tool.name, true);
-      if (cliSessionId && cliSessionId !== sessionKey) {
+      if (cliSessionId) {
         mcpServer._updateSession?.(cliSessionId, tool.name, true);
       }
 
@@ -1420,8 +1415,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       const fullUrl = `${integration.config.baseUrl}${path}${Object.keys(queryParams).length > 0 ? '?' + new URLSearchParams(queryParams).toString() : ''}`;
       res.status(500).json({ error: errorDetail });
 
-      mcpServer._updateSession?.(sessionKey, tool?.name, false);
-      if (cliSessionId && cliSessionId !== sessionKey) {
+      if (cliSessionId) {
         mcpServer._updateSession?.(cliSessionId, tool?.name, false);
       }
 
