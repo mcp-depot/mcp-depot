@@ -54,8 +54,11 @@ function sanitizeName(name) {
 function substituteBodyTemplate(obj, params, paramDefs = {}) {
   if (typeof obj === 'string') {
     const sole = obj.match(/^\{(\w+)\}$/);
-    if (sole && params[sole[1]] !== undefined) {
-      return coerceParam(params[sole[1]], paramDefs, sole[1]);
+    if (sole) {
+      if (params[sole[1]] !== undefined) {
+        return coerceParam(params[sole[1]], paramDefs, sole[1]);
+      }
+      return null;
     }
     return obj.replace(/\{(\w+)\}/g, (match, key) =>
       params[key] !== undefined ? coerceParam(params[key], paramDefs, key) : match
