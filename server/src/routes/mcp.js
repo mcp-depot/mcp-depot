@@ -1039,6 +1039,12 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       mcpServer._broadcastSessions?.();
     }
 
+    for (const [key, sess] of mcpServer._sessionClientMap?.entries() || []) {
+      if (key !== 'stdio' && !key.startsWith('user-')) {
+        sess.lastCallAt = new Date().toISOString();
+      }
+    }
+
     const { error, value } = executeToolSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });

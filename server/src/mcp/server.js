@@ -175,9 +175,9 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       });
 
       setInterval(() => {
-        const cutoff = Date.now() - 150_000;
+        const cutoff = Date.now() - 1_800_000; // 30 minutes
         for (const [id, session] of this._sessionClientMap.entries()) {
-          if (id !== 'stdio' && session.lastCallAt && new Date(session.lastCallAt).getTime() < cutoff) {
+          if (id !== 'stdio' && !id.startsWith('user-') && session.lastCallAt && new Date(session.lastCallAt).getTime() < cutoff) {
             this._sessionClientMap.delete(id);
             this._broadcastSessions();
           }

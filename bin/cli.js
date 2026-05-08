@@ -165,6 +165,22 @@ function startMcpProxy() {
       { capabilities: { tools: {} } }
     );
 
+    let registeredSessionId = null;
+    let actualClientName = 'mcp-depot-cli';
+    let actualClientVersion = '1.0.0';
+
+    server.setRequestHandler(types.InitializeRequestSchema, async (request) => {
+      if (request.params?.clientInfo?.name) {
+        actualClientName = request.params.clientInfo.name;
+        actualClientVersion = request.params.clientInfo.version || '1.0.0';
+      }
+      return {
+        protocolVersion: request.params?.protocolVersion || '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'mcp-depot', version: '1.0.0' }
+      };
+    });
+
     server.setRequestHandler(types.ListToolsRequestSchema, async () => {
       await ensureToolsLoaded();
       return {
@@ -207,6 +223,48 @@ function startMcpProxy() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error('[MCP Depot] Server connected and ready');
+
+    const regHeaders = { 'Content-Type': 'application/json' };
+    if (AUTH_TOKEN) regHeaders['x-api-key'] = AUTH_TOKEN;
+
+    setTimeout(async () => {
+      try {
+        const res = await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
+          method: 'POST',
+          headers: regHeaders,
+          body: JSON.stringify({ clientName: actualClientName, clientVersion: actualClientVersion })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          registeredSessionId = data.sessionId;
+          console.error(`[MCP Depot] Session registered: ${registeredSessionId} (${actualClientName})`);
+        }
+      } catch (e) { /* ignore */ }
+    }, 1000);
+
+    setInterval(async () => {
+      try {
+        const res = await fetch(`${MCP_DEPOT_URL}/sessions/register`, {
+          method: 'POST',
+          headers: regHeaders,
+          body: JSON.stringify({ sessionId: registeredSessionId, clientName: actualClientName, clientVersion: actualClientVersion })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.sessionId) registeredSessionId = data.sessionId;
+        }
+      } catch (e) { /* ignore */ }
+    }, 60_000);
+
+    process.on('exit', () => {
+      if (registeredSessionId) {
+        fetch(`${MCP_DEPOT_URL}/sessions/deregister`, {
+          method: 'POST',
+          headers: regHeaders,
+          body: JSON.stringify({ sessionId: registeredSessionId })
+        }).catch(() => {});
+      }
+    });
   }
 
   function extractParams(path) {
@@ -256,7 +314,7 @@ function startMcpProxy() {
     const response = await fetch(`${MCP_DEPOT_URL}/execute`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ toolName, params: args || {} })
+      body: JSON.stringify({ toolName, params: args || {}, ...(registeredSessionId ? { sessionId: registeredSessionId } : {}) })
     });
 
     if (!response.ok) {
