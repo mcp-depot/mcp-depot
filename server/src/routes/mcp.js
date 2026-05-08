@@ -1160,7 +1160,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     
     const authType = integration.config?.auth?.type || 'none';
     const requiresCredentials = authType !== 'none';
-    const hasIntegrationCredentials = !!integration.config?.auth?.credentials;
+    const hasIntegrationCredentials = !!(integration.config?.auth?.credentials || integration.config?.auth?.key);
     
     const isSharedForUser = integration.visibility === 'shared' && 
                            integration.userId !== userId && 
