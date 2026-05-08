@@ -552,7 +552,6 @@ const fetchExternalMcpTools = async (userId, role) => {
         const externalTools = activeTools.map(t => ({
           ...t.inputSchema,
           input_schema: t.inputSchema,
-          inputSchema: t.inputSchema,
           name: t.namespacedName,
           _originalName: t.toolName,
           _id: `external-${server.id}-${t.toolName}`,
@@ -624,10 +623,6 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
           endpoint: t.endpoint,
           params: [],
           input_schema: mcpInputSchema,
-          inputSchema: mcpInputSchema,
-          schema: mcpInputSchema,
-          schema_: mcpInputSchema,
-          parameters: mcpInputSchema,
           source: 'local',
           toolType: 'composite'
         };
@@ -739,10 +734,6 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
         endpoint: t.endpoint,
         params,
         input_schema: mcpInputSchema,
-        inputSchema: mcpInputSchema,
-        schema: mcpInputSchema,
-        schema_: mcpInputSchema,
-        parameters: mcpInputSchema,
         source: 'local',
         toolType: 'simple'
       };
