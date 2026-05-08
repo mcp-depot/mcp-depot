@@ -194,7 +194,7 @@ function startMcpProxy() {
           return {
             name: sanitizedName,
             description: tool.description || `Execute ${tool.name}`,
-            inputSchema: buildJsonSchema(allParams)
+            inputSchema: tool.inputSchema || buildJsonSchema(allParams)
           };
         })
       };
