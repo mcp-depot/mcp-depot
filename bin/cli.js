@@ -118,6 +118,9 @@ function startMcpProxy() {
   let tools = [];
   let toolsLoaded = false;
   let toolsLoading = null;
+  let registeredSessionId = null;
+  let actualClientName = 'mcp-depot-cli';
+  let actualClientVersion = '1.0.0';
 
   async function ensureToolsLoaded() {
     if (toolsLoaded) return tools;
@@ -164,10 +167,6 @@ function startMcpProxy() {
       { name: 'mcp-depot', version: '1.0.0' },
       { capabilities: { tools: {} } }
     );
-
-    let registeredSessionId = null;
-    let actualClientName = 'mcp-depot-cli';
-    let actualClientVersion = '1.0.0';
 
     server.setRequestHandler(types.InitializeRequestSchema, async (request) => {
       if (request.params?.clientInfo?.name) {
