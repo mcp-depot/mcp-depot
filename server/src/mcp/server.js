@@ -176,7 +176,7 @@ class MCPDepotServer {
       setInterval(() => {
         const cutoff = Date.now() - 150_000;
         for (const [id, session] of this._sessionClientMap.entries()) {
-          if (id !== 'stdio' && new Date(session.lastCallAt).getTime() < cutoff) {
+          if (id !== 'stdio' && session.lastCallAt && new Date(session.lastCallAt).getTime() < cutoff) {
             this._sessionClientMap.delete(id);
             this._broadcastSessions();
           }

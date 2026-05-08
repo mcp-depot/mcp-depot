@@ -1404,7 +1404,7 @@ router.get('/sessions/:sessionId/notifications', async (req, res) => {
   }
 });
 
-router.get('/sessions', (req, res) => {
+router.get('/sessions', auth, (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const sessions = mcpServer.getActiveSessions ? mcpServer.getActiveSessions() : [];
