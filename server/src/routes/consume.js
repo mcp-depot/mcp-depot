@@ -124,7 +124,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     // Check if credentials are required
     const authType = integration.config?.auth?.type || 'none';
     const requiresCredentials = authType !== 'none';
-    const hasIntegrationCredentials = !!integration.config?.auth?.credentials;
+    const hasIntegrationCredentials = !!(integration.config?.auth?.credentials || integration.config?.auth?.key);
     
     // Get user credentials if authenticated
     const userId = req.user?.id || (req.apiKey?.userId) || null;
