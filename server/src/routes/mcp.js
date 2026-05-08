@@ -908,18 +908,24 @@ router.post('/skills', authWithApiKey, async (req, res) => {
     }
     const existing = await PromptLibrary.findOne({ where: { name } });
     if (existing) {
-      await existing.update({ description, prompt, inputs: inputs || [], outputFormat: outputFormat || 'text', isShared: isShared || false, tags: tags || [] });
+      await existing.update({
+        description, prompt,
+        ...(inputs !== undefined ? { inputs } : {}),
+        outputFormat: outputFormat || 'text',
+        isShared: isShared || false,
+        ...(tags !== undefined ? { tags } : {})
+      });
       return res.json({ created: false, skill: { id: existing.id, name: existing.name, description: existing.description } });
     }
     const admin = await User.findOne({ where: { role: 'admin' } });
     const skill = await PromptLibrary.create({
       userId: admin?.id,
       name, description, prompt,
-      inputs: inputs || [],
+      ...(inputs !== undefined ? { inputs } : {}),
       outputFormat: outputFormat || 'text',
       isShared: isShared || false,
       isDefault: false,
-      tags: tags || []
+      ...(tags !== undefined ? { tags } : {})
     });
     const mcpServer = require('../mcp/server');
     if (mcpServer.refreshTools) await mcpServer.refreshTools();
