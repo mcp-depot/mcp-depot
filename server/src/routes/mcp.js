@@ -842,7 +842,7 @@ router.post('/skills/invoke/:id', async (req, res) => {
 });
 
 // Meta-tool HTTP routes — mirrors MCP Depot - AI Tools
-router.get('/list-integrations', authWithApiKey, async (req, res) => {
+router.get('/list-integrations', checkMcpAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_list_integrations');
@@ -852,7 +852,7 @@ router.get('/list-integrations', authWithApiKey, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.get('/describe-tool', authWithApiKey, async (req, res) => {
+router.get('/describe-tool', checkMcpAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_describe_tool');
@@ -862,7 +862,7 @@ router.get('/describe-tool', authWithApiKey, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/register-integration', authWithApiKey, async (req, res) => {
+router.post('/register-integration', checkMcpAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_integration');
@@ -873,7 +873,7 @@ router.post('/register-integration', authWithApiKey, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/register-tool', authWithApiKey, async (req, res) => {
+router.post('/register-tool', checkMcpAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_tool');
@@ -884,7 +884,7 @@ router.post('/register-tool', authWithApiKey, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.delete('/remove-tool', authWithApiKey, async (req, res) => {
+router.delete('/remove-tool', checkMcpAuth, async (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_remove_tool');
@@ -1023,6 +1023,22 @@ router.get('/endpoints', checkMcpAuth, async (req, res) => {
 
 router.post('/execute', checkMcpAuth, async (req, res) => {
   try {
+    const mcpServer = require('../mcp/server');
+    const sessionKey = req.user?.id ? `user-${req.user.id}` : 'rest-proxy';
+    const existingSession = mcpServer._sessionClientMap?.get(sessionKey);
+    if (!existingSession) {
+      mcpServer._sessionClientMap?.set(sessionKey, {
+        sessionId: sessionKey,
+        clientName: req.user ? `${req.user.name || req.user.email} (API)` : 'REST Client',
+        clientVersion: null,
+        connectedAt: new Date().toISOString(),
+        lastCallAt: new Date().toISOString(),
+        lastTool: null,
+        callCount: 0
+      });
+      mcpServer._broadcastSessions?.();
+    }
+
     const { error, value } = executeToolSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
@@ -1367,6 +1383,8 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         result
       });
 
+      mcpServer._updateSession?.(sessionKey, tool.name, true);
+
       const userId = req.user?.id || req.apiKey?.userId;
       const fullUrl = `${integration.config.baseUrl}${path}${Object.keys(queryParams).length > 0 ? '?' + new URLSearchParams(queryParams).toString() : ''}`;
       await logToolCall({
@@ -1392,6 +1410,8 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         : (error?.message || String(error));
       const fullUrl = `${integration.config.baseUrl}${path}${Object.keys(queryParams).length > 0 ? '?' + new URLSearchParams(queryParams).toString() : ''}`;
       res.status(500).json({ error: errorDetail });
+
+      mcpServer._updateSession?.(sessionKey, tool?.name, false);
 
       await logToolCall({
         toolId: tool.id,
