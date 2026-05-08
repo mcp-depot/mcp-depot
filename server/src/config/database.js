@@ -561,15 +561,35 @@ const createDefaultTool = async () => {
 
   // Seed meta-tool records so they appear in the UI (actual handlers are on McpServer, not HTTP endpoints)
   const metaToolDefs = [
-    { name: 'mcp_list_integrations', description: 'List all registered integrations with their tool counts and metadata.' },
-    { name: 'mcp_register_integration', description: 'Create a new integration by name, base URL, and type. Credentials must be configured in the UI.' },
-    { name: 'mcp_register_tool', description: 'Add a tool to an existing integration, mapping an HTTP endpoint to a named MCP tool.' },
-    { name: 'mcp_describe_tool', description: 'Get the full schema and details for a named tool.' },
-    { name: 'mcp_remove_tool', description: 'Remove a tool from an integration. Requires confirm: true.' }
+    {
+      name: 'mcp_list_integrations',
+      description: 'List all registered integrations with their tool counts and metadata.',
+      endpoint: { path: '/api/mcp/list-integrations', method: 'GET', params: {}, headers: {} }
+    },
+    {
+      name: 'mcp_register_integration',
+      description: 'Create a new integration by name, base URL, and type. Credentials must be configured in the UI.',
+      endpoint: { path: '/api/mcp/register-integration', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: { type: 'string', required: true, description: 'Integration name' }, baseUrl: { type: 'string', required: true, description: 'Base URL of the API' }, type: { type: 'string', required: false, description: 'Integration type (default: custom)' }, description: { type: 'string', required: false, description: 'Description' }, shared: { type: 'boolean', required: false, description: 'Whether shared with all users' } } }
+    },
+    {
+      name: 'mcp_register_tool',
+      description: 'Add a tool to an existing integration, mapping an HTTP endpoint to a named MCP tool.',
+      endpoint: { path: '/api/mcp/register-tool', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { integration: { type: 'string', required: true, description: 'Integration name to add tool to' }, name: { type: 'string', required: true, description: 'Tool name' }, description: { type: 'string', required: true, description: 'Tool description' }, path: { type: 'string', required: true, description: 'HTTP path (e.g. /api/users)' }, method: { type: 'string', required: false, description: 'HTTP method (default: GET)' }, params: { type: 'string', required: false, description: 'JSON-encoded params object' }, responseFields: { type: 'string', required: false, description: 'JSON-encoded response fields' } } }
+    },
+    {
+      name: 'mcp_describe_tool',
+      description: 'Get the full schema and details for a named tool.',
+      endpoint: { path: '/api/mcp/describe-tool', method: 'GET', params: { name: { type: 'string', required: true, description: 'Tool name' } }, headers: {} }
+    },
+    {
+      name: 'mcp_remove_tool',
+      description: 'Remove a tool from an integration. Requires confirm: true.',
+      endpoint: { path: '/api/mcp/remove-tool', method: 'DELETE', params: {}, headers: { 'Content-Type': 'application/json' }, body: { integration: { type: 'string', required: true, description: 'Integration name' }, name: { type: 'string', required: true, description: 'Tool name to remove' }, confirm: { type: 'boolean', required: true, description: 'Must be true to confirm deletion' } } }
+    }
   ];
 
   for (const mt of metaToolDefs) {
-    await Tool.findOrCreate({
+    const [tool, created] = await Tool.findOrCreate({
       where: { name: mt.name },
       defaults: {
         userId,
@@ -577,9 +597,33 @@ const createDefaultTool = async () => {
         type: 'meta',
         name: mt.name,
         description: mt.description,
-        endpoint: { path: '/internal/meta', method: 'POST', params: {}, headers: {}, body: null },
+        endpoint: mt.endpoint,
         isActive: true
       }
+    });
+    if (!created && tool.endpoint?.path !== mt.endpoint?.path) {
+      await tool.update({ endpoint: mt.endpoint });
+    }
+  }
+
+  // Seed create-skill and update-skill tools
+  const skillToolDefs = [
+    {
+      name: 'create-skill',
+      description: 'Create or update a skill in MCP Depot by name. If a skill with the given name already exists it will be updated.',
+      endpoint: { path: '/api/mcp/skills', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: { type: 'string', required: true, description: 'Unique skill key, e.g. "code-reviewer"' }, prompt: { type: 'string', required: true, description: 'The full skill prompt content' }, description: { type: 'string', required: false, description: 'Short description' }, inputs: { type: 'array', required: false, description: 'Input variable definitions' }, outputFormat: { type: 'string', required: false, description: 'text, json, or markdown' }, isShared: { type: 'boolean', required: false, description: 'Visible to all team members' }, tags: { type: 'array', required: false, description: 'Tags for categorization' } } }
+    },
+    {
+      name: 'update-skill',
+      description: 'Update specific fields of an existing skill in MCP Depot by name.',
+      endpoint: { path: '/api/mcp/skills/{name}', method: 'PUT', params: {}, headers: { 'Content-Type': 'application/json' }, body: { prompt: { type: 'string', required: false, description: 'Updated skill prompt' }, description: { type: 'string', required: false, description: 'Updated description' }, inputs: { type: 'array', required: false, description: 'Updated input definitions' }, outputFormat: { type: 'string', required: false, description: 'text, json, or markdown' }, isShared: { type: 'boolean', required: false, description: 'Visibility setting' }, tags: { type: 'array', required: false, description: 'Updated tags' } } }
+    }
+  ];
+
+  for (const toolDef of skillToolDefs) {
+    await Tool.findOrCreate({
+      where: { name: toolDef.name },
+      defaults: { userId, integrationId: mcpDepotIntegration.id, name: toolDef.name, description: toolDef.description, endpoint: toolDef.endpoint, isActive: true }
     });
   }
 };

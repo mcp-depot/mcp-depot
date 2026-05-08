@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const axios = require('axios');
 const crypto = require('crypto');
 const { sequelize, connectDB, loadModels } = require('../config/database');
-const { optionalApiKey, authWithApiKey, optionalAuth } = require('../middleware/auth');
+const { auth, optionalApiKey, authWithApiKey, optionalAuth } = require('../middleware/auth');
 const { checkMcpAuth } = require('../middleware/mcpAuth');
 const Tool = require('../models/Tool');
 const Integration = require('../models/Integration');
@@ -847,6 +847,113 @@ router.post('/skills/invoke/:id', async (req, res) => {
   } catch (error) {
     logger.error({ error: error.message }, 'Error invoking skill');
     res.status(500).json({ error: 'Failed to invoke skill' });
+  }
+});
+
+// Meta-tool HTTP routes — mirrors MCP Depot - AI Tools
+router.get('/list-integrations', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_list_integrations');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler({});
+    res.json({ result: result.content?.[0]?.text || JSON.stringify(result) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/describe-tool', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_describe_tool');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler({ name: req.query.name });
+    res.json({ result: result.content?.[0]?.text || JSON.stringify(result) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/register-integration', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_register_integration');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler(req.body);
+    const text = result.content?.[0]?.text || JSON.stringify(result);
+    res.status(result.isError ? 400 : 201).json({ result: text });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/register-tool', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_register_tool');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler(req.body);
+    const text = result.content?.[0]?.text || JSON.stringify(result);
+    res.status(result.isError ? 400 : 201).json({ result: text });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/remove-tool', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_remove_tool');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler(req.body);
+    const text = result.content?.[0]?.text || JSON.stringify(result);
+    res.status(result.isError ? 400 : 200).json({ result: text });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Create/Update skill via MCP
+router.post('/skills', checkMcpAuth, async (req, res) => {
+  try {
+    const { PromptLibrary, User } = loadModels();
+    const { name, description, prompt, inputs, outputFormat, isShared, tags } = req.body;
+    if (!name || !prompt) {
+      return res.status(400).json({ error: 'name and prompt are required' });
+    }
+    const existing = await PromptLibrary.findOne({ where: { name } });
+    if (existing) {
+      await existing.update({ description, prompt, inputs: inputs || [], outputFormat: outputFormat || 'text', isShared: isShared || false, tags: tags || [] });
+      return res.json({ created: false, skill: { id: existing.id, name: existing.name, description: existing.description } });
+    }
+    const admin = await User.findOne({ where: { role: 'admin' } });
+    const skill = await PromptLibrary.create({
+      userId: admin?.id,
+      name, description, prompt,
+      inputs: inputs || [],
+      outputFormat: outputFormat || 'text',
+      isShared: isShared || false,
+      isDefault: false,
+      tags: tags || []
+    });
+    const mcpServer = require('../mcp/server');
+    if (mcpServer.refreshTools) await mcpServer.refreshTools();
+    res.status(201).json({ created: true, skill: { id: skill.id, name: skill.name, description: skill.description } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/skills/:name', checkMcpAuth, async (req, res) => {
+  try {
+    const { PromptLibrary } = loadModels();
+    const skill = await PromptLibrary.findOne({ where: { name: req.params.name } });
+    if (!skill) return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
+    const { description, prompt, inputs, outputFormat, isShared, tags } = req.body;
+    await skill.update({
+      description:  description  !== undefined ? description  : skill.description,
+      prompt:       prompt       !== undefined ? prompt       : skill.prompt,
+      inputs:       inputs       !== undefined ? inputs       : skill.inputs,
+      outputFormat: outputFormat !== undefined ? outputFormat : skill.outputFormat,
+      isShared:     isShared     !== undefined ? isShared     : skill.isShared,
+      tags:         tags         !== undefined ? tags         : skill.tags
+    });
+    const mcpServer = require('../mcp/server');
+    if (mcpServer.refreshTools) await mcpServer.refreshTools();
+    res.json({ updated: true, skill: { id: skill.id, name: skill.name, description: skill.description } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
