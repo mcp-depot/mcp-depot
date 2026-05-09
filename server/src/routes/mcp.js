@@ -1485,6 +1485,7 @@ router.post('/sessions/register', checkMcpAuth, (req, res) => {
         clientName: clientName || 'mcp-depot-cli',
         clientVersion: clientVersion || '0.0.0',
         userId: req.user?.id || null,
+        userName: req.user?.username || null,
         connectedAt: new Date().toISOString(),
         lastCallAt: new Date().toISOString(),
         lastTool: null,
