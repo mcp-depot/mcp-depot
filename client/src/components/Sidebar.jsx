@@ -78,10 +78,10 @@ function Sidebar() {
   return (
     <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
-<Link to="/" className="sidebar-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-           <img src="/logo-mark.svg" width="28" height="28" alt="MCP Depot" style={{ borderRadius: '7px', flexShrink: 0 }} />
-           {!collapsed && <span className="sidebar-brand-text">MCP Depot</span>}
-         </Link>
+        <Link to="/" className="sidebar-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <img src="/logo-mark.svg" width="28" height="28" alt="MCP Depot" style={{ borderRadius: '7px', flexShrink: 0 }} />
+          {!collapsed && <span className="sidebar-brand-text">MCP Depot</span>}
+        </Link>
         <button 
           className="sidebar-toggle"
           onClick={() => setCollapsed(!collapsed)}
