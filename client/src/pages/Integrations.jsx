@@ -5,7 +5,7 @@ import api from '../services/api';
 import { getIntegrationIcon, getIntegrationColor } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
 import { IntegrationCardSkeleton } from '../components/Skeleton';
-import { Eye, EyeOff, Upload, Search } from 'lucide-react';
+import { Eye, EyeOff, Upload, Search, X } from 'lucide-react';
 import { showSuccess, showError } from '../utils/toast';
 import { Drawer } from '../components/Drawer';
 
