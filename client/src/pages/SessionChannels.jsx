@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { RefreshCw, Trash2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 function SessionChannels() {
   const { token } = useAuth();
@@ -107,7 +108,9 @@ function SessionChannels() {
                     <span className="log-ts">
                       {m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}
                     </span>
-                    <span className="log-message">{m.message}</span>
+                    <span className="log-message">
+                      <ReactMarkdown>{m.message}</ReactMarkdown>
+                    </span>
                   </div>
                 ))}
                 {!loadingMessages && messages.length === 0 && (
