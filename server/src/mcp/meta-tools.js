@@ -158,15 +158,19 @@ function registerMetaTools(server, toolsMap) {
 
   // Register on MCP server for stdio/SSE transport
   Object.entries(handlerMap).forEach(([name, handler]) => {
-    const schema = server.tool(
-      name,
-      {
-        description: handler._description || `Meta-tool: ${name}`,
-        inputSchema: z.object({}) // Placeholder — SDK validates at call time
-      },
-      handler
-    );
-    // Store on toolsMap for REST execute route
+    try {
+      server.tool(
+        name,
+        {
+          description: handler._description || `Meta-tool: ${name}`,
+          inputSchema: z.object({})
+        },
+        handler
+      );
+    } catch (e) {
+      // MCP SDK throws on duplicate name (called again during refreshTools) — ignore
+    }
+    // Always populate toolsMap so REST execute route can find the handler
     toolsMap.set(name, { handler, type: 'meta' });
   });
 
