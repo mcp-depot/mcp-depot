@@ -305,7 +305,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       
       const userId = req.user?.id || (req.apiKey?.userId) || null;
       const callerId = req.apiKey?.keyId || req.headers['x-mcp-client'] || req.ip;
-      const callerType = req.apiKey ? 'api_key' : (req.headers['x-mcp-client'] ? 'mcp' : 'rest');
+      const callerType = req.apiKey ? 'api_key' : (req.headers['x-mcp-client'] ? 'mcp' : 'ui');
       
       if (userId) {
         await logToolCall({
