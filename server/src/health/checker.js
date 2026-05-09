@@ -33,6 +33,7 @@ async function buildProbeHeaders(config) {
       const customAuth = credentials.value || credentials.token || '';
       return customAuth ? { 'Authorization': customAuth } : {};
     }
+    case 'apikey':
     case 'apiKey': {
       const key = encryption.decrypt(credentials.key) || credentials.key;
       const value = encryption.decrypt(credentials.value) || credentials.value;
@@ -65,12 +66,23 @@ async function probe(integration) {
       validateStatus: () => true,
       maxRedirects: 3
     });
+
+    let finalResponse = response;
+    if (response.status === 404 || response.status === 405) {
+      finalResponse = await axios.get(url, {
+        headers: { ...headers, 'Accept': 'application/json' },
+        timeout: PROBE_TIMEOUT_MS,
+        validateStatus: () => true,
+        maxRedirects: 3
+      });
+    }
+
     const latencyMs = Date.now() - start;
 
-    if (response.status < 400) {
+    if (finalResponse.status < 400) {
       return { status: 'ok', latencyMs };
     }
-    return { status: 'error', latencyMs, error: `${response.status} ${response.statusText}` };
+    return { status: 'error', latencyMs, error: `${finalResponse.status} ${finalResponse.statusText}` };
   } catch (err) {
     const latencyMs = Date.now() - start;
     let error;
