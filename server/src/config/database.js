@@ -579,12 +579,14 @@ const createDefaultTool = async () => {
     {
       name: 'mcp_register_integration',
       description: 'Create a new integration by name, base URL, and type. Credentials must be configured in the UI.',
-      endpoint: { path: '/api/mcp/register-integration', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: { type: 'string', required: true, description: 'Integration name' }, baseUrl: { type: 'string', required: true, description: 'Base URL of the API' }, type: { type: 'string', required: false, description: 'Integration type (default: custom)' }, description: { type: 'string', required: false, description: 'Description' }, shared: { type: 'boolean', required: false, description: 'Whether shared with all users' } } }
+      endpoint: { path: '/api/mcp/register-integration', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: '{name}', baseUrl: '{baseUrl}', type: '{type}', description: '{description}', shared: '{shared}' } },
+      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Integration name' }, baseUrl: { type: 'string', description: 'Base URL of the API' }, type: { type: 'string', description: 'Integration type (default: custom)' }, description: { type: 'string', description: 'Description' }, shared: { type: 'boolean', description: 'Whether shared with all users' } }, required: ['name', 'baseUrl'] }
     },
     {
       name: 'mcp_register_tool',
       description: 'Add a tool to an existing integration, mapping an HTTP endpoint to a named MCP tool.',
-      endpoint: { path: '/api/mcp/register-tool', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { integration: { type: 'string', required: true, description: 'Integration name to add tool to' }, name: { type: 'string', required: true, description: 'Tool name' }, description: { type: 'string', required: true, description: 'Tool description' }, path: { type: 'string', required: true, description: 'HTTP path (e.g. /api/users)' }, method: { type: 'string', required: false, description: 'HTTP method (default: GET)' }, params: { type: 'string', required: false, description: 'JSON-encoded params object' }, responseFields: { type: 'string', required: false, description: 'JSON-encoded response fields' } } }
+      endpoint: { path: '/api/mcp/register-tool', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { integration: '{integration}', name: '{name}', description: '{description}', path: '{path}', method: '{method}', params: '{params}', responseFields: '{responseFields}' } },
+      inputSchema: { type: 'object', properties: { integration: { type: 'string', description: 'Integration name to add tool to' }, name: { type: 'string', description: 'Tool name' }, description: { type: 'string', description: 'Tool description' }, path: { type: 'string', description: 'HTTP path (e.g. /get)' }, method: { type: 'string', description: 'HTTP method (default: GET)' }, params: { type: 'string', description: 'JSON-encoded params object' }, responseFields: { type: 'string', description: 'JSON-encoded response fields' } }, required: ['integration', 'name', 'description', 'path'] }
     },
     {
       name: 'mcp_describe_tool',
@@ -594,7 +596,8 @@ const createDefaultTool = async () => {
     {
       name: 'mcp_remove_tool',
       description: 'Remove a tool from an integration. Requires confirm: true.',
-      endpoint: { path: '/api/mcp/remove-tool', method: 'DELETE', params: {}, headers: { 'Content-Type': 'application/json' }, body: { integration: { type: 'string', required: true, description: 'Integration name' }, name: { type: 'string', required: true, description: 'Tool name to remove' }, confirm: { type: 'boolean', required: true, description: 'Must be true to confirm deletion' } } }
+      endpoint: { path: '/api/mcp/remove-tool', method: 'DELETE', params: {}, headers: { 'Content-Type': 'application/json' }, body: { integration: '{integration}', name: '{name}', confirm: '{confirm}' } },
+      inputSchema: { type: 'object', properties: { integration: { type: 'string', description: 'Integration name' }, name: { type: 'string', description: 'Tool name to remove' }, confirm: { type: 'boolean', description: 'Must be true to confirm deletion' } }, required: ['integration', 'name', 'confirm'] }
     }
   ];
 
@@ -608,11 +611,12 @@ const createDefaultTool = async () => {
         name: mt.name,
         description: mt.description,
         endpoint: mt.endpoint,
+        inputSchema: mt.inputSchema || {},
         isActive: true
       }
     });
-    if (!created && tool.endpoint?.path !== mt.endpoint?.path) {
-      await tool.update({ endpoint: mt.endpoint });
+    if (!created) {
+      await tool.update({ endpoint: mt.endpoint, inputSchema: mt.inputSchema || {} });
     }
   }
 
