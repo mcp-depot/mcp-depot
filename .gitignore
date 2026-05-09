@@ -3,6 +3,7 @@ dist/
 build/
 *.log
 .env
+.env.*
 .DS_Store
 Thumbs.db
 *.swp
@@ -20,3 +21,5 @@ internal/
 *.tgz
 error.png
 opencode.json
+*.har
+mcp-connect-wrapper/config.json
