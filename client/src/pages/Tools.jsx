@@ -387,7 +387,7 @@ function Tools({ all: isAllTools }) {
     
     setTestingTool(toolId);
     try {
-      const res = await api.post(`/consume/tools/${toolId}/execute`, { params: testParams });
+      const res = await api.post(`/consume/tools/${toolId}/execute`, { params: testParams }, { headers: { 'X-Caller': 'ui' } });
       setTestResult({ success: true, data: res.data, request: requestDetails });
       setShowTestModal(false);
     } catch (err) {

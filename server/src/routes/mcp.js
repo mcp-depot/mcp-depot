@@ -1050,6 +1050,14 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       }
     }
 
+    let callerType = req.apiKey ? 'api' : 'rest';
+    if (cliSessionId && mcpServer._sessionClientMap?.has(cliSessionId)) {
+      const cliSession = mcpServer._sessionClientMap.get(cliSessionId);
+      if (cliSession.clientName) {
+        callerType = cliSession.clientName;
+      }
+    }
+
     for (const [key, sess] of mcpServer._sessionClientMap?.entries() || []) {
       if (key !== 'stdio' && !key.startsWith('user-')) {
         sess.lastCallAt = new Date().toISOString();
@@ -1405,7 +1413,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         userId,
         integrationId: integration.id,
         callerId: req.apiKey?.id || null,
-        callerType: req.apiKey ? 'api' : 'rest',
+        callerType,
         method: tool.endpoint.method,
         path: tool.endpoint.path,
         fullUrl,
@@ -1433,7 +1441,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         userId,
         integrationId: integration.id,
         callerId: req.apiKey?.id || null,
-        callerType: req.apiKey ? 'api' : 'rest',
+        callerType,
         method: tool.endpoint.method,
         path: tool.endpoint.path,
         fullUrl,
