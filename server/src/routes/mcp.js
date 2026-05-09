@@ -1470,13 +1470,15 @@ router.post('/sessions/register', checkMcpAuth, (req, res) => {
     const mcpServer = require('../mcp/server');
     const { sessionId, clientName, clientVersion } = req.body;
     const existing = sessionId && mcpServer._sessionClientMap?.get(sessionId);
+    let id;
     if (existing) {
       existing.lastCallAt = new Date().toISOString();
       if (clientName) existing.clientName = clientName;
       if (clientVersion) existing.clientVersion = clientVersion;
       if (!existing.userId && req.user?.id) existing.userId = req.user.id;
+      id = existing.sessionId;
     } else {
-      const id = sessionId || `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      id = sessionId || `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       mcpServer._sessionClientMap = mcpServer._sessionClientMap || new Map();
       mcpServer._sessionClientMap.set(id, {
         sessionId: id,
@@ -1490,7 +1492,7 @@ router.post('/sessions/register', checkMcpAuth, (req, res) => {
       });
     }
     if (mcpServer._broadcastSessions) mcpServer._broadcastSessions();
-    res.json({ sessionId: existing ? existing.sessionId : sessionId || `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
+    res.json({ sessionId: id });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
