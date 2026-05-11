@@ -1082,7 +1082,6 @@ function Settings() {
                           {registryResults.length} servers loaded
                         </p>
                         )}
-                      )}
                     </div>
                   </div>
                 )}
