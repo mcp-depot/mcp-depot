@@ -89,36 +89,40 @@ router.get('/pool-status', auth, async (req, res) => {
 
 const SUPPORTED_REGISTRY_TYPES = ['npm', 'pypi'];
 const REGISTRY_CACHE = { data: null, fetchedAt: 0 };
-const REGISTRY_CACHE_TTL = 60 * 60 * 1000;
+const REGISTRY_CACHE_TTL = 6 * 60 * 60 * 1000;
 
 async function fetchAllRegistryServers(query = '') {
   const supported = [];
   let cursor = null;
+  let pageCount = 0;
 
   do {
-    const params = { limit: 50 };
-    if (query) params.search = query;
-    if (cursor) params.cursor = cursor;
+    try {
+      const params = { limit: 50 };
+      if (query) params.search = query;
+      if (cursor) params.cursor = cursor;
 
-    const response = await axios.get(
-      'https://registry.modelcontextprotocol.io/v0.1/servers',
-      {
-        params,
-        headers: { 'Accept': 'application/json' },
-        timeout: 10000,
+      const response = await axios.get(
+        'https://registry.modelcontextprotocol.io/v0.1/servers',
+        { params, headers: { 'Accept': 'application/json' }, timeout: 10000 }
+      );
+
+      const page = response.data.servers || [];
+      for (const item of page) {
+        const pkg = item?.server?.packages?.[0];
+        if (pkg && SUPPORTED_REGISTRY_TYPES.includes(pkg.registryType)) {
+          supported.push(item);
+        }
       }
-    );
 
-    const page = response.data.servers || [];
+      cursor = response.data.metadata?.nextCursor || null;
+      pageCount++;
 
-    for (const item of page) {
-      const pkg = item?.server?.packages?.[0];
-      if (pkg && SUPPORTED_REGISTRY_TYPES.includes(pkg.registryType)) {
-        supported.push(item);
-      }
+      if (cursor) await new Promise(r => setTimeout(r, 200));
+    } catch (pageErr) {
+      logger.warn({ error: pageErr.message, pageCount }, 'Registry page fetch failed, stopping pagination');
+      break;
     }
-
-    cursor = response.data.metadata?.nextCursor || null;
   } while (cursor);
 
   return supported;
@@ -134,10 +138,14 @@ router.get('/registry/search', auth, async (req, res) => {
       allServers = REGISTRY_CACHE.data;
     } else {
       allServers = await fetchAllRegistryServers(q);
-      if (!q) {
+      if (!q && allServers.length > 0) {
         REGISTRY_CACHE.data = allServers;
         REGISTRY_CACHE.fetchedAt = now;
       }
+    }
+
+    if (allServers.length === 0) {
+      return res.status(502).json({ error: 'Failed to reach MCP registry' });
     }
 
     res.json({ servers: allServers });
