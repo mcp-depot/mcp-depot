@@ -920,12 +920,22 @@ function Settings() {
 
                     {registryLoading && (
                       <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
-                        {Array.from({ length: 6 }).map((_, i) => (
+                        {Array.from({ length: 8 }).map((_, i) => (
                           <div
                             key={i}
                             className="registry-result-card registry-skeleton-card"
-                            style={{ animationDelay: `${i * 0.08}s` }}
-                          />
+                            style={{ animationDelay: `${i * 0.07}s` }}
+                          >
+                            <span className="sk-line sk-title" />
+                            <span className="sk-line sk-badges" />
+                            <span className="sk-line sk-desc-1" />
+                            <span className="sk-line sk-desc-2" />
+                            <span className="sk-line sk-spacer" />
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <span className="sk-line sk-footer" />
+                              <span className="sk-line sk-btn" />
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
