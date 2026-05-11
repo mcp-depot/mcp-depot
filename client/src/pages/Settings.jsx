@@ -893,7 +893,7 @@ function Settings() {
                 )}
 
                 {externalTab === 'discover' && (
-                  <div style={{ padding: '1rem' }}>
+                  <div className="discover-tab" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', minHeight: '300px', height: 'calc(100vh - 280px)' }}>
                     <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                       Search the official MCP registry and add servers with one click.
                     </p>
@@ -919,9 +919,14 @@ function Settings() {
                     {registryError && <div className="error-message" style={{ marginBottom: '1rem' }}>{registryError}</div>}
 
                     {registryLoading && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '1rem 0' }}>
-                        <span style={{ width: '14px', height: '14px', border: '2px solid var(--border-light)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
-                        Loading registry...
+                      <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className="registry-result-card registry-skeleton-card"
+                            style={{ animationDelay: `${i * 0.08}s` }}
+                          />
+                        ))}
                       </div>
                     )}
 
@@ -986,7 +991,7 @@ function Settings() {
                       </div>
                     )}
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
                       {(() => {
                         const filtered = registryTypeFilter === 'all'
                           ? registryResults
