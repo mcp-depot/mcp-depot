@@ -86,26 +86,58 @@ router.get('/pool-status', auth, async (req, res) => {
   }
 });
 
-router.get('/registry/search', auth, async (req, res) => {
-  try {
-    const { q = '', limit = 20, cursor } = req.query;
+const SUPPORTED_REGISTRY_TYPES = ['npm', 'pypi'];
+const REGISTRY_CACHE = { data: null, fetchedAt: 0 };
+const REGISTRY_CACHE_TTL = 60 * 60 * 1000;
+
+async function fetchAllRegistryServers(query = '') {
+  const supported = [];
+  let cursor = null;
+
+  do {
     const url = new URL('https://registry.modelcontextprotocol.io/v0.1/servers');
-    if (q) url.searchParams.set('search', q);
-    url.searchParams.set('limit', String(Math.min(Number(limit), 50)));
+    url.searchParams.set('limit', '50');
+    if (query) url.searchParams.set('search', query);
     if (cursor) url.searchParams.set('cursor', cursor);
 
-    const response = await fetch(url.toString(), {
-      headers: { 'Accept': 'application/json' }
-    });
-
-    if (!response.ok) {
-      return res.status(502).json({ error: 'Registry unavailable' });
-    }
+    const response = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+    if (!response.ok) throw new Error(`Registry returned ${response.status}`);
 
     const data = await response.json();
-    res.json(data);
+    const page = data.servers || [];
+
+    for (const item of page) {
+      const pkg = item?.server?.packages?.[0];
+      if (pkg && SUPPORTED_REGISTRY_TYPES.includes(pkg.registryType)) {
+        supported.push(item);
+      }
+    }
+
+    cursor = data.metadata?.nextCursor || null;
+  } while (cursor);
+
+  return supported;
+}
+
+router.get('/registry/search', auth, async (req, res) => {
+  try {
+    const { q = '' } = req.query;
+    const now = Date.now();
+
+    let allServers;
+    if (!q && REGISTRY_CACHE.data && (now - REGISTRY_CACHE.fetchedAt) < REGISTRY_CACHE_TTL) {
+      allServers = REGISTRY_CACHE.data;
+    } else {
+      allServers = await fetchAllRegistryServers(q);
+      if (!q) {
+        REGISTRY_CACHE.data = allServers;
+        REGISTRY_CACHE.fetchedAt = now;
+      }
+    }
+
+    res.json({ servers: allServers });
   } catch (err) {
-    logger.error({ error: err.message }, 'Failed to reach MCP registry');
+    logger.error({ error: err.message }, 'Registry fetch error');
     res.status(502).json({ error: 'Failed to reach MCP registry' });
   }
 });

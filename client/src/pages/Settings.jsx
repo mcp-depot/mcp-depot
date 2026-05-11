@@ -163,12 +163,10 @@ function Settings() {
   const [externalTab, setExternalTab] = useState('servers');
   const [registryQuery, setRegistryQuery] = useState('');
   const [registryResults, setRegistryResults] = useState([]);
-  const [registryNextCursor, setRegistryNextCursor] = useState(null);
-  const [registryHasMore, setRegistryHasMore] = useState(false);
-  const [registryLoadingMore, setRegistryLoadingMore] = useState(false);
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryError, setRegistryError] = useState('');
   const [registrySort, setRegistrySort] = useState('published');
+  const [registryTypeFilter, setRegistryTypeFilter] = useState('all');
   const [installingPackage, setInstallingPackage] = useState(false);
   const [installMessage, setInstallMessage] = useState('');
   const [loadingServerTools, setLoadingServerTools] = useState(null);
@@ -254,31 +252,18 @@ function Settings() {
     }
   }
 
-  async function loadRegistry(query = '', cursor = null, append = false) {
-    if (!append) {
-      setRegistryLoading(true);
-      setRegistryError('');
-    } else {
-      setRegistryLoadingMore(true);
-    }
-
+  async function loadRegistry(query = '') {
+    setRegistryLoading(true);
+    setRegistryError('');
     try {
-      const params = new URLSearchParams({ limit: '20' });
+      const params = new URLSearchParams();
       if (query) params.set('q', query);
-      if (cursor) params.set('cursor', cursor);
-
       const res = await api.get(`/external-mcp/registry/search?${params.toString()}`);
-      const servers = res.data.servers || [];
-      const nextCursor = res.data.next || res.data.metadata?.nextCursor || null;
-
-      setRegistryResults(prev => append ? [...prev, ...servers] : servers);
-      setRegistryNextCursor(nextCursor);
-      setRegistryHasMore(!!nextCursor);
+      setRegistryResults(res.data.servers || []);
     } catch (err) {
       setRegistryError('Failed to reach MCP registry. Check your connection.');
     } finally {
       setRegistryLoading(false);
-      setRegistryLoadingMore(false);
     }
   }
 
@@ -288,15 +273,8 @@ function Settings() {
   };
 
   const searchRegistry = () => {
-    setRegistryResults([]);
-    setRegistryNextCursor(null);
-    setRegistryHasMore(false);
+    setRegistryTypeFilter('all');
     loadRegistry(registryQuery.trim());
-  };
-
-  const loadMoreRegistry = () => {
-    if (!registryHasMore || registryLoadingMore) return;
-    loadRegistry(registryQuery.trim(), registryNextCursor, true);
   };
 
   function registryEntryToServerForm(item) {
@@ -940,6 +918,44 @@ function Settings() {
 
                     {registryError && <div className="error-message" style={{ marginBottom: '1rem' }}>{registryError}</div>}
 
+                    {registryLoading && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '1rem 0' }}>
+                        <span style={{ width: '14px', height: '14px', border: '2px solid var(--border-light)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+                        Loading registry...
+                      </div>
+                    )}
+
+                    {registryResults.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                        {[
+                          { value: 'all', label: 'All' },
+                          { value: 'npm', label: 'npm' },
+                          { value: 'pypi', label: 'Python' },
+                        ].map(f => (
+                          <button
+                            key={f.value}
+                            onClick={() => setRegistryTypeFilter(f.value)}
+                            style={{
+                              fontSize: '0.8rem',
+                              padding: '3px 12px',
+                              borderRadius: '12px',
+                              border: '1px solid var(--border-light)',
+                              background: registryTypeFilter === f.value ? 'var(--primary)' : 'transparent',
+                              color: registryTypeFilter === f.value ? '#fff' : 'var(--text-muted)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                        {registryTypeFilter !== 'all' && (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.25rem' }}>
+                            ({filteredCount} of {registryResults.length})
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     {registryResults.length > 0 && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sort by:</span>
@@ -965,13 +981,18 @@ function Settings() {
                           </button>
                         ))}
                         <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          {registryResults.length} loaded{registryHasMore ? '...' : ' (all)'}
+                          {registryResults.length} servers
                         </span>
                       </div>
                     )}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      {[...registryResults].sort((a, b) => {
+                      {(() => {
+                        const filtered = registryTypeFilter === 'all'
+                          ? registryResults
+                          : registryResults.filter(item => item?.server?.packages?.[0]?.registryType === registryTypeFilter);
+                        const filteredCount = filtered.length;
+                        return [...filtered].sort((a, b) => {
                         if (registrySort === 'name') {
                           const aName = a.server?.title || a.server?.name || '';
                           const bName = b.server?.title || b.server?.name || '';
@@ -1042,25 +1063,12 @@ function Settings() {
                             </div>
                           </div>
                         );
-                      })}
+                      });
+                      })()}
 
                       {registryResults.length === 0 && !registryLoading && registryQuery && (
                         <p style={{ color: 'var(--text-muted)' }}>No results found. Try a different search term.</p>
                       )}
-
-                      {registryHasMore && (
-                        <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0' }}>
-                          <button
-                            className="btn btn-secondary"
-                            onClick={loadMoreRegistry}
-                            disabled={registryLoadingMore}
-                          >
-                            {registryLoadingMore ? 'Loading...' : 'Load More'}
-                          </button>
-                        </div>
-                      )}
-
-                      {!registryHasMore && registryResults.length > 0 && (
                         <p style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.75rem 0' }}>
                           All {registryResults.length} servers loaded
                         </p>

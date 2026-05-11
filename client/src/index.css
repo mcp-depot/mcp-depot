@@ -2626,3 +2626,45 @@ code {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
+.registry-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+.registry-filter-btn {
+  font-size: 0.8rem;
+  padding: 3px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.registry-filter-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.registry-filter-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.registry-filter-note {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+.registry-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 1rem 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
