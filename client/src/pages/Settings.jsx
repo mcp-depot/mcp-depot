@@ -161,6 +161,10 @@ function Settings() {
   const [testResult, setTestResult] = useState(null);
   const [editingServer, setEditingServer] = useState(null);
   const [externalTab, setExternalTab] = useState('servers');
+  const [registryQuery, setRegistryQuery] = useState('');
+  const [registryResults, setRegistryResults] = useState([]);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState('');
   const [installingPackage, setInstallingPackage] = useState(false);
   const [installMessage, setInstallMessage] = useState('');
   const [loadingServerTools, setLoadingServerTools] = useState(null);
@@ -244,6 +248,57 @@ function Settings() {
     } catch (err) {
       console.error('Failed to fetch pool status:', err);
     }
+  }
+
+  async function searchRegistry() {
+    if (!registryQuery.trim()) return;
+    setRegistryLoading(true);
+    setRegistryError('');
+    try {
+      const res = await api.get(`/external-mcp/registry/search?q=${encodeURIComponent(registryQuery)}&limit=20`);
+      setRegistryResults(res.data.servers || []);
+    } catch (err) {
+      setRegistryError('Failed to search registry. Check your connection.');
+    } finally {
+      setRegistryLoading(false);
+    }
+  }
+
+  function registryEntryToServerForm(entry) {
+    const pkg = entry.packages?.[0];
+    if (!pkg) return null;
+
+    let command = '';
+    let args = [];
+    let runtime = 'node';
+    let transportType = pkg.transport === 'stdio' ? 'stdio' : 'http';
+
+    if (pkg.type === 'npm') {
+      command = 'npx';
+      args = ['-y', pkg.name || entry.name];
+      runtime = 'node';
+    } else if (pkg.type === 'pypi') {
+      command = 'uvx';
+      args = [pkg.name || entry.name];
+      runtime = 'python';
+    } else if (pkg.type === 'docker') {
+      command = 'docker';
+      args = ['run', '-i', '--rm', pkg.name || entry.name];
+      runtime = 'node';
+    }
+
+    return {
+      name: entry.name.split('/').pop().replace(/^server-/, ''),
+      description: entry.description || '',
+      command,
+      args: JSON.stringify(args),
+      env: '{}',
+      runtime,
+      transportType,
+      authType: 'none',
+      sessionMode: 'stateful',
+      url: pkg.transport !== 'stdio' ? '' : undefined,
+    };
   }
 
   useEffect(() => {
@@ -621,6 +676,13 @@ function Settings() {
                   >
                     🔗 External Servers
                   </div>
+                  <div 
+                    className={`tab ${externalTab === 'discover' ? 'active' : ''}`}
+                    onClick={() => setExternalTab('discover')}
+                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem' }}
+                  >
+                    🔍 Discover
+                  </div>
                 </div>
 
                 {externalTab === 'install' && (
@@ -799,6 +861,85 @@ function Settings() {
                         })}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {externalTab === 'discover' && (
+                  <div style={{ padding: '1rem' }}>
+                    <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                      Search the official MCP registry and add servers with one click.
+                    </p>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                      <input
+                        type="text"
+                        placeholder="Search MCP servers... (e.g. github, filesystem, postgres)"
+                        value={registryQuery}
+                        onChange={e => setRegistryQuery(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && searchRegistry()}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        className="btn btn-primary"
+                        onClick={searchRegistry}
+                        disabled={registryLoading}
+                      >
+                        {registryLoading ? 'Searching...' : 'Search'}
+                      </button>
+                    </div>
+
+                    {registryError && <div className="error-message" style={{ marginBottom: '1rem' }}>{registryError}</div>}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {registryResults.map((entry) => {
+                        const pkg = entry.packages?.[0];
+                        const mapped = registryEntryToServerForm(entry);
+                        return (
+                          <div key={entry.name} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem 1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                              <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{entry.name.split('/').pop()}</span>
+                              {pkg && (
+                                <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase', background: pkg.type === 'npm' ? '#cb3837' : pkg.type === 'pypi' ? '#3572a5' : '#2496ed', color: '#fff' }}>
+                                  {pkg.type}
+                                </span>
+                              )}
+                              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: 'var(--surface-hover)', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                                {pkg?.transport || 'stdio'}
+                              </span>
+                            </div>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0.25rem 0' }}>{entry.description}</p>
+                            {entry.repository?.url && (
+                              <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none' }}>
+                                GitHub
+                              </a>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                              {mapped ? (
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  onClick={() => {
+                                    setServerForm({
+                                      ...mapped,
+                                      envPairs: mapped.env === '{}' ? [{ key: '', value: '' }] : Object.entries(JSON.parse(mapped.env)).map(([key, value]) => ({ key, value: String(value) })),
+                                      authToken: '',
+                                      authHeader: ''
+                                    });
+                                    setShowServerModal(true);
+                                  }}
+                                >
+                                  + Add
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Unsupported package type</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {registryResults.length === 0 && !registryLoading && registryQuery && (
+                        <p style={{ color: 'var(--text-muted)' }}>No results found. Try a different search term.</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

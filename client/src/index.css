@@ -2487,3 +2487,66 @@ code {
   padding-top: 1rem;
   border-top: 1px solid var(--border);
 }
+
+.registry-search-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.registry-search-bar .form-input {
+  flex: 1;
+}
+.registry-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.registry-result-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+.registry-result-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.registry-result-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.runtime-badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.runtime-npm  { background: #cb3837; color: #fff; }
+.runtime-pypi { background: #3572a5; color: #fff; }
+.runtime-docker { background: #2496ed; color: #fff; }
+.transport-badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.registry-result-description {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0.25rem 0;
+}
+.registry-result-link {
+  font-size: 0.8rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+.registry-result-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}

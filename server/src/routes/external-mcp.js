@@ -86,6 +86,30 @@ router.get('/pool-status', auth, async (req, res) => {
   }
 });
 
+router.get('/registry/search', auth, async (req, res) => {
+  try {
+    const { q = '', limit = 20, offset = 0 } = req.query;
+    const url = new URL('https://registry.modelcontextprotocol.io/v0.1/servers');
+    if (q) url.searchParams.set('search', q);
+    url.searchParams.set('limit', String(Math.min(Number(limit), 50)));
+    url.searchParams.set('offset', String(offset));
+
+    const response = await fetch(url.toString(), {
+      headers: { 'Accept': 'application/json' }
+    });
+
+    if (!response.ok) {
+      return res.status(502).json({ error: 'Registry unavailable' });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    logger.error({ error: err.message }, 'Failed to reach MCP registry');
+    res.status(502).json({ error: 'Failed to reach MCP registry' });
+  }
+});
+
 router.post('/', auth, async (req, res) => {
   try {
     const { error, value } = externalMcpCreateSchema.validate(req.body);
