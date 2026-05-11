@@ -137,6 +137,7 @@ router.get('/registry/search', auth, async (req, res) => {
 
     res.json({ servers: allServers });
   } catch (err) {
+    console.error('[registry/search] failed:', err.message);
     logger.error({ error: err.message }, 'Registry fetch error');
     res.status(502).json({ error: 'Failed to reach MCP registry' });
   }

@@ -1020,32 +1020,35 @@ function Settings() {
                         const meta = item._meta?.['io.modelcontextprotocol.registry/official'];
                         const publishedAt = meta?.publishedAt ? new Date(meta.publishedAt).toLocaleDateString() : null;
                         return (
-                          <div key={entry.name} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem 1rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                              <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{entry.title || entry.name?.split('/').pop() || 'Unknown'}</span>
+                          <div key={entry.name} className="registry-result-card">
+                            <div className="registry-result-header">
+                              <span className="registry-result-name">
+                                {entry.title || entry.name?.split('/').pop() || 'Unknown'}
+                              </span>
                               {pkg?.registryType && (
-                                <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase', background: pkg.registryType === 'npm' ? '#cb3837' : pkg.registryType === 'pypi' ? '#3572a5' : '#2496ed', color: '#fff' }}>
+                                <span className={`runtime-badge runtime-${pkg.registryType}`}>
                                   {pkg.registryType}
                                 </span>
                               )}
-                              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: 'var(--surface-hover)', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                                {pkg?.transport?.type || 'stdio'}
-                              </span>
+                              {pkg?.transport?.type && pkg.transport.type !== 'stdio' && (
+                                <span className="transport-badge">{pkg.transport.type}</span>
+                              )}
                             </div>
-                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0.25rem 0' }}>{entry.description || 'No description available.'}</p>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                              {entry.name && (
-                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</span>
-                              )}
-                              {publishedAt && (
-                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Added {publishedAt}</span>
-                              )}
+
+                            <p className="registry-result-description">
+                              {entry.description || 'No description available.'}
+                            </p>
+
+                            <div className="registry-result-footer">
                               {entry.repository?.url && (
-                                <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none' }}>
-                                  GitHub
+                                <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" className="registry-result-link">
+                                  GitHub ↗
                                 </a>
                               )}
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', marginLeft: 'auto' }}>
+                              {publishedAt && (
+                                <span className="registry-result-date">Added {publishedAt}</span>
+                              )}
+                              <div style={{ marginLeft: 'auto' }}>
                                 {mapped ? (
                                   <button
                                     className="btn btn-sm btn-primary"
@@ -1074,9 +1077,11 @@ function Settings() {
                       {registryResults.length === 0 && !registryLoading && registryQuery && (
                         <p style={{ color: 'var(--text-muted)' }}>No results found. Try a different search term.</p>
                       )}
+                        {registryResults.length > 0 && (
                         <p style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.75rem 0' }}>
-                          All {registryResults.length} servers loaded
+                          {registryResults.length} servers loaded
                         </p>
+                        )}
                       )}
                     </div>
                   </div>
