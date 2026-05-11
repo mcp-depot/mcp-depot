@@ -165,6 +165,7 @@ function Settings() {
   const [registryResults, setRegistryResults] = useState([]);
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryError, setRegistryError] = useState('');
+  const [registrySort, setRegistrySort] = useState('published');
   const [installingPackage, setInstallingPackage] = useState(false);
   const [installMessage, setInstallMessage] = useState('');
   const [loadingServerTools, setLoadingServerTools] = useState(null);
@@ -264,7 +265,21 @@ function Settings() {
     }
   }
 
+  async function loadDefaultRegistry() {
+    if (registryResults.length > 0) return;
+    setRegistryLoading(true);
+    try {
+      const res = await api.get('/external-mcp/registry/search?limit=40');
+      setRegistryResults(res.data.servers || []);
+    } catch (err) {
+      setRegistryError('Failed to load registry.');
+    } finally {
+      setRegistryLoading(false);
+    }
+  }
+
   function registryEntryToServerForm(entry) {
+    if (!entry?.name) return null;
     const pkg = entry.packages?.[0];
     if (!pkg) return null;
 
@@ -306,6 +321,12 @@ function Settings() {
       fetchPoolStatus();
       const interval = setInterval(fetchPoolStatus, 5000);
       return () => clearInterval(interval);
+    }
+  }, [activeTab, externalTab]);
+
+  useEffect(() => {
+    if (activeTab === 'external-mcp' && externalTab === 'discover') {
+      loadDefaultRegistry();
     }
   }, [activeTab, externalTab]);
 
@@ -869,15 +890,16 @@ function Settings() {
                     <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                       Search the official MCP registry and add servers with one click.
                     </p>
-                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <input
-                        type="text"
-                        placeholder="Search MCP servers... (e.g. github, filesystem, postgres)"
-                        value={registryQuery}
-                        onChange={e => setRegistryQuery(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && searchRegistry()}
-                        style={{ flex: 1 }}
-                      />
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem', marginBottom: '1rem' }}>
+                      <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                        <input
+                          type="text"
+                          placeholder="Search MCP servers... (e.g. github, filesystem, postgres)"
+                          value={registryQuery}
+                          onChange={e => setRegistryQuery(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && searchRegistry()}
+                        />
+                      </div>
                       <button
                         className="btn btn-primary"
                         onClick={searchRegistry}
@@ -889,14 +911,54 @@ function Settings() {
 
                     {registryError && <div className="error-message" style={{ marginBottom: '1rem' }}>{registryError}</div>}
 
+                    {registryResults.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sort by:</span>
+                        {[
+                          { value: 'published', label: 'Recently Added' },
+                          { value: 'updated', label: 'Recently Updated' },
+                          { value: 'name', label: 'Name' },
+                        ].map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setRegistrySort(opt.value)}
+                            style={{
+                              fontSize: '0.8rem',
+                              padding: '3px 10px',
+                              borderRadius: '12px',
+                              border: '1px solid var(--border-light)',
+                              background: registrySort === opt.value ? 'var(--primary)' : 'transparent',
+                              color: registrySort === opt.value ? '#fff' : 'var(--text-muted)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                        <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{registryResults.length} servers</span>
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      {registryResults.map((entry) => {
+                      {[...registryResults].sort((a, b) => {
+                        if (registrySort === 'name') {
+                          return (a.name || '').localeCompare(b.name || '');
+                        }
+                        if (registrySort === 'updated') {
+                          const aDate = a._meta?.['io.modelcontextprotocol.registry/official']?.updatedAt || '';
+                          const bDate = b._meta?.['io.modelcontextprotocol.registry/official']?.updatedAt || '';
+                          return bDate.localeCompare(aDate);
+                        }
+                        const aDate = a._meta?.['io.modelcontextprotocol.registry/official']?.publishedAt || '';
+                        const bDate = b._meta?.['io.modelcontextprotocol.registry/official']?.publishedAt || '';
+                        return bDate.localeCompare(aDate);
+                      }).map((entry) => {
                         const pkg = entry.packages?.[0];
                         const mapped = registryEntryToServerForm(entry);
                         return (
                           <div key={entry.name} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem 1rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                              <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{entry.name.split('/').pop()}</span>
+                              <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{(entry.name || entry.displayName || 'Unknown').split('/').pop()}</span>
                               {pkg && (
                                 <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase', background: pkg.type === 'npm' ? '#cb3837' : pkg.type === 'pypi' ? '#3572a5' : '#2496ed', color: '#fff' }}>
                                   {pkg.type}
@@ -906,7 +968,7 @@ function Settings() {
                                 {pkg?.transport || 'stdio'}
                               </span>
                             </div>
-                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0.25rem 0' }}>{entry.description}</p>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0.25rem 0' }}>{entry.description || 'No description available.'}</p>
                             {entry.repository?.url && (
                               <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none' }}>
                                 GitHub
