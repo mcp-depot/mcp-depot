@@ -931,7 +931,7 @@ function Settings() {
                     <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                       Search the official MCP registry and add servers with one click.
                     </p>
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
                       <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
                         <input
                           type="text"
