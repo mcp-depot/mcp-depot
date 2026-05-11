@@ -2500,6 +2500,22 @@ code {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  max-height: calc(100vh - 380px);
+  min-height: 200px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-light) transparent;
+}
+.registry-results::-webkit-scrollbar {
+  width: 6px;
+}
+.registry-results::-webkit-scrollbar-track {
+  background: transparent;
+}
+.registry-results::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 3px;
 }
 .registry-result-card {
   background: var(--card-bg);
@@ -2587,5 +2603,26 @@ code {
 .registry-count {
   margin-left: auto;
   font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.registry-result-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.registry-result-qualified {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.registry-result-date {
+  font-size: 0.75rem;
   color: var(--text-muted);
 }

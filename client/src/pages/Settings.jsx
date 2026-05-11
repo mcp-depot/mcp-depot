@@ -299,41 +299,49 @@ function Settings() {
     loadRegistry(registryQuery.trim(), registryNextCursor, true);
   };
 
-  function registryEntryToServerForm(entry) {
-    if (!entry?.name) return null;
+  function registryEntryToServerForm(item) {
+    const entry = item?.server;
+    if (!entry) return null;
+
     const pkg = entry.packages?.[0];
     if (!pkg) return null;
+
+    const registryType = pkg.registryType;
+    const identifier = pkg.identifier || '';
+    const transport = pkg.transport?.type || 'stdio';
 
     let command = '';
     let args = [];
     let runtime = 'node';
-    let transportType = pkg.transport === 'stdio' ? 'stdio' : 'http';
 
-    if (pkg.type === 'npm') {
+    if (registryType === 'npm') {
       command = 'npx';
-      args = ['-y', pkg.name || entry.name];
+      args = ['-y', identifier];
       runtime = 'node';
-    } else if (pkg.type === 'pypi') {
+    } else if (registryType === 'pypi') {
       command = 'uvx';
-      args = [pkg.name || entry.name];
+      args = [identifier];
       runtime = 'python';
-    } else if (pkg.type === 'docker') {
+    } else if (registryType === 'oci') {
       command = 'docker';
-      args = ['run', '-i', '--rm', pkg.name || entry.name];
+      args = ['run', '-i', '--rm', identifier];
       runtime = 'node';
+    } else {
+      return null;
     }
 
+    const displayName = entry.title || entry.name?.split('/').pop() || 'unnamed';
+
     return {
-      name: entry.name.split('/').pop().replace(/^server-/, ''),
+      name: displayName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase(),
       description: entry.description || '',
       command,
       args: JSON.stringify(args),
       env: '{}',
       runtime,
-      transportType,
+      transportType: transport === 'stdio' ? 'stdio' : 'http',
       authType: 'none',
       sessionMode: 'stateful',
-      url: pkg.transport !== 'stdio' ? '' : undefined,
     };
   }
 
@@ -965,57 +973,72 @@ function Settings() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       {[...registryResults].sort((a, b) => {
                         if (registrySort === 'name') {
-                          return (a.name || '').localeCompare(b.name || '');
+                          const aName = a.server?.title || a.server?.name || '';
+                          const bName = b.server?.title || b.server?.name || '';
+                          return aName.localeCompare(bName);
                         }
+                        const metaKey = 'io.modelcontextprotocol.registry/official';
                         if (registrySort === 'updated') {
-                          const aDate = a._meta?.['io.modelcontextprotocol.registry/official']?.updatedAt || '';
-                          const bDate = b._meta?.['io.modelcontextprotocol.registry/official']?.updatedAt || '';
+                          const aDate = a._meta?.[metaKey]?.updatedAt || '';
+                          const bDate = b._meta?.[metaKey]?.updatedAt || '';
                           return bDate.localeCompare(aDate);
                         }
-                        const aDate = a._meta?.['io.modelcontextprotocol.registry/official']?.publishedAt || '';
-                        const bDate = b._meta?.['io.modelcontextprotocol.registry/official']?.publishedAt || '';
+                        const aDate = a._meta?.[metaKey]?.publishedAt || '';
+                        const bDate = b._meta?.[metaKey]?.publishedAt || '';
                         return bDate.localeCompare(aDate);
-                      }).map((entry) => {
+                      }).map((item) => {
+                        const entry = item?.server;
+                        if (!entry) return null;
                         const pkg = entry.packages?.[0];
-                        const mapped = registryEntryToServerForm(entry);
+                        const mapped = registryEntryToServerForm(item);
+                        const meta = item._meta?.['io.modelcontextprotocol.registry/official'];
+                        const publishedAt = meta?.publishedAt ? new Date(meta.publishedAt).toLocaleDateString() : null;
                         return (
                           <div key={entry.name} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem 1rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                              <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{(entry.name || entry.displayName || 'Unknown').split('/').pop()}</span>
-                              {pkg && (
-                                <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase', background: pkg.type === 'npm' ? '#cb3837' : pkg.type === 'pypi' ? '#3572a5' : '#2496ed', color: '#fff' }}>
-                                  {pkg.type}
+                              <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{entry.title || entry.name?.split('/').pop() || 'Unknown'}</span>
+                              {pkg?.registryType && (
+                                <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, textTransform: 'uppercase', background: pkg.registryType === 'npm' ? '#cb3837' : pkg.registryType === 'pypi' ? '#3572a5' : '#2496ed', color: '#fff' }}>
+                                  {pkg.registryType}
                                 </span>
                               )}
                               <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: 'var(--surface-hover)', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                                {pkg?.transport || 'stdio'}
+                                {pkg?.transport?.type || 'stdio'}
                               </span>
                             </div>
                             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0.25rem 0' }}>{entry.description || 'No description available.'}</p>
-                            {entry.repository?.url && (
-                              <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none' }}>
-                                GitHub
-                              </a>
-                            )}
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                              {mapped ? (
-                                <button
-                                  className="btn btn-sm btn-primary"
-                                  onClick={() => {
-                                    setServerForm({
-                                      ...mapped,
-                                      envPairs: mapped.env === '{}' ? [{ key: '', value: '' }] : Object.entries(JSON.parse(mapped.env)).map(([key, value]) => ({ key, value: String(value) })),
-                                      authToken: '',
-                                      authHeader: ''
-                                    });
-                                    setShowServerModal(true);
-                                  }}
-                                >
-                                  + Add
-                                </button>
-                              ) : (
-                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Unsupported package type</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                              {entry.name && (
+                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</span>
                               )}
+                              {publishedAt && (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Added {publishedAt}</span>
+                              )}
+                              {entry.repository?.url && (
+                                <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.8rem', color: 'var(--accent)', textDecoration: 'none' }}>
+                                  GitHub
+                                </a>
+                              )}
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', marginLeft: 'auto' }}>
+                                {mapped ? (
+                                  <button
+                                    className="btn btn-sm btn-primary"
+                                    onClick={() => {
+                                      setServerForm({
+                                        ...mapped,
+                                        envPairs: mapped.env === '{}' ? [{ key: '', value: '' }] : Object.entries(JSON.parse(mapped.env)).map(([key, value]) => ({ key, value: String(value) })),
+                                        authToken: '',
+                                        authHeader: ''
+                                      });
+                                      setShowServerModal(true);
+                                    }}
+                                  >
+                                    + Add
+                                  </button>
+                                ) : (
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }} title="Package type not supported for auto-add">Manual setup</span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
