@@ -1,5 +1,6 @@
 const express = require('express');
 const Joi = require('joi');
+const axios = require('axios');
 const { spawn, execSync } = require('child_process');
 const { auth, requireAdmin } = require('../middleware/auth');
 const logger = require('../services/logger');
@@ -95,16 +96,20 @@ async function fetchAllRegistryServers(query = '') {
   let cursor = null;
 
   do {
-    const url = new URL('https://registry.modelcontextprotocol.io/v0.1/servers');
-    url.searchParams.set('limit', '50');
-    if (query) url.searchParams.set('search', query);
-    if (cursor) url.searchParams.set('cursor', cursor);
+    const params = { limit: 50 };
+    if (query) params.search = query;
+    if (cursor) params.cursor = cursor;
 
-    const response = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
-    if (!response.ok) throw new Error(`Registry returned ${response.status}`);
+    const response = await axios.get(
+      'https://registry.modelcontextprotocol.io/v0.1/servers',
+      {
+        params,
+        headers: { 'Accept': 'application/json' },
+        timeout: 10000,
+      }
+    );
 
-    const data = await response.json();
-    const page = data.servers || [];
+    const page = response.data.servers || [];
 
     for (const item of page) {
       const pkg = item?.server?.packages?.[0];
@@ -113,7 +118,7 @@ async function fetchAllRegistryServers(query = '') {
       }
     }
 
-    cursor = data.metadata?.nextCursor || null;
+    cursor = response.data.metadata?.nextCursor || null;
   } while (cursor);
 
   return supported;
@@ -138,8 +143,8 @@ router.get('/registry/search', auth, async (req, res) => {
     res.json({ servers: allServers });
   } catch (err) {
     console.error('[registry/search] failed:', err.message);
-    logger.error({ error: err.message }, 'Registry fetch error');
-    res.status(502).json({ error: 'Failed to reach MCP registry' });
+    logger.error({ error: err.message, status: err.response?.status }, 'Registry fetch error');
+    res.status(502).json({ error: 'Failed to reach MCP registry: ' + err.message });
   }
 });
 
