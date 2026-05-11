@@ -1,4 +1,22 @@
 require('dotenv').config();
+
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+const MCP_PACKAGES_PATH = process.env.MCP_PACKAGES_PATH ||
+  path.join(os.homedir(), '.mcphub', 'packages');
+
+fs.mkdirSync(path.join(MCP_PACKAGES_PATH, 'node'), { recursive: true });
+fs.mkdirSync(path.join(MCP_PACKAGES_PATH, 'python'), { recursive: true });
+
+const pathSep = process.platform === 'win32' ? ';' : ':';
+const nodeBin = path.join(MCP_PACKAGES_PATH, 'node', 'bin');
+const pythonBin = path.join(MCP_PACKAGES_PATH, 'python', 'bin');
+process.env.PATH = `${nodeBin}${pathSep}${pythonBin}${pathSep}${process.env.PATH}`;
+process.env.NODE_PATH = path.join(MCP_PACKAGES_PATH, 'node', 'lib', 'node_modules');
+process.env.MCP_PACKAGES_PATH = MCP_PACKAGES_PATH;
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
