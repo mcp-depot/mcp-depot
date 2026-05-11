@@ -17,7 +17,9 @@ import {
   Layers,
   MessagesSquare,
   Users,
-  HeartPulse
+  HeartPulse,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -111,14 +113,27 @@ function Sidebar() {
       </nav>
 
       <div className="sidebar-footer" style={{ flexDirection: collapsed ? 'column' : 'row', alignItems: 'center' }}>
-        <label 
-          className="sidebar-theme-toggle" 
-          title={themeName === 'dark' ? 'Switch to light' : 'Switch to dark'}
-          style={{ flexShrink: 0 }}
+        <button
+          onClick={toggleTheme}
+          title={themeName === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{
+            background: 'none',
+            border: '1px solid var(--border)',
+            borderRadius: '6px',
+            padding: '5px 7px',
+            cursor: 'pointer',
+            color: 'var(--text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            transition: 'all 0.12s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'var(--border-light)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
         >
-          <input type="checkbox" checked={themeName === 'dark'} onChange={toggleTheme} />
-          <span className="toggle-slider"></span>
-        </label>
+          {themeName === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+        </button>
         
         <div style={{ position: 'relative', width: '100%' }}>
           <div 

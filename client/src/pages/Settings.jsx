@@ -6,7 +6,7 @@ import api from '../services/api';
 import { StyledSelect } from '../components/StyledSelect';
 import { DropdownMenu, DropdownItem, DropdownSeparator } from '../components/Dropdown';
 import { showSuccess, showError } from '../utils/toast';
-import { Copy, Trash2, Edit2, Wrench } from 'lucide-react';
+import { Copy, Trash2, Edit2, Wrench, Package, Link2, Compass } from 'lucide-react';
 
 function LoadingDots({ text = 'Loading' }) {
   const [dots, setDots] = useState('');
@@ -727,23 +727,23 @@ function Settings() {
                   <div 
                     className={`tab ${externalTab === 'install' ? 'active' : ''}`}
                     onClick={() => setExternalTab('install')}
-                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem' }}
+                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                   >
-                    📦 Install Packages
+                    <Package size={15} /> Install Packages
                   </div>
                   <div 
                     className={`tab ${externalTab === 'servers' ? 'active' : ''}`}
                     onClick={() => setExternalTab('servers')}
-                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem' }}
+                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                   >
-                    🔗 External Servers
+                    <Link2 size={15} /> External Servers
                   </div>
                   <div 
                     className={`tab ${externalTab === 'discover' ? 'active' : ''}`}
                     onClick={() => setExternalTab('discover')}
-                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem' }}
+                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                   >
-                    🔍 Discover
+                    <Compass size={15} /> Discover
                   </div>
                 </div>
 
