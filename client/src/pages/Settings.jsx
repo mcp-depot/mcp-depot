@@ -163,6 +163,9 @@ function Settings() {
   const [externalTab, setExternalTab] = useState('servers');
   const [registryQuery, setRegistryQuery] = useState('');
   const [registryResults, setRegistryResults] = useState([]);
+  const [registryNextCursor, setRegistryNextCursor] = useState(null);
+  const [registryHasMore, setRegistryHasMore] = useState(false);
+  const [registryLoadingMore, setRegistryLoadingMore] = useState(false);
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryError, setRegistryError] = useState('');
   const [registrySort, setRegistrySort] = useState('published');
@@ -251,32 +254,50 @@ function Settings() {
     }
   }
 
-  async function searchRegistry() {
-    if (!registryQuery.trim()) return;
-    setRegistryLoading(true);
-    setRegistryError('');
+  async function loadRegistry(query = '', cursor = null, append = false) {
+    if (!append) {
+      setRegistryLoading(true);
+      setRegistryError('');
+    } else {
+      setRegistryLoadingMore(true);
+    }
+
     try {
-      const res = await api.get(`/external-mcp/registry/search?q=${encodeURIComponent(registryQuery)}&limit=20`);
-      setRegistryResults(res.data.servers || []);
+      const params = new URLSearchParams({ limit: '20' });
+      if (query) params.set('q', query);
+      if (cursor) params.set('cursor', cursor);
+
+      const res = await api.get(`/external-mcp/registry/search?${params.toString()}`);
+      const servers = res.data.servers || [];
+      const nextCursor = res.data.next || res.data.metadata?.nextCursor || null;
+
+      setRegistryResults(prev => append ? [...prev, ...servers] : servers);
+      setRegistryNextCursor(nextCursor);
+      setRegistryHasMore(!!nextCursor);
     } catch (err) {
-      setRegistryError('Failed to search registry. Check your connection.');
+      setRegistryError('Failed to reach MCP registry. Check your connection.');
     } finally {
       setRegistryLoading(false);
+      setRegistryLoadingMore(false);
     }
   }
 
-  async function loadDefaultRegistry() {
+  const loadDefaultRegistry = () => {
     if (registryResults.length > 0) return;
-    setRegistryLoading(true);
-    try {
-      const res = await api.get('/external-mcp/registry/search?limit=40');
-      setRegistryResults(res.data.servers || []);
-    } catch (err) {
-      setRegistryError('Failed to load registry.');
-    } finally {
-      setRegistryLoading(false);
-    }
-  }
+    loadRegistry('');
+  };
+
+  const searchRegistry = () => {
+    setRegistryResults([]);
+    setRegistryNextCursor(null);
+    setRegistryHasMore(false);
+    loadRegistry(registryQuery.trim());
+  };
+
+  const loadMoreRegistry = () => {
+    if (!registryHasMore || registryLoadingMore) return;
+    loadRegistry(registryQuery.trim(), registryNextCursor, true);
+  };
 
   function registryEntryToServerForm(entry) {
     if (!entry?.name) return null;
@@ -935,7 +956,9 @@ function Settings() {
                             {opt.label}
                           </button>
                         ))}
-                        <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{registryResults.length} servers</span>
+                        <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          {registryResults.length} loaded{registryHasMore ? '...' : ' (all)'}
+                        </span>
                       </div>
                     )}
 
@@ -1000,6 +1023,24 @@ function Settings() {
 
                       {registryResults.length === 0 && !registryLoading && registryQuery && (
                         <p style={{ color: 'var(--text-muted)' }}>No results found. Try a different search term.</p>
+                      )}
+
+                      {registryHasMore && (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0' }}>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={loadMoreRegistry}
+                            disabled={registryLoadingMore}
+                          >
+                            {registryLoadingMore ? 'Loading...' : 'Load More'}
+                          </button>
+                        </div>
+                      )}
+
+                      {!registryHasMore && registryResults.length > 0 && (
+                        <p style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.75rem 0' }}>
+                          All {registryResults.length} servers loaded
+                        </p>
                       )}
                     </div>
                   </div>
