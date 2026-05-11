@@ -331,12 +331,25 @@ function Settings() {
 
     const displayName = entry.title || entry.name?.split('/').pop() || 'unnamed';
 
+    const envVars = pkg.environmentVariables || [];
+    const envPairs = envVars.length > 0
+      ? envVars.map(v => ({
+          key: v.name,
+          value: '',
+          description: v.description || '',
+          isRequired: !!v.isRequired,
+          isSecret: !!v.isSecret,
+          fromRegistry: true,
+        }))
+      : [{ key: '', value: '' }];
+
     return {
       name: displayName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase(),
       description: entry.description || '',
       command,
       args: JSON.stringify(args),
       env: '{}',
+      envPairs,
       runtime,
       transportType: transport === 'stdio' ? 'stdio' : 'http',
       authType: 'none',
@@ -1080,7 +1093,7 @@ function Settings() {
                                       onClick={() => {
                                         setServerForm({
                                           ...mapped,
-                                          envPairs: mapped.env === '{}' ? [{ key: '', value: '' }] : Object.entries(JSON.parse(mapped.env)).map(([key, value]) => ({ key, value: String(value) })),
+                                          envPairs: mapped.envPairs || [{ key: '', value: '' }],
                                           authToken: '',
                                           authHeader: ''
                                         });
@@ -1474,39 +1487,56 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                   <div className="form-group"><label>Command</label><input type="text" value={serverForm.command} onChange={e => setServerForm({ ...serverForm, command: e.target.value })} placeholder={serverForm.runtime === 'python' ? 'uvx' : 'npx'} /></div>
                   <div className="form-group"><label>Args (JSON array)</label><input type="text" value={serverForm.args} onChange={e => setServerForm({ ...serverForm, args: e.target.value })} placeholder={serverForm.runtime === 'python' ? '["mcp-server-myPackage"]' : '["bitbucket-mcp"]'} /></div>
                   <div className="form-group">
-                    <label>Environment Variables (optional)</label>
+                    <label>
+                      Environment Variables
+                      {serverForm.envPairs.some(p => p.fromRegistry) && (
+                        <span style={{ fontWeight: 400, fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>
+                          (pre-filled from registry)
+                        </span>
+                      )}
+                    </label>
                     {serverForm.envPairs.map((pair, idx) => (
-                      <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        <input
-                          type="text"
-                          value={pair.key}
-                          onChange={e => {
-                            const newPairs = [...serverForm.envPairs];
-                            newPairs[idx].key = e.target.value;
-                            setServerForm({ ...serverForm, envPairs: newPairs });
-                          }}
-                          placeholder="KEY"
-                          style={{ flex: 1 }}
-                        />
-                        <input
-                          type="text"
-                          value={pair.value}
-                          onChange={e => {
-                            const newPairs = [...serverForm.envPairs];
-                            newPairs[idx].value = e.target.value;
-                            setServerForm({ ...serverForm, envPairs: newPairs });
-                          }}
-                          placeholder="value"
-                          style={{ flex: 1 }}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-small btn-danger"
-                          onClick={() => {
-                            const newPairs = serverForm.envPairs.filter((_, i) => i !== idx);
-                            setServerForm({ ...serverForm, envPairs: newPairs.length ? newPairs : [{ key: '', value: '' }] });
-                          }}
-                        >×</button>
+                      <div key={idx} style={{ marginBottom: '0.6rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <input
+                            type="text"
+                            value={pair.key}
+                            readOnly={!!pair.fromRegistry}
+                            onChange={e => {
+                              if (pair.fromRegistry) return;
+                              const newPairs = [...serverForm.envPairs];
+                              newPairs[idx] = { ...newPairs[idx], key: e.target.value };
+                              setServerForm({ ...serverForm, envPairs: newPairs });
+                            }}
+                            placeholder="KEY"
+                            style={{ flex: 1, ...(pair.fromRegistry ? { opacity: 0.75 } : {}) }}
+                          />
+                          <input
+                            type={pair.isSecret ? 'password' : 'text'}
+                            value={pair.value}
+                            onChange={e => {
+                              const newPairs = [...serverForm.envPairs];
+                              newPairs[idx] = { ...newPairs[idx], value: e.target.value };
+                              setServerForm({ ...serverForm, envPairs: newPairs });
+                            }}
+                            placeholder={pair.description || 'value'}
+                            style={{ flex: 2 }}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-small btn-danger"
+                            onClick={() => {
+                              const newPairs = serverForm.envPairs.filter((_, i) => i !== idx);
+                              setServerForm({ ...serverForm, envPairs: newPairs.length ? newPairs : [{ key: '', value: '' }] });
+                            }}
+                          >×</button>
+                        </div>
+                        {pair.description && (
+                          <p style={{ margin: '3px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {pair.isRequired && <span style={{ color: 'var(--primary)', marginRight: '4px' }}>Required.</span>}
+                            {pair.description}
+                          </p>
+                        )}
                       </div>
                     ))}
                     <button
