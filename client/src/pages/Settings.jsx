@@ -274,8 +274,14 @@ function Settings() {
 
   const searchRegistry = () => {
     setRegistryTypeFilter('all');
+    setRegistryResults([]);
     loadRegistry(registryQuery.trim());
   };
+
+  const filteredResults = registryTypeFilter === 'all'
+    ? registryResults
+    : registryResults.filter(item => item?.server?.packages?.[0]?.registryType === registryTypeFilter);
+  const filteredCount = filteredResults.length;
 
   function registryEntryToServerForm(item) {
     const entry = item?.server;
@@ -918,28 +924,6 @@ function Settings() {
 
                     {registryError && <div className="error-message" style={{ marginBottom: '1rem' }}>{registryError}</div>}
 
-                    {registryLoading && (
-                      <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
-                        {Array.from({ length: 8 }).map((_, i) => (
-                          <div
-                            key={i}
-                            className="registry-result-card registry-skeleton-card"
-                            style={{ animationDelay: `${i * 0.07}s` }}
-                          >
-                            <span className="sk-line sk-title" />
-                            <span className="sk-line sk-badges" />
-                            <span className="sk-line sk-desc-1" />
-                            <span className="sk-line sk-desc-2" />
-                            <span className="sk-line sk-spacer" />
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                              <span className="sk-line sk-footer" />
-                              <span className="sk-line sk-btn" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
                     {registryResults.length > 0 && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
                         {[
@@ -1001,98 +985,117 @@ function Settings() {
                       </div>
                     )}
 
-                    <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
-                      {(() => {
-                        const filtered = registryTypeFilter === 'all'
-                          ? registryResults
-                          : registryResults.filter(item => item?.server?.packages?.[0]?.registryType === registryTypeFilter);
-                        const filteredCount = filtered.length;
-                        return [...filtered].sort((a, b) => {
-                        if (registrySort === 'name') {
-                          const aName = a.server?.title || a.server?.name || '';
-                          const bName = b.server?.title || b.server?.name || '';
-                          return aName.localeCompare(bName);
-                        }
-                        const metaKey = 'io.modelcontextprotocol.registry/official';
-                        if (registrySort === 'updated') {
-                          const aDate = a._meta?.[metaKey]?.updatedAt || '';
-                          const bDate = b._meta?.[metaKey]?.updatedAt || '';
-                          return bDate.localeCompare(aDate);
-                        }
-                        const aDate = a._meta?.[metaKey]?.publishedAt || '';
-                        const bDate = b._meta?.[metaKey]?.publishedAt || '';
-                        return bDate.localeCompare(aDate);
-                      }).map((item) => {
-                        const entry = item?.server;
-                        if (!entry) return null;
-                        const pkg = entry.packages?.[0];
-                        const mapped = registryEntryToServerForm(item);
-                        const meta = item._meta?.['io.modelcontextprotocol.registry/official'];
-                        const publishedAt = meta?.publishedAt ? new Date(meta.publishedAt).toLocaleDateString() : null;
-                        return (
-                          <div key={entry.name} className="registry-result-card">
-                            <div className="registry-result-header">
-                              <span className="registry-result-name">
-                                {entry.title || entry.name?.split('/').pop() || 'Unknown'}
-                              </span>
-                              {pkg?.registryType && (
-                                <span className={`runtime-badge runtime-${pkg.registryType}`}>
-                                  {pkg.registryType}
-                                </span>
-                              )}
-                              {pkg?.transport?.type && pkg.transport.type !== 'stdio' && (
-                                <span className="transport-badge">{pkg.transport.type}</span>
-                              )}
-                            </div>
-
-                            <p className="registry-result-description">
-                              {entry.description || 'No description available.'}
-                            </p>
-
-                            <div className="registry-result-footer">
-                              {entry.repository?.url && (
-                                <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" className="registry-result-link">
-                                  GitHub ↗
-                                </a>
-                              )}
-                              {publishedAt && (
-                                <span className="registry-result-date">Added {publishedAt}</span>
-                              )}
-                              <div style={{ marginLeft: 'auto' }}>
-                                {mapped ? (
-                                  <button
-                                    className="btn btn-sm btn-primary"
-                                    onClick={() => {
-                                      setServerForm({
-                                        ...mapped,
-                                        envPairs: mapped.env === '{}' ? [{ key: '', value: '' }] : Object.entries(JSON.parse(mapped.env)).map(([key, value]) => ({ key, value: String(value) })),
-                                        authToken: '',
-                                        authHeader: ''
-                                      });
-                                      setShowServerModal(true);
-                                    }}
-                                  >
-                                    + Add
-                                  </button>
-                                ) : (
-                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }} title="Package type not supported for auto-add">Manual setup</span>
-                                )}
-                              </div>
+                    {registryLoading ? (
+                      <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
+                        {Array.from({ length: 8 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className="registry-result-card registry-skeleton-card"
+                            style={{ animationDelay: `${i * 0.07}s` }}
+                          >
+                            <span className="sk-line sk-title" />
+                            <span className="sk-line sk-badges" />
+                            <span className="sk-line sk-desc-1" />
+                            <span className="sk-line sk-desc-2" />
+                            <span className="sk-line sk-spacer" />
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <span className="sk-line sk-footer" />
+                              <span className="sk-line sk-btn" />
                             </div>
                           </div>
-                        );
-                      });
-                      })()}
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
+                        {[...filteredResults].sort((a, b) => {
+                          if (registrySort === 'name') {
+                            const aName = a.server?.title || a.server?.name || '';
+                            const bName = b.server?.title || b.server?.name || '';
+                            return aName.localeCompare(bName);
+                          }
+                          const metaKey = 'io.modelcontextprotocol.registry/official';
+                          if (registrySort === 'updated') {
+                            const aDate = a._meta?.[metaKey]?.updatedAt || '';
+                            const bDate = b._meta?.[metaKey]?.updatedAt || '';
+                            return bDate.localeCompare(aDate);
+                          }
+                          const aDate = a._meta?.[metaKey]?.publishedAt || '';
+                          const bDate = b._meta?.[metaKey]?.publishedAt || '';
+                          return bDate.localeCompare(aDate);
+                        }).map((item) => {
+                          const entry = item?.server;
+                          if (!entry) return null;
+                          const pkg = entry.packages?.[0];
+                          const mapped = registryEntryToServerForm(item);
+                          const meta = item._meta?.['io.modelcontextprotocol.registry/official'];
+                          const publishedAt = meta?.publishedAt ? new Date(meta.publishedAt).toLocaleDateString() : null;
+                          return (
+                            <div key={entry.name} className="registry-result-card">
+                              <div className="registry-result-header">
+                                <span className="registry-result-name">
+                                  {entry.title || entry.name?.split('/').pop() || 'Unknown'}
+                                </span>
+                                {pkg?.registryType && (
+                                  <span className={`runtime-badge runtime-${pkg.registryType}`}>
+                                    {pkg.registryType}
+                                  </span>
+                                )}
+                                {pkg?.transport?.type && pkg.transport.type !== 'stdio' && (
+                                  <span className="transport-badge">{pkg.transport.type}</span>
+                                )}
+                              </div>
 
-                      {registryResults.length === 0 && !registryLoading && registryQuery && (
-                        <p style={{ color: 'var(--text-muted)' }}>No results found. Try a different search term.</p>
-                      )}
-                        {registryResults.length > 0 && (
-                        <p style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.75rem 0' }}>
-                          {registryResults.length} servers loaded
-                        </p>
+                              <p className="registry-result-description">
+                                {entry.description || 'No description available.'}
+                              </p>
+
+                              <div className="registry-result-footer">
+                                {entry.repository?.url && (
+                                  <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" className="registry-result-link">
+                                    GitHub ↗
+                                  </a>
+                                )}
+                                {publishedAt && (
+                                  <span className="registry-result-date">Added {publishedAt}</span>
+                                )}
+                                <div style={{ marginLeft: 'auto' }}>
+                                  {mapped ? (
+                                    <button
+                                      className="btn btn-sm btn-primary"
+                                      onClick={() => {
+                                        setServerForm({
+                                          ...mapped,
+                                          envPairs: mapped.env === '{}' ? [{ key: '', value: '' }] : Object.entries(JSON.parse(mapped.env)).map(([key, value]) => ({ key, value: String(value) })),
+                                          authToken: '',
+                                          authHeader: ''
+                                        });
+                                        setShowServerModal(true);
+                                      }}
+                                    >
+                                      + Add
+                                    </button>
+                                  ) : (
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }} title="Package type not supported for auto-add">Manual setup</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {registryResults.length === 0 && !registryQuery && (
+                          <p style={{ color: 'var(--text-muted)' }}>Browse or search the MCP registry above.</p>
                         )}
-                    </div>
+                        {registryResults.length === 0 && registryQuery && (
+                          <p style={{ color: 'var(--text-muted)' }}>No results found. Try a different search term.</p>
+                        )}
+                        {registryResults.length > 0 && (
+                          <p style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.75rem 0' }}>
+                            {registryResults.length} servers loaded
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
