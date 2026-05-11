@@ -2612,6 +2612,21 @@ code {
   border-color: var(--primary);
   background: var(--surface-hover);
 }
+
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.registry-result-card:not(.registry-skeleton-card) {
+  animation: cardFadeIn 0.25s ease both;
+}
 .registry-result-header {
   display: flex;
   align-items: center;

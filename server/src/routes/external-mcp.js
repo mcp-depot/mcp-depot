@@ -88,19 +88,20 @@ router.get('/pool-status', auth, async (req, res) => {
 });
 
 const SUPPORTED_REGISTRY_TYPES = ['npm', 'pypi'];
-const REGISTRY_CACHE = { data: null, fetchedAt: 0 };
-const REGISTRY_CACHE_TTL = 6 * 60 * 60 * 1000;
+const REGISTRY_CACHE = { data: null, nextCursor: null, fetchedAt: 0 };
+const REGISTRY_CACHE_TTL = 30 * 60 * 1000;
 
-async function fetchAllRegistryServers(query = '') {
+async function fetchRegistryBatch(query = '', cursor = null, pagesToFetch = 3) {
   const supported = [];
-  let cursor = null;
-  let pageCount = 0;
+  let currentCursor = cursor;
+  let nextCursor = null;
+  let pagesConsumed = 0;
 
-  do {
+  while (pagesConsumed < pagesToFetch) {
     try {
       const params = { limit: 50 };
       if (query) params.search = query;
-      if (cursor) params.cursor = cursor;
+      if (currentCursor) params.cursor = currentCursor;
 
       const response = await axios.get(
         'https://registry.modelcontextprotocol.io/v0.1/servers',
@@ -115,38 +116,45 @@ async function fetchAllRegistryServers(query = '') {
         }
       }
 
-      cursor = response.data.metadata?.nextCursor || null;
-      pageCount++;
+      nextCursor = response.data.metadata?.nextCursor || null;
+      currentCursor = nextCursor;
+      pagesConsumed++;
 
-      if (cursor) await new Promise(r => setTimeout(r, 200));
+      if (!nextCursor) break;
+      if (pagesConsumed < pagesToFetch) await new Promise(r => setTimeout(r, 150));
     } catch (pageErr) {
-      logger.warn({ error: pageErr.message, pageCount }, 'Registry page fetch failed, stopping pagination');
+      logger.warn({ error: pageErr.message, pagesConsumed }, 'Registry page fetch failed');
       break;
     }
-  } while (cursor);
+  }
 
-  return supported;
+  return { servers: supported, nextCursor };
 }
 
 router.get('/registry/search', auth, async (req, res) => {
   try {
-    const { q = '' } = req.query;
+    const { q = '', cursor = null } = req.query;
     const now = Date.now();
+    const isInitialBrowse = !q && !cursor;
 
-    let allServers;
-    if (!q && REGISTRY_CACHE.data && (now - REGISTRY_CACHE.fetchedAt) < REGISTRY_CACHE_TTL) {
-      allServers = REGISTRY_CACHE.data;
-    } else {
-      allServers = await fetchAllRegistryServers(q);
-      if (!q && allServers.length > 0) {
-        REGISTRY_CACHE.data = allServers;
-        REGISTRY_CACHE.fetchedAt = now;
-      }
+    if (isInitialBrowse && REGISTRY_CACHE.data && (now - REGISTRY_CACHE.fetchedAt) < REGISTRY_CACHE_TTL) {
+      return res.json({ servers: REGISTRY_CACHE.data, nextCursor: REGISTRY_CACHE.nextCursor });
     }
 
-    if (allServers.length === 0) {
+    const pagesToFetch = q ? 1 : 3;
+    const result = await fetchRegistryBatch(q, cursor || null, pagesToFetch);
+
+    if (result.servers.length === 0 && !cursor) {
       return res.status(502).json({ error: 'Failed to reach MCP registry' });
     }
+
+    if (isInitialBrowse && result.servers.length > 0) {
+      REGISTRY_CACHE.data = result.servers;
+      REGISTRY_CACHE.nextCursor = result.nextCursor;
+      REGISTRY_CACHE.fetchedAt = now;
+    }
+
+    res.json({ servers: result.servers, nextCursor: result.nextCursor });
 
     res.json({ servers: allServers });
   } catch (err) {

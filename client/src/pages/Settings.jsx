@@ -167,6 +167,8 @@ function Settings() {
   const [registryError, setRegistryError] = useState('');
   const [registrySort, setRegistrySort] = useState('published');
   const [registryTypeFilter, setRegistryTypeFilter] = useState('all');
+  const [registryNextCursor, setRegistryNextCursor] = useState(null);
+  const [registryLoadingMore, setRegistryLoadingMore] = useState(false);
   const [installingPackage, setInstallingPackage] = useState(false);
   const [installMessage, setInstallMessage] = useState('');
   const [loadingServerTools, setLoadingServerTools] = useState(null);
@@ -252,18 +254,30 @@ function Settings() {
     }
   }
 
-  async function loadRegistry(query = '') {
-    setRegistryLoading(true);
-    setRegistryError('');
+  async function loadRegistry(query = '', cursor = null) {
+    if (cursor) {
+      setRegistryLoadingMore(true);
+    } else {
+      setRegistryLoading(true);
+      setRegistryError('');
+    }
     try {
       const params = new URLSearchParams();
       if (query) params.set('q', query);
+      if (cursor) params.set('cursor', cursor);
       const res = await api.get(`/external-mcp/registry/search?${params.toString()}`);
-      setRegistryResults(res.data.servers || []);
+      const incoming = res.data.servers || [];
+      if (cursor) {
+        setRegistryResults(prev => [...prev, ...incoming]);
+      } else {
+        setRegistryResults(incoming);
+      }
+      setRegistryNextCursor(res.data.nextCursor || null);
     } catch (err) {
       setRegistryError('Failed to reach MCP registry. Check your connection.');
     } finally {
       setRegistryLoading(false);
+      setRegistryLoadingMore(false);
     }
   }
 
@@ -275,6 +289,7 @@ function Settings() {
   const searchRegistry = () => {
     setRegistryTypeFilter('all');
     setRegistryResults([]);
+    setRegistryNextCursor(null);
     loadRegistry(registryQuery.trim());
   };
 
@@ -1022,7 +1037,7 @@ function Settings() {
                           const aDate = a._meta?.[metaKey]?.publishedAt || '';
                           const bDate = b._meta?.[metaKey]?.publishedAt || '';
                           return bDate.localeCompare(aDate);
-                        }).map((item) => {
+                        }).map((item, idx) => {
                           const entry = item?.server;
                           if (!entry) return null;
                           const pkg = entry.packages?.[0];
@@ -1030,7 +1045,7 @@ function Settings() {
                           const meta = item._meta?.['io.modelcontextprotocol.registry/official'];
                           const publishedAt = meta?.publishedAt ? new Date(meta.publishedAt).toLocaleDateString() : null;
                           return (
-                            <div key={entry.name} className="registry-result-card">
+                            <div key={entry.name} className="registry-result-card" style={{ animationDelay: `${Math.min(idx, 12) * 0.04}s` }}>
                               <div className="registry-result-header">
                                 <span className="registry-result-name">
                                   {entry.title || entry.name?.split('/').pop() || 'Unknown'}
@@ -1093,6 +1108,17 @@ function Settings() {
                           <p style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.75rem 0' }}>
                             {registryResults.length} servers loaded
                           </p>
+                        )}
+                        {registryNextCursor && !registryLoading && (
+                          <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center', padding: '0.75rem 0' }}>
+                            <button
+                              className="btn btn-secondary"
+                              onClick={() => loadRegistry(registryQuery.trim(), registryNextCursor)}
+                              disabled={registryLoadingMore}
+                            >
+                              {registryLoadingMore ? 'Loading...' : 'Load More'}
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}
