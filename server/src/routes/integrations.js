@@ -169,6 +169,9 @@ router.get('/composite', authWithApiKey, async (req, res) => {
     if (integrationId) {
       where.integrationId = integrationId;
     }
+    if (req.user.role !== 'admin') {
+      where.userId = req.user.id;
+    }
     
     const tools = await Tool.findAll({ where });
     
@@ -234,7 +237,7 @@ router.post('/composite', authWithApiKey, async (req, res) => {
 
 router.get('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -263,7 +266,7 @@ router.get('/composite/:id', authWithApiKey, async (req, res) => {
 
 router.put('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -299,7 +302,7 @@ router.put('/composite/:id', authWithApiKey, async (req, res) => {
 
 router.delete('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -325,7 +328,7 @@ router.delete('/composite/:id', authWithApiKey, async (req, res) => {
 
 router.post('/composite/:id/test', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -1334,6 +1337,9 @@ router.get('/composite', authWithApiKey, async (req, res) => {
     if (integrationId) {
       where.integrationId = integrationId;
     }
+    if (req.user.role !== 'admin') {
+      where.userId = req.user.id;
+    }
     
     const tools = await Tool.findAll({ where });
     
@@ -1399,7 +1405,7 @@ router.post('/composite', authWithApiKey, async (req, res) => {
 
 router.get('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -1428,7 +1434,7 @@ router.get('/composite/:id', authWithApiKey, async (req, res) => {
 
 router.put('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -1464,7 +1470,7 @@ router.put('/composite/:id', authWithApiKey, async (req, res) => {
 
 router.delete('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -1490,7 +1496,7 @@ router.delete('/composite/:id', authWithApiKey, async (req, res) => {
 
 router.post('/composite/:id/test', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });

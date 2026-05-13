@@ -164,10 +164,13 @@ router.get('/session-contexts/get', async (req, res) => {
     if (!name) return res.status(400).json({ error: 'name is required' });
     const { SessionContext } = loadModels();
     const callerId = req.user?.id ?? null;
+    const callerRole = req.user?.role ?? 'user';
     const ctx = await SessionContext.findOne({
       where: callerId
-        ? { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
-        : { name, [require('sequelize').Op.or]: [{ isShared: true }, { createdBy: null }] }
+        ? callerRole === 'admin'
+          ? { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
+          : { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }] }
+        : { name, isShared: true }
     });
     if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
     res.json({ name: ctx.name, content: ctx.content, updatedAt: ctx.updatedAt, isShared: ctx.isShared });
@@ -181,10 +184,13 @@ router.get('/session-contexts/list', async (req, res) => {
     const { SessionContext } = loadModels();
     const { Op } = require('sequelize');
     const callerId = req.user?.id ?? null;
+    const callerRole = req.user?.role ?? 'user';
 
     const where = callerId
-      ? { [Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
-      : { [Op.or]: [{ isShared: true }, { createdBy: null }] };
+      ? callerRole === 'admin'
+        ? { [Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
+        : { [Op.or]: [{ createdBy: callerId }, { isShared: true }] }
+      : { isShared: true };
 
     const all = await SessionContext.findAll({ where, order: [['updatedAt', 'DESC']] });
     res.json(all.map(c => {

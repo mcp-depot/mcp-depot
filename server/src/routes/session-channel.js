@@ -117,7 +117,8 @@ router.get('/watch', auth, async (req, res) => {
 router.get('/', auth, async (req, res) => {
   try {
     const { SessionChannel } = loadModels();
-    const all = await SessionChannel.findAll({ order: [['createdAt', 'DESC']] });
+    const where = req.user.role === 'admin' ? {} : { createdBy: req.user.id };
+    const all = await SessionChannel.findAll({ where, order: [['createdAt', 'DESC']] });
     const channelMap = new Map();
     for (const m of all) {
       if (!channelMap.has(m.channel)) {
@@ -191,6 +192,9 @@ router.post('/', auth, async (req, res) => {
 // DELETE /session-channels/:channel — delete all messages in a channel
 router.delete('/:channel', auth, async (req, res) => {
   try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can delete channels' });
+    }
     const { SessionChannel } = loadModels();
     const deleted = await SessionChannel.destroy({ where: { channel: req.params.channel } });
     if (!deleted) return res.status(404).json({ error: 'Channel not found or already empty' });

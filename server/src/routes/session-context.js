@@ -8,15 +8,17 @@ const router = express.Router();
 
 const DEFAULT_TTL_HOURS = 168; // 7 days
 
-function readableWhere(userId) {
-  return { [Op.or]: [{ createdBy: userId }, { isShared: true }, { createdBy: null }] };
+function readableWhere(userId, role) {
+  const conditions = [{ createdBy: userId }, { isShared: true }];
+  if (role === 'admin') conditions.push({ createdBy: null });
+  return { [Op.or]: conditions };
 }
 
 router.get('/', auth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const contexts = await SessionContext.findAll({
-      where: readableWhere(req.user.id),
+      where: readableWhere(req.user.id, req.user.role),
       order: [['updatedAt', 'DESC']]
     });
     res.json(contexts.map(c => {
@@ -44,7 +46,7 @@ router.get('/:name', auth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({
-      where: { name: req.params.name, ...readableWhere(req.user.id) }
+      where: { name: req.params.name, ...readableWhere(req.user.id, req.user.role) }
     });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
     res.json(ctx);
