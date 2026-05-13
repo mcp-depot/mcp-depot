@@ -16,6 +16,17 @@ const { executeComposite, executeCompositeTool } = require('../services/composit
 
 const router = express.Router();
 
+function refreshMcpTools() {
+  if (process.env.MCP_ENABLED === 'true') {
+    const { refreshToolsIfEnabled } = require('../mcp/server');
+    refreshToolsIfEnabled();
+  }
+}
+
+function ownerWhere(id, user) {
+  return user.role === 'admin' ? { id } : { id, userId: user.id };
+}
+
 const integrationSchema = Joi.object({
   type: Joi.string().required(),
   name: Joi.string().required(),
@@ -223,10 +234,7 @@ router.post('/composite', authWithApiKey, async (req, res) => {
       steps: value.steps
     });
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.status(201).json(tool);
   } catch (error) {
@@ -288,10 +296,7 @@ router.put('/composite/:id', authWithApiKey, async (req, res) => {
       steps: value.steps
     });
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json(tool);
   } catch (error) {
@@ -314,10 +319,7 @@ router.delete('/composite/:id', authWithApiKey, async (req, res) => {
 
     await tool.destroy();
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json({ success: true });
   } catch (error) {
@@ -452,9 +454,7 @@ router.post('/', authWithApiKey, async (req, res) => {
 
 router.put('/:id', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhere(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -537,10 +537,7 @@ router.delete('/:id', authWithApiKey, async (req, res) => {
     // Delete the integration
     await integration.destroy();
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json({ message: 'Integration deleted' });
   } catch (error) {
@@ -551,9 +548,7 @@ router.delete('/:id', authWithApiKey, async (req, res) => {
 
 router.post('/:id/test', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhere(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -649,9 +644,7 @@ router.get('/:id/tools', authWithApiKey, async (req, res) => {
 
 router.post('/:id/tools', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhere(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -699,10 +692,7 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
       responseTransformer: value.responseTransformer
     });
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.status(201).json(tool);
   } catch (error) {
@@ -738,10 +728,7 @@ router.put('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
 
     await tool.update(updates);
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json(tool);
   } catch (error) {
@@ -766,10 +753,7 @@ router.delete('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
 
     await tool.destroy();
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json({ message: 'Tool deleted' });
   } catch (error) {
@@ -806,10 +790,7 @@ router.patch('/:id/tools/bulk', authWithApiKey, async (req, res) => {
       await Tool.update(updates, { where: { id: { [Op.in]: tools.map(t => t.id) } } });
     }
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json({ message: `${tools.length} tools ${action}d` });
   } catch (error) {
@@ -877,9 +858,7 @@ router.post('/:id/import-tools', authWithApiKey, async (req, res) => {
   logger.debug({ id: req.params.id, endpointsCount: req.body.endpoints?.length }, 'Import tools request');
   
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhere(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -1172,10 +1151,7 @@ router.post('/import', authWithApiKey, async (req, res) => {
       errors: errors.length > 0 ? errors : undefined
     });
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
   } catch (error) {
     logger.error({ err: error.message }, 'Import error');
     res.status(500).json({ error: error.message });
@@ -1184,9 +1160,7 @@ router.post('/import', authWithApiKey, async (req, res) => {
 
 router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhere(req.params.id, req.user);
     
     const integration = await Integration.findOne({ where: whereClause });
     if (!integration) {
@@ -1327,197 +1301,6 @@ const compositeToolSchema = Joi.object({
       selectField: Joi.string().required()
     })).default([])
   })).min(1).required()
-});
-
-router.get('/composite', authWithApiKey, async (req, res) => {
-  try {
-    const { integrationId } = req.query;
-    
-    const where = { type: 'composite' };
-    if (integrationId) {
-      where.integrationId = integrationId;
-    }
-    if (req.user.role !== 'admin') {
-      where.userId = req.user.id;
-    }
-    
-    const tools = await Tool.findAll({ where });
-    
-    res.json(tools.map(t => ({ ...t.toJSON(), _id: t.id })));
-  } catch (error) {
-    logger.error({ err: error.message }, 'Get composite tools error');
-    res.status(500).json({ error: 'Failed to get composite tools' });
-  }
-});
-
-router.post('/composite', authWithApiKey, async (req, res) => {
-  try {
-    const { error, value } = compositeToolSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { integrationId } = req.body;
-    if (!integrationId) {
-      return res.status(400).json({ error: 'integrationId is required' });
-    }
-
-    const integration = await Integration.findByPk(integrationId);
-    if (!integration) {
-      return res.status(404).json({ error: 'Integration not found' });
-    }
-
-    const simpleTools = await Tool.findAll({
-      where: { integrationId, type: 'simple' }
-    });
-    const toolIds = simpleTools.map(t => t.id);
-    
-    for (const step of value.steps) {
-      if (!toolIds.includes(step.toolId)) {
-        return res.status(400).json({ 
-          error: `Tool ${step.toolId} is not a valid simple tool in this integration` 
-        });
-      }
-    }
-
-    const tool = await Tool.create({
-      userId: req.user.id,
-      integrationId,
-      name: value.name,
-      description: value.description,
-      endpoint: { path: '/composite', method: 'POST' },
-      inputSchema: value.inputSchema,
-      type: 'composite',
-      steps: value.steps
-    });
-
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
-
-    res.status(201).json(tool);
-  } catch (error) {
-    logger.error({ err: error.message }, 'Create composite tool error');
-    res.status(500).json({ error: 'Failed to create composite tool' });
-  }
-});
-
-router.get('/composite/:id', authWithApiKey, async (req, res) => {
-  try {
-    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
-    
-    if (!tool) {
-      return res.status(404).json({ error: 'Composite tool not found' });
-    }
-
-    if (tool.type !== 'composite') {
-      return res.status(400).json({ error: 'Tool is not a composite tool' });
-    }
-
-    const integration = await Integration.findByPk(tool.integrationId);
-    
-    res.json({
-      ...tool.toJSON(),
-      _id: tool.id,
-      integration: integration ? {
-        id: integration.id,
-        name: integration.name,
-        type: integration.type
-      } : null
-    });
-  } catch (error) {
-    logger.error({ err: error.message }, 'Get composite tool error');
-    res.status(500).json({ error: 'Failed to get composite tool' });
-  }
-});
-
-router.put('/composite/:id', authWithApiKey, async (req, res) => {
-  try {
-    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
-    
-    if (!tool) {
-      return res.status(404).json({ error: 'Composite tool not found' });
-    }
-
-    if (tool.type !== 'composite') {
-      return res.status(400).json({ error: 'Tool is not a composite tool' });
-    }
-
-    const { error, value } = compositeToolSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    await tool.update({
-      name: value.name,
-      description: value.description,
-      inputSchema: value.inputSchema,
-      steps: value.steps
-    });
-
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
-
-    res.json(tool);
-  } catch (error) {
-    logger.error({ err: error.message }, 'Update composite tool error');
-    res.status(500).json({ error: 'Failed to update composite tool' });
-  }
-});
-
-router.delete('/composite/:id', authWithApiKey, async (req, res) => {
-  try {
-    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
-    
-    if (!tool) {
-      return res.status(404).json({ error: 'Composite tool not found' });
-    }
-
-    if (tool.type !== 'composite') {
-      return res.status(400).json({ error: 'Tool is not a composite tool' });
-    }
-
-    await tool.destroy();
-
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
-
-    res.json({ success: true });
-  } catch (error) {
-    logger.error({ err: error.message }, 'Delete composite tool error');
-    res.status(500).json({ error: 'Failed to delete composite tool' });
-  }
-});
-
-router.post('/composite/:id/test', authWithApiKey, async (req, res) => {
-  try {
-    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
-    
-    if (!tool) {
-      return res.status(404).json({ error: 'Composite tool not found' });
-    }
-
-    if (tool.type !== 'composite') {
-      return res.status(400).json({ error: 'Tool is not a composite tool' });
-    }
-
-    const { inputs } = req.body;
-    if (!inputs) {
-      return res.status(400).json({ error: 'inputs are required' });
-    }
-
-    const result = await executeComposite(tool, inputs, req.user.id);
-    
-    res.json(result);
-  } catch (error) {
-    logger.error({ err: error.message }, 'Test composite tool error');
-    res.status(500).json({ error: error.message });
-  }
 });
 
 // Postman Collection Import

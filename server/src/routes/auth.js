@@ -115,7 +115,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/change-password', async (req, res) => {
+router.post('/change-password', auth, async (req, res) => {
   try {
     const { error, value } = changePasswordSchema.validate(req.body);
     if (error) {
@@ -123,34 +123,18 @@ router.post('/change-password', async (req, res) => {
     }
 
     const { currentPassword, newPassword } = value;
-    const authHeader = req.header('Authorization');
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
 
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const isMatch = await user.comparePassword(currentPassword);
+    const isMatch = await req.user.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
-    user.password = newPassword;
-    user.mustResetPassword = false;
-    await user.save();
+    req.user.password = newPassword;
+    req.user.mustResetPassword = false;
+    await req.user.save();
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
-    }
     res.status(500).json({ error: 'Failed to change password' });
   }
 });
@@ -205,45 +189,19 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
-router.get('/me', async (req, res) => {
+router.get('/me', auth, async (req, res) => {
   try {
-    const authHeader = req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(user.toJSON());
+    res.json(req.user.toJSON());
   } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(500).json({ error: 'Failed to get user' });
   }
 });
 
-router.post('/api-key/generate', async (req, res) => {
+router.post('/api-key/generate', auth, async (req, res) => {
   try {
-    const authHeader = req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const apiKey = user.generateApiKey();
-    user.apiKeyEnabled = true;
-    await user.save();
+    const apiKey = req.user.generateApiKey();
+    req.user.apiKeyEnabled = true;
+    await req.user.save();
 
     res.json({ apiKey, message: 'API key generated. Store it securely - it will not be shown again.' });
   } catch (error) {
@@ -251,24 +209,11 @@ router.post('/api-key/generate', async (req, res) => {
   }
 });
 
-router.post('/api-key/regenerate', async (req, res) => {
+router.post('/api-key/regenerate', auth, async (req, res) => {
   try {
-    const authHeader = req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const apiKey = user.generateApiKey();
-    user.apiKeyEnabled = true;
-    await user.save();
+    const apiKey = req.user.generateApiKey();
+    req.user.apiKeyEnabled = true;
+    await req.user.save();
 
     res.json({ apiKey, message: 'API key regenerated. Old key is now invalid.' });
   } catch (error) {
@@ -276,24 +221,11 @@ router.post('/api-key/regenerate', async (req, res) => {
   }
 });
 
-router.post('/api-key/disable', async (req, res) => {
+router.post('/api-key/disable', auth, async (req, res) => {
   try {
-    const authHeader = req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    user.apiKey = null;
-    user.apiKeyEnabled = false;
-    await user.save();
+    req.user.apiKey = null;
+    req.user.apiKeyEnabled = false;
+    await req.user.save();
 
     res.json({ message: 'API key disabled and removed' });
   } catch (error) {

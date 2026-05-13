@@ -80,30 +80,24 @@ function substituteBodyTemplate(obj, params, paramDefs = {}) {
 const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED === 'true';
 const TOOLS_CACHE_TTL = parseInt(process.env.TOOLS_CACHE_TTL) || 300000;
 
-const toolsCache = {
-  data: null,
-  timestamp: 0,
-  ttl: TOOLS_CACHE_TTL
-};
+const toolsCache = new Map();
 
-function getCachedTools() {
+function getCachedTools(userId) {
   if (!TOOLS_CACHE_ENABLED) return null;
-  const now = Date.now();
-  if (toolsCache.data && (now - toolsCache.timestamp) < toolsCache.ttl) {
-    return toolsCache.data;
+  const entry = toolsCache.get(userId || 'anon');
+  if (entry && (Date.now() - entry.timestamp) < TOOLS_CACHE_TTL) {
+    return entry.data;
   }
   return null;
 }
 
-function setCachedTools(tools) {
+function setCachedTools(userId, tools) {
   if (!TOOLS_CACHE_ENABLED) return;
-  toolsCache.data = tools;
-  toolsCache.timestamp = Date.now();
+  toolsCache.set(userId || 'anon', { data: tools, timestamp: Date.now() });
 }
 
 function clearToolsCache() {
-  toolsCache.data = null;
-  toolsCache.timestamp = 0;
+  toolsCache.clear();
 }
 
 async function setupAssociations() {
@@ -596,27 +590,33 @@ const fetchExternalMcpTools = async (userId, role) => {
 };
 
 router.get('/tools', checkMcpAuth, async (req, res) => {
-  const cached = getCachedTools();
+  const userId = req.user?.id || null;
+  const role = req.user?.role || 'user';
+
+  const cached = getCachedTools(userId);
   if (cached) {
     return res.json(cached);
   }
   
   try {
-    const userId = req.user?.id || null;
-    const role = req.user?.role || 'user';
-    
     const tools = await Tool.findAll({
       where: { isActive: true },
       include: [{
         model: Integration,
         as: 'integration',
         where: { isActive: true },
-        attributes: []
+        attributes: ['userId', 'visibility']
       }],
       attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type']
     });
 
-    const localTools = tools.map(t => {
+    const visibleTools = tools.filter(t => {
+      if (!t.integration) return false;
+      if (role === 'admin') return true;
+      return t.integration.visibility === 'shared' || t.integration.userId === userId;
+    });
+
+    const localTools = visibleTools.map(t => {
       if (t.type === 'composite') {
         const inputSchema = t.inputSchema || {};
         const mcpInputSchema = {
@@ -751,7 +751,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
     const externalTools = await fetchExternalMcpTools(userId, role);
     
     const result = { tools: [...localTools, ...externalTools] };
-    setCachedTools(result);
+    setCachedTools(userId, result);
     
     res.json(result);
   } catch (error) {

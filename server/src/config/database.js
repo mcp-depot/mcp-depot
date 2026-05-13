@@ -151,6 +151,7 @@ const createDefaultTool = async () => {
       userId: adminUser.id,
       type: 'custom',
       name: 'MCP Depot',
+      visibility: 'shared',
       description: 'Built-in MCP Depot API',
       config: {
         baseUrl: `http://localhost:${process.env.PORT || 3000}`,
@@ -243,6 +244,7 @@ const createDefaultTool = async () => {
         userId: adminUser.id,
         type: 'custom',
         name: 'MCP Depot Sessions',
+        visibility: 'shared',
         description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
         config: {
           baseUrl: `http://localhost:${process.env.PORT || 3000}`,
@@ -337,6 +339,11 @@ const createDefaultTool = async () => {
       { where: { name: 'list-prompts' } }
     );
 
+    // Ensure built-in integrations are visible to all users
+    if (mcpDepotIntegration.visibility !== 'shared') {
+      await mcpDepotIntegration.update({ visibility: 'shared' });
+    }
+
     // Find or create MCP Depot Sessions integration
     let sessionsIntegration = await Integration.findOne({
       where: { name: 'MCP Depot Sessions' }
@@ -347,10 +354,13 @@ const createDefaultTool = async () => {
         userId,
         type: 'custom',
         name: 'MCP Depot Sessions',
+        visibility: 'shared',
         description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
         config: { baseUrl: `http://localhost:${process.env.PORT || 3000}`, auth: { type: 'none' } },
         isActive: true
       });
+    } else if (sessionsIntegration.visibility !== 'shared') {
+      await sessionsIntegration.update({ visibility: 'shared' });
     }
 
     // Migration: update baseUrl for MCP Depot integration if port has changed
