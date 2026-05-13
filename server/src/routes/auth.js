@@ -320,7 +320,9 @@ const OAUTH_CONFIGS = {
     clientId: process.env.OIDC_CLIENT_ID,
     clientSecret: process.env.OIDC_CLIENT_SECRET,
     issuerUrl: process.env.OIDC_ISSUER_URL,
-    authUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/auth` : null,
+    authUrl: process.env.OIDC_ISSUER_PUBLIC_URL
+      ? `${process.env.OIDC_ISSUER_PUBLIC_URL}/protocol/openid-connect/auth`
+      : process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/auth` : null,
     tokenUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/token` : null,
     scope: 'openid email profile'
   }
