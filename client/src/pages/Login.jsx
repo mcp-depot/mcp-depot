@@ -72,6 +72,7 @@ function Login() {
     const code = params.get('code');
     const provider = params.get('state');
     if (code && provider) {
+      window.history.replaceState({}, '', '/login');
       setLoading(true);
       api.post(`/auth/oauth/${provider}`, { code })
         .then(res => {
