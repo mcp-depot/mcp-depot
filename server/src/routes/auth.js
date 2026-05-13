@@ -354,11 +354,13 @@ router.get('/oauth-url/:provider', async (req, res) => {
 
   let authUrl = config.authUrl;
   
-  if (provider === 'oidc' && config.issuerPublicUrl) {
+  if (provider === 'oidc' && config.issuerUrl) {
     try {
-      const endpoints = await getOidcEndpoints(config.issuerPublicUrl);
-      authUrl = endpoints.authorizationEndpoint;
+      const endpoints = await getOidcEndpoints(config.issuerUrl);
+      const publicBase = config.issuerPublicUrl || config.issuerUrl;
+      authUrl = endpoints.authorizationEndpoint.replace(config.issuerUrl, publicBase);
     } catch (err) {
+      logger.error({ err: err.message }, 'Failed to fetch OIDC discovery document');
       return res.status(500).json({ error: 'Failed to fetch OIDC provider configuration' });
     }
   }
