@@ -55,7 +55,7 @@ function Login() {
     setError('');
     setLoading(true);
     try {
-      const res = await api.get(`/auth/oauth-url/${provider}`, { params: { redirect_uri: window.location.origin + '/login' } });
+      const res = await api.get(`/auth/oauth-url/${provider}`);
       if (res.data.url) {
         window.location.href = res.data.url;
       }
@@ -73,7 +73,7 @@ function Login() {
     const provider = params.get('state');
     if (code && provider) {
       setLoading(true);
-      api.post(`/auth/oauth/${provider}`, { code, redirectUri: window.location.origin + '/login' })
+      api.post(`/auth/oauth/${provider}`, { code })
         .then(res => {
           login(res.data.accessToken, null, res.data.user, res.data.refreshToken);
           navigate('/');

@@ -9,13 +9,6 @@ const { auth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/config', (req, res) => {
-  res.json({
-    allowRegistration: process.env.ALLOW_REGISTRATION === 'true',
-    version: '1.0.0'
-  });
-});
-
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(6).required(),
@@ -327,8 +320,8 @@ const OAUTH_CONFIGS = {
     clientId: process.env.OIDC_CLIENT_ID,
     clientSecret: process.env.OIDC_CLIENT_SECRET,
     issuerUrl: process.env.OIDC_ISSUER_URL,
-    authUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/authorize` : null,
-    tokenUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/token` : null,
+    authUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/auth` : null,
+    tokenUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/token` : null,
     scope: 'openid email profile'
   }
 };
@@ -341,7 +334,8 @@ router.get('/oauth-url/:provider', (req, res) => {
     return res.status(400).json({ error: `OAuth provider ${provider} is not configured` });
   }
 
-  const redirectUri = req.query.redirect_uri || `${process.env.API_BASE_URL || 'http://localhost:3000'}/api/auth/oauth/${provider}/callback`;
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  const redirectUri = `${clientUrl}/login`;
   const state = provider;
 
   const params = new URLSearchParams({
