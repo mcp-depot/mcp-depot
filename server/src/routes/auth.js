@@ -460,6 +460,19 @@ async function fetchOAuthProfile(provider, accessToken) {
     return { email, name: data.name || data.login };
   }
 
+  if (provider === 'oidc') {
+    const userInfoUrl = `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/userinfo`;
+    const res = await fetch(userInfoUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) throw new Error('Failed to fetch OIDC userinfo');
+    const data = await res.json();
+    return {
+      email: data.email,
+      name: data.name || data.preferred_username || data.email
+    };
+  }
+
   throw new Error(`Unsupported OAuth provider: ${provider}`);
 }
 
