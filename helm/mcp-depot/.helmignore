@@ -1,0 +1,26 @@
+# Patterns to ignore when building packages.
+
+# NOT USED
+# .git/
+# .gitignore
+# .github/
+# .gitlab-ci.yml
+# .travis.yml
+# bin/
+# build/
+# tests/
+# tmp/
+# .DS_Store
+# */.*.swp
+# *~
+# .helmignore
+
+# Common
+README.md
+LICENSE
+NOTES.txt
+values-production.yaml
+*.orig
+*#*
+*.bak
+*.tmp

@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-depot.fullname" . }}-client
+  labels:
+    {{- include "mcp-depot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: client
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mcp-depot.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: client
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-depot.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: client
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: client
+          image: "{{ .Values.image.client.repository }}:{{ .Values.image.client.tag }}"
+          imagePullPolicy: {{ .Values.image.client.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources.client | nindent 12 }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "mcp-depot.fullname" . }}-nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-depot.fullname" . }}-client
+  labels:
+    {{- include "mcp-depot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: client
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "mcp-depot.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: client

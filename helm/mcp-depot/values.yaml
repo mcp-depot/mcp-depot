@@ -1,0 +1,103 @@
+# Default values for mcp-depot.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  server:
+    repository: mcphub-server
+    tag: latest
+    pullPolicy: IfNotPresent
+  client:
+    repository: mcphub-client
+    tag: latest
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt
+    # kubernetes.io/tls-acme: "true"
+  host: mcp-depot.local
+  tls:
+    enabled: false
+    secretName: ""
+
+resources:
+  server:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  client:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 15-alpine
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  volume:
+    size: 1Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  # When postgres.enabled=false, use externalDatabase.url
+externalDatabase:
+  url: ""
+
+secrets:
+  jwtSecret: ""
+  sessionSecret: ""
+  encryptionKey: ""
+  existingSecret: ""
+
+env:
+  NODE_ENV: production
+  PORT: "3000"
+  DATABASE_URL: ""
+  JWT_EXPIRE: 15m
+  JWT_REFRESH_EXPIRE: 7d
+  ALLOW_REGISTRATION: "false"
+  API_BASE_URL: ""
+
+livenessProbe:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  enabled: true
+  path: /health
+  initialDelaySeconds: 5
+  periodSeconds: 5
