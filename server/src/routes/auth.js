@@ -365,7 +365,8 @@ router.post('/oauth/:provider', async (req, res) => {
   }
 
   try {
-    const tokenData = await exchangeOAuthCode(provider, code, redirectUri || `${process.env.API_BASE_URL || 'http://localhost:3000'}/api/auth/oauth/${provider}/callback`);
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const tokenData = await exchangeOAuthCode(provider, code, redirectUri || `${clientUrl}/login`);
     const profile = await fetchOAuthProfile(provider, tokenData.access_token);
 
     if (!profile.email) {
