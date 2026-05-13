@@ -1551,7 +1551,10 @@ router.get('/sessions/:sessionId/notifications', async (req, res) => {
 router.get('/sessions', auth, (req, res) => {
   try {
     const mcpServer = require('../mcp/server');
-    const sessions = mcpServer.getActiveSessions ? mcpServer.getActiveSessions() : [];
+    let sessions = mcpServer.getActiveSessions ? mcpServer.getActiveSessions() : [];
+    if (req.user.role !== 'admin') {
+      sessions = sessions.filter(s => s.userId === req.user.id);
+    }
     res.json(sessions);
   } catch (error) {
     res.status(500).json({ error: error.message });

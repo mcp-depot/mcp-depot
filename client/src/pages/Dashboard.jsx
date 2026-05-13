@@ -110,7 +110,8 @@ function Dashboard() {
       eventSource = new EventSource('/api/mcp/sessions/stream');
 
       eventSource.addEventListener('sessions', (event) => {
-        setClients(JSON.parse(event.data));
+        const all = JSON.parse(event.data);
+        setClients(user?.role === 'admin' ? all : all.filter(s => s.userId === user?.id));
       });
 
       eventSource.onerror = () => {
@@ -119,7 +120,10 @@ function Dashboard() {
       };
     };
 
-    api.get('/mcp/sessions').then(res => setClients(res.data || [])).catch(() => {});
+    api.get('/mcp/sessions').then(res => {
+      const all = res.data || [];
+      setClients(user?.role === 'admin' ? all : all.filter(s => s.userId === user?.id));
+    }).catch(() => {});
     connectSSE();
 
     return () => {
