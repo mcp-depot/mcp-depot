@@ -367,7 +367,7 @@ router.post('/oauth/:provider', async (req, res) => {
   try {
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
     const tokenData = await exchangeOAuthCode(provider, code, redirectUri || `${clientUrl}/login`);
-    const profile = await fetchOAuthProfile(provider, tokenData.access_token);
+    const profile = await fetchOAuthProfile(provider, tokenData.access_token, tokenData);
 
     if (!profile.email) {
       return res.status(400).json({ error: 'OAuth provider did not return an email address' });
@@ -428,7 +428,7 @@ async function exchangeOAuthCode(provider, code, redirectUri) {
   return res.json();
 }
 
-async function fetchOAuthProfile(provider, accessToken) {
+async function fetchOAuthProfile(provider, accessToken, tokenData = {}) {
   if (provider === 'google') {
     const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` }
@@ -461,11 +461,23 @@ async function fetchOAuthProfile(provider, accessToken) {
   }
 
   if (provider === 'oidc') {
+    if (tokenData.id_token) {
+      const decoded = jwt.decode(tokenData.id_token);
+      if (decoded && decoded.email) {
+        return {
+          email: decoded.email,
+          name: decoded.name || decoded.preferred_username || decoded.email
+        };
+      }
+    }
     const userInfoUrl = `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/userinfo`;
     const res = await fetch(userInfoUrl, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
-    if (!res.ok) throw new Error('Failed to fetch OIDC userinfo');
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Failed to fetch OIDC userinfo: ${res.status} ${body}`);
+    }
     const data = await res.json();
     return {
       email: data.email,
