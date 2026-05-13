@@ -9,7 +9,7 @@ services:
       - "5433:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123} # CHANGE IN PRODUCTION
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
       POSTGRES_DB: ${POSTGRES_DB:-mcp-depot}
       PGTZ: UTC
     volumes:
@@ -52,7 +52,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcpconnect # CHANGE IN PRODUCTION
+      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcpconnect
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       - JWT_EXPIRE=15m
@@ -74,7 +74,7 @@ services:
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
-      - OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - OIDC_ENABLED=${OIDC_ENABLED:-true}
       - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-http://keycloak:8080/realms/mcp-depot}
       - OIDC_ISSUER_PUBLIC_URL=${OIDC_ISSUER_PUBLIC_URL:-http://localhost:8180/realms/mcp-depot}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-mcp-depot}
@@ -87,6 +87,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_started
     networks:
       mcp-depot-network:
         aliases:
@@ -133,7 +135,7 @@ services:
     environment:
       - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
       - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
-      - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical # CHANGE IN PRODUCTION
+      - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical
       - REDIS_URL=redis://valkey:6379
       - SITE_URL=http://localhost:8181
     depends_on:
@@ -148,11 +150,30 @@ services:
     profiles:
       - secret-store
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: mcp-depot-keycloak
+    restart: unless-stopped
+    ports:
+      - "8180:8080"
+    command: start-dev
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+    networks:
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
+
 volumes:
   postgres_data:
     name: mcp-depot_postgres_data
   mcp_packages:
     name: mcp-depot_mcp-packages
+  keycloak_data:
+    name: mcp-depot_keycloak-data
 
 networks:
   mcp-depot-network:
