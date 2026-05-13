@@ -1,18 +1,12 @@
 const express = require('express');
 const Joi = require('joi');
-const { Op } = require('sequelize');
 const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
+const { readableWhere } = require('../utils/queryHelpers');
 
 const router = express.Router();
 
 const DEFAULT_TTL_HOURS = 168; // 7 days
-
-function readableWhere(userId, role) {
-  const conditions = [{ createdBy: userId }, { isShared: true }];
-  if (role === 'admin') conditions.push({ createdBy: null });
-  return { [Op.or]: conditions };
-}
 
 router.get('/', auth, async (req, res) => {
   try {

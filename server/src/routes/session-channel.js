@@ -192,12 +192,16 @@ router.post('/', auth, async (req, res) => {
 // DELETE /session-channels/:channel — delete all messages in a channel
 router.delete('/:channel', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can delete channels' });
-    }
     const { SessionChannel } = loadModels();
+    const first = await SessionChannel.findOne({
+      where: { channel: req.params.channel },
+      order: [['createdAt', 'ASC']]
+    });
+    if (!first) return res.status(404).json({ error: 'Channel not found or already empty' });
+    if (first.createdBy !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const deleted = await SessionChannel.destroy({ where: { channel: req.params.channel } });
-    if (!deleted) return res.status(404).json({ error: 'Channel not found or already empty' });
     res.json({ success: true, deleted });
   } catch (err) {
     res.status(500).json({ error: err.message });

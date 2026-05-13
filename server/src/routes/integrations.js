@@ -13,19 +13,10 @@ const encryption = require('../services/encryption');
 const secretStore = require('../services/secret-store');
 const logger = require('../services/logger');
 const { executeComposite, executeCompositeTool } = require('../services/compositeExecutor');
+const { refreshMcpTools } = require('../utils/mcpHelpers');
+const { ownerWhereId } = require('../utils/queryHelpers');
 
 const router = express.Router();
-
-function refreshMcpTools() {
-  if (process.env.MCP_ENABLED === 'true') {
-    const { refreshToolsIfEnabled } = require('../mcp/server');
-    refreshToolsIfEnabled();
-  }
-}
-
-function ownerWhere(id, user) {
-  return user.role === 'admin' ? { id } : { id, userId: user.id };
-}
 
 const integrationSchema = Joi.object({
   type: Joi.string().required(),
@@ -454,7 +445,7 @@ router.post('/', authWithApiKey, async (req, res) => {
 
 router.put('/:id', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = ownerWhere(req.params.id, req.user);
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -548,7 +539,7 @@ router.delete('/:id', authWithApiKey, async (req, res) => {
 
 router.post('/:id/test', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = ownerWhere(req.params.id, req.user);
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -644,7 +635,7 @@ router.get('/:id/tools', authWithApiKey, async (req, res) => {
 
 router.post('/:id/tools', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = ownerWhere(req.params.id, req.user);
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -858,7 +849,7 @@ router.post('/:id/import-tools', authWithApiKey, async (req, res) => {
   logger.debug({ id: req.params.id, endpointsCount: req.body.endpoints?.length }, 'Import tools request');
   
   try {
-    const whereClause = ownerWhere(req.params.id, req.user);
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -1019,11 +1010,9 @@ router.post('/export', authWithApiKey, async (req, res) => {
     const { includeTools, integrationIds } = req.body;
     logger.debug({ userId: req.user.id, integrationIds }, 'Export request');
     
-    const where = req.user.role === 'admin' ? {} : { userId: req.user.id };
+    const where = { ...ownerWhere(req.user.id, req.user.role) };
     if (integrationIds && Array.isArray(integrationIds) && integrationIds.length > 0) {
       where.id = { [Op.in]: integrationIds };
-    } else if (req.user.role !== 'admin') {
-      where.userId = req.user.id;
     }
     
     const integrations = await Integration.findAll({ where });
@@ -1160,7 +1149,7 @@ router.post('/import', authWithApiKey, async (req, res) => {
 
 router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = ownerWhere(req.params.id, req.user);
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({ where: whereClause });
     if (!integration) {

@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { Layers, Globe, Lock, Trash2, Share2, MessageSquare } from 'lucide-react';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
+import { formatDate, formatDateTime } from '../utils/date';
+import { getApiError } from '../utils/apiError';
 
 function expiryInfo(ctx, now) {
   if (ctx.ttlHours == null || ctx.ttlHours === 0) return { label: 'Pinned', urgency: 'pinned' };
@@ -61,7 +63,7 @@ function SessionContexts() {
       setSelected(null);
       loadContexts();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete');
+      alert(`Failed to delete: ${getApiError(err)}`);
     }
   };
 
@@ -73,7 +75,7 @@ function SessionContexts() {
         setSelected(s => ({ ...s, isShared: !currentShared }));
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to toggle share');
+      alert(`Failed to toggle share: ${getApiError(err)}`);
     }
   };
 
@@ -85,7 +87,7 @@ function SessionContexts() {
         setSelected(s => ({ ...s, ttlHours: ttlHours === 0 ? null : ttlHours }));
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to update TTL');
+      alert(`Failed to update TTL: ${getApiError(err)}`);
     }
   };
 
@@ -156,7 +158,7 @@ function SessionContexts() {
                     </span>
                   )}
                 </td>
-                <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
+                <td>{formatDate(ctx.updatedAt)}</td>
                 <td>{ctx.content?.length ?? 0} chars</td>
                 <td onClick={e => e.stopPropagation()}>
                   {isOwner(ctx) && (
@@ -194,7 +196,7 @@ function SessionContexts() {
                 <span className={`badge ${selected.isShared ? 'badge-green' : 'badge-muted'}`}>
                   {selected.isShared ? 'Shared' : 'Private'}
                 </span>
-                <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
+                <span>Updated {formatDateTime(selected.updatedAt)}</span>
                 <span>{selected.content?.length ?? 0} chars</span>
               </div>
               <div className="markdown-body">

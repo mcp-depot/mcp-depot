@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
-import { X } from 'lucide-react';
+import TagInput from '../components/TagInput';
+import { getApiError } from '../utils/apiError';
 
 function Skills() {
   const { user } = useAuth();
@@ -12,7 +13,6 @@ function Skills() {
   const [editingSkill, setEditingSkill] = useState(null);
   const [form, setForm] = useState({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false, tags: [] });
   const [formInputs, setFormInputs] = useState([{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
-  const [tagInput, setTagInput] = useState('');
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [inputValues, setInputValues] = useState({});
   const [testingSkill, setTestingSkill] = useState(false);
@@ -56,24 +56,13 @@ function Skills() {
       resetForm();
       fetchCustomSkills();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save skill');
+      alert(getApiError(err));
     }
   };
 
   const resetForm = () => {
     setForm({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false, tags: [] });
     setFormInputs([{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
-  };
-
-  const addTag = (tag) => {
-    if (tag && !form.tags.includes(tag)) {
-      setForm({ ...form, tags: [...form.tags, tag] });
-    }
-    setTagInput('');
-  };
-
-  const removeTag = (tagToRemove) => {
-    setForm({ ...form, tags: form.tags.filter(t => t !== tagToRemove) });
   };
 
   const openEdit = (skill) => {
@@ -129,7 +118,7 @@ function Skills() {
       const res = await api.post(`/skills/${skillId}/invoke`, { inputs: values });
       setTestResult({ success: true, data: res.data });
     } catch (err) {
-      setTestResult({ success: false, error: err.response?.data?.error || 'Failed to invoke skill' });
+      setTestResult({ success: false, error: `Failed to invoke skill: ${getApiError(err)}` });
     } finally {
       setTestingSkill(false);
     }
@@ -333,19 +322,7 @@ function Skills() {
                 </div>
                 <div className="form-group">
                   <label>Tags</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    {form.tags.map(tag => (
-                      <span key={tag} style={{ background: 'var(--primary)', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        {tag}
-                        <X size={12} style={{ cursor: 'pointer' }} onClick={() => removeTag(tag)} />
-                      </span>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} placeholder="Add tag..." style={{ flex: 1 }} 
-                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTag(tagInput.trim()); } }} />
-                    <button type="button" className="btn btn-secondary" onClick={() => addTag(tagInput.trim())}>Add</button>
-                  </div>
+                  <TagInput tags={form.tags} onChange={(tags) => setForm({ ...form, tags })} placeholder="Add tag..." />
                 </div>
                 <div className="form-group">
                   <label>Inputs</label>

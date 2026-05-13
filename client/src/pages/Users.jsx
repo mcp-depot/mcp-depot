@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Users as UsersIcon, Plus, Trash2, RotateCcw, X } from 'lucide-react';
 import { showSuccess, showError } from '../utils/toast';
+import { formatDate } from '../utils/date';
+import { getApiError } from '../utils/apiError';
 
 function Users() {
   const { user: currentUser } = useAuth();
@@ -53,7 +55,7 @@ function Users() {
       setEditingUser(null);
       setForm({ email: '', name: '', role: 'user', password: '' });
     } catch (err) {
-      showError(err.response?.data?.error || 'Failed to save user');
+      showError(`Failed to save user: ${getApiError(err)}`);
     }
   };
 
@@ -64,7 +66,7 @@ function Users() {
       setUsers(users.filter(u => u.id !== user.id));
       showSuccess('User deleted');
     } catch (err) {
-      showError(err.response?.data?.error || 'Failed to delete user');
+      showError(`Failed to delete user: ${getApiError(err)}`);
     }
   };
 
@@ -75,7 +77,7 @@ function Users() {
       setShowResetModal(false);
       setCredentialInfo({ email: resetUser.email, password: res.data.temporaryPassword });
     } catch (err) {
-      showError(err.response?.data?.error || 'Failed to reset password');
+      showError(`Failed to reset password: ${getApiError(err)}`);
     }
   };
 
@@ -128,7 +130,7 @@ function Users() {
                       {user.role}
                     </span>
                   </td>
-                  <td>{new Date(user.createdAt).toLocaleDateString()}</td>
+                  <td>{formatDate(user.createdAt)}</td>
                   <td>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button className="btn btn-small btn-secondary" onClick={() => openEdit(user)}>Edit</button>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import { getApiError } from '../utils/apiError';
 
 function Personas() {
   const { user } = useAuth();
@@ -40,7 +41,7 @@ function Personas() {
       resetForm();
       fetchPersonas();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save persona');
+      alert(getApiError(err));
     }
   };
 
@@ -66,7 +67,7 @@ function Personas() {
       await api.delete(`/personas/${name}`);
       fetchPersonas();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete persona');
+      alert(getApiError(err));
     }
   };
 
