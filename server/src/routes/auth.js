@@ -413,8 +413,8 @@ async function exchangeOAuthCode(provider, code, redirectUri) {
   const res = await fetch(config.tokenUrl, {
     method: 'POST',
     headers: { 
-      'Content-Type': 'application/json',
-      'Accept': provider === 'github' ? 'application/json' : 'application/x-www-form-urlencoded'
+      'Content-Type': provider === 'github' ? 'application/json' : 'application/x-www-form-urlencoded',
+      'Accept': 'application/json'
     },
     body: provider === 'github' ? JSON.stringify(body) : new URLSearchParams(body).toString()
   });
