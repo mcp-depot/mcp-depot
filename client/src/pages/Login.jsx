@@ -5,7 +5,7 @@ import { Chrome, Github, Key } from 'lucide-react';
 import api from '../services/api';
 
 function Login() {
-  const { login } = useAuth();
+  const { login, loginWithToken } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -76,7 +76,7 @@ function Login() {
       setLoading(true);
       api.post(`/auth/oauth/${provider}`, { code })
         .then(res => {
-          login(res.data.accessToken, null, res.data.user, res.data.refreshToken);
+          loginWithToken(res.data.accessToken, res.data.refreshToken, res.data.user);
           navigate('/');
         })
         .catch(err => {

@@ -63,6 +63,13 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const loginWithToken = (accessToken, refreshToken, userData) => {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    setUser(userData);
+    setIsAuthenticated(true);
+  };
+
   const register = async (email, password, name) => {
     const res = await api.post('/auth/register', { email, password, name });
     const { accessToken, refreshToken, user: userData } = res.data;
@@ -99,6 +106,7 @@ export function AuthProvider({ children }) {
       setupComplete,
       setSetupComplete,
       login, 
+      loginWithToken,
       register, 
       changePassword,
       logout 
