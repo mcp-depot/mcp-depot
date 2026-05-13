@@ -320,20 +320,47 @@ const OAUTH_CONFIGS = {
     clientId: process.env.OIDC_CLIENT_ID,
     clientSecret: process.env.OIDC_CLIENT_SECRET,
     issuerUrl: process.env.OIDC_ISSUER_URL,
-    authUrl: process.env.OIDC_ISSUER_PUBLIC_URL
-      ? `${process.env.OIDC_ISSUER_PUBLIC_URL}/protocol/openid-connect/auth`
-      : process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/auth` : null,
-    tokenUrl: process.env.OIDC_ISSUER_URL ? `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/token` : null,
+    issuerPublicUrl: process.env.OIDC_ISSUER_PUBLIC_URL || process.env.OIDC_ISSUER_URL,
     scope: 'openid email profile'
   }
 };
 
-router.get('/oauth-url/:provider', (req, res) => {
+const oidcDiscoveryCache = {};
+
+async function getOidcEndpoints(issuerUrl) {
+  if (oidcDiscoveryCache[issuerUrl]) return oidcDiscoveryCache[issuerUrl];
+  
+  const res = await fetch(`${issuerUrl}/.well-known/openid-configuration`);
+  if (!res.ok) throw new Error(`Failed to fetch OIDC discovery document from ${issuerUrl}`);
+  
+  const config = await res.json();
+  const endpoints = {
+    authorizationEndpoint: config.authorization_endpoint,
+    tokenEndpoint: config.token_endpoint,
+    userinfoEndpoint: config.userinfo_endpoint
+  };
+  
+  oidcDiscoveryCache[issuerUrl] = endpoints;
+  return endpoints;
+}
+
+router.get('/oauth-url/:provider', async (req, res) => {
   const { provider } = req.params;
   const config = OAUTH_CONFIGS[provider];
   
   if (!config || !config.clientId) {
     return res.status(400).json({ error: `OAuth provider ${provider} is not configured` });
+  }
+
+  let authUrl = config.authUrl;
+  
+  if (provider === 'oidc' && config.issuerPublicUrl) {
+    try {
+      const endpoints = await getOidcEndpoints(config.issuerPublicUrl);
+      authUrl = endpoints.authorizationEndpoint;
+    } catch (err) {
+      return res.status(500).json({ error: 'Failed to fetch OIDC provider configuration' });
+    }
   }
 
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -348,7 +375,7 @@ router.get('/oauth-url/:provider', (req, res) => {
     state
   });
 
-  res.json({ url: `${config.authUrl}?${params.toString()}` });
+  res.json({ url: `${authUrl}?${params.toString()}` });
 });
 
 router.post('/oauth/:provider', async (req, res) => {
@@ -403,6 +430,12 @@ router.post('/oauth/:provider', async (req, res) => {
 async function exchangeOAuthCode(provider, code, redirectUri) {
   const config = OAUTH_CONFIGS[provider];
   
+  let tokenUrl = config.tokenUrl;
+  if (provider === 'oidc' && config.issuerUrl) {
+    const endpoints = await getOidcEndpoints(config.issuerUrl);
+    tokenUrl = endpoints.tokenEndpoint;
+  }
+  
   const body = {
     code,
     redirect_uri: redirectUri,
@@ -411,7 +444,7 @@ async function exchangeOAuthCode(provider, code, redirectUri) {
     grant_type: 'authorization_code'
   };
 
-  const res = await fetch(config.tokenUrl, {
+  const res = await fetch(tokenUrl, {
     method: 'POST',
     headers: { 
       'Content-Type': provider === 'github' ? 'application/json' : 'application/x-www-form-urlencoded',
@@ -470,8 +503,9 @@ async function fetchOAuthProfile(provider, accessToken, tokenData = {}) {
         };
       }
     }
-    const userInfoUrl = `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/userinfo`;
-    const res = await fetch(userInfoUrl, {
+    const config = OAUTH_CONFIGS.oidc;
+    const endpoints = await getOidcEndpoints(config.issuerUrl);
+    const res = await fetch(endpoints.userinfoEndpoint, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (!res.ok) {
