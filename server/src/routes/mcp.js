@@ -14,22 +14,19 @@ const { logToolCall } = require('../services/tool-logger');
 const { pruneNulls } = require('../services/body-utils');
 const encryption = require('../services/encryption');
 const config = require('../config/env');
+const INTERNAL_SECRET = config.internalSecret;
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
 const { checkRateLimit } = require('../services/rate-limiter');
 const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
 
 function getCallerId(req) {
-  const incomingSecret = req.headers['x-internal-secret'];
-  const configSecret = config.internalSecret;
-  const userIdHeader = req.headers['x-internal-user-id'];
   if (
-    incomingSecret === configSecret &&
-    userIdHeader
+    req.headers['x-internal-secret'] === config.internalSecret &&
+    req.headers['x-internal-user-id']
   ) {
-    return userIdHeader;
+    return req.headers['x-internal-user-id'];
   }
-  logger.info({ incomingPre: incomingSecret?.slice(0, 8), configPre: configSecret?.slice(0, 8), match: incomingSecret === configSecret, hasUserId: !!userIdHeader, incomingLen: incomingSecret?.length, configLen: configSecret?.length }, '[MCP DEBUG getCallerId]');
   return req.user?.id ?? null;
 }
 
@@ -194,7 +191,6 @@ router.get('/session-contexts/list', optionalAuth, async (req, res) => {
     const { Op } = require('sequelize');
     const callerId = getCallerId(req);
     const callerRole = req.user?.role ?? 'user';
-    logger.info({ callerId: callerId?.toString().slice(0,8), secretMatch: req.headers['x-internal-secret'] === config.internalSecret, hasInternalUserId: !!req.headers['x-internal-user-id'] }, '[MCP DEBUG] list-session-contexts');
 
     const where = callerId
       ? callerRole === 'admin'
@@ -1395,9 +1391,8 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
 
     const internalUserId = req.user?.id || req.apiKey?.userId;
     if (internalUserId) {
-      mergedHeaders['X-Internal-Secret'] = config.internalSecret;
+      mergedHeaders['X-Internal-Secret'] = INTERNAL_SECRET;
       mergedHeaders['X-Internal-User-Id'] = String(internalUserId);
-      logger.info({ secretLen: config.internalSecret?.length, secretPre: config.internalSecret?.slice(0, 8), userIdPre: String(internalUserId).slice(0, 8) }, '[MCP DEBUG execute] internalHeaders set');
     }
 
     let result;
