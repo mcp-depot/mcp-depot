@@ -1041,16 +1041,15 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
   async startHttp(app) {
     const sessionUserIds = new Map();
-    let _currentUserId = null;
     this._sessionUserIds = sessionUserIds;
 
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => {
-        const sessionId = randomUUID();
-        if (_currentUserId) {
-          sessionUserIds.set(sessionId, _currentUserId);
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: async (sessionId) => {
+        const userId = transport._pendingUserId;
+        if (userId) {
+          sessionUserIds.set(sessionId, userId);
         }
-        return sessionId;
       }
     });
 
@@ -1082,9 +1081,14 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         }
       } catch (e) {
       }
-      _currentUserId = userId;
+
+      const existingSessionId = req.headers['mcp-session-id'];
+      if (existingSessionId && userId) {
+        sessionUserIds.set(existingSessionId, userId);
+      }
+
+      transport._pendingUserId = userId;
       transport.handleRequest(req, res, body);
-      _currentUserId = null;
     };
 
     app.post('/mcp', (req, res) => authenticateAndRun(req, res, req.body));
