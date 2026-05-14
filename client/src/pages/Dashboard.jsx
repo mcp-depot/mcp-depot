@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings, Layers, MessagesSquare, Monitor, Zap, Clock } from 'lucide-react';
+import { Skeleton } from '../components/Skeleton';
+import { EmptyState } from '../components/EmptyState';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -54,7 +56,6 @@ function Dashboard() {
         const promptsRes = await api.get('/skills').catch(() => ({ data: [] }));
         const prompts = promptsRes.data || [];
 
-        // Fetch session data
         const ctxRes = await api.get('/session-contexts').catch(() => ({ data: [] }));
         const contexts = ctxRes.data || [];
         const sharedContexts = contexts.filter(c => c.isShared).length;
@@ -133,7 +134,7 @@ function Dashboard() {
   }, []);
 
   const fmtTime = (iso) => {
-    if (!iso) return '—';
+    if (!iso) return '\u2014';
     const d = new Date(iso);
     const now = new Date();
     const diffSec = Math.floor((now - d) / 1000);
@@ -151,7 +152,15 @@ function Dashboard() {
         </div>
 
         {loading ? (
-          <div className="loading-overlay"><div className="spinner"></div></div>
+          <div className="grid-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="stat-card">
+                <Skeleton style={{ height: '20px', width: '40px', marginBottom: '0.5rem' }} />
+                <Skeleton style={{ height: '14px', width: '80px' }} />
+                <Skeleton style={{ height: '12px', width: '120px', marginTop: '0.5rem' }} />
+              </div>
+            ))}
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <div className="grid-4">
@@ -277,9 +286,7 @@ function Dashboard() {
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>{clients.length} active</span>
               </div>
               {clients.length === 0 ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-light)' }}>
-                  No clients connected yet
-                </div>
+                <EmptyState title="No clients connected yet" description="Connect an MCP client to see it here" />
               ) : (
                 <table className="data-table" style={{ tableLayout: 'fixed' }}>
                   <thead>
@@ -300,12 +307,12 @@ function Dashboard() {
                           <strong>{s.clientName || 'Unknown'}</strong>
                           {s.clientVersion && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-light)' }}>v{s.clientVersion}</span>}
                         </td>
-                        <td style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>{s.userName || '—'}</td>
-                        <td><code style={{ fontSize: '0.75rem' }} title={s.sessionId}>{s.sessionId.slice(0, 8)}…</code></td>
+                        <td style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>{s.userName || '\u2014'}</td>
+                        <td><code style={{ fontSize: '0.75rem' }} title={s.sessionId}>{s.sessionId.slice(0, 8)}\u2026</code></td>
                         <td><span title={s.connectedAt}>{fmtTime(s.connectedAt)}</span></td>
-                        <td><span title={s.lastCallAt}>{s.lastCallAt ? fmtTime(s.lastCallAt) : '—'}</span></td>
+                        <td><span title={s.lastCallAt}>{s.lastCallAt ? fmtTime(s.lastCallAt) : '\u2014'}</span></td>
                         <td>{s.callCount}</td>
-                        <td>{s.lastTool || '—'}</td>
+                        <td>{s.lastTool || '\u2014'}</td>
                       </tr>
                     ))}
                   </tbody>

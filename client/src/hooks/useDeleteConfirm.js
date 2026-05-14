@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import api from '../api/axios';
+import api from '../services/api';
 
 export function useDeleteConfirm(endpoint, onDeleted) {
   const [deleteId, setDeleteId] = useState(null);

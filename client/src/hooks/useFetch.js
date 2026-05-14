@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import api from '../api/axios';
+import api from '../services/api';
 
 export function useFetch(url, deps = []) {
   const [data, setData] = useState(null);

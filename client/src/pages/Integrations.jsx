@@ -5,10 +5,12 @@ import api from '../services/api';
 import { getIntegrationIcon, getIntegrationColor } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
 import { IntegrationCardSkeleton } from '../components/Skeleton';
+import { Modal } from '../components/Modal';
+import { EmptyState } from '../components/EmptyState';
+import { StatusBadge } from '../components/StatusBadge';
 import { Eye, EyeOff, Upload, Search, X } from 'lucide-react';
 import { showSuccess, showError } from '../utils/toast';
 import { Drawer } from '../components/Drawer';
-
 function Integrations() {
   const { user } = useAuth();
   const [integrations, setIntegrations] = useState([]);
@@ -335,7 +337,7 @@ function Integrations() {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = (id) => {
     const integration = integrations.find(i => i._id === id);
     const hasTools = integration?.metadata?.toolCount > 0;
     
@@ -346,13 +348,12 @@ function Integrations() {
     
     if (!confirm(confirmMessage)) return;
     
-    try {
-      await api.delete(`/integrations/${id}`);
+    api.delete(`/integrations/${id}`).then(() => {
       showSuccess('Integration deleted successfully');
       fetchIntegrations();
-    } catch (err) {
+    }).catch(err => {
       showError(err.response?.data?.error || 'Failed to delete integration');
-    }
+    });
   };
 
   const resetForm = () => {
@@ -439,14 +440,11 @@ function Integrations() {
       const text = await file.text();
       const data = JSON.parse(text);
       
-      // Extract base URL from collection info or variable
       let baseUrl = '';
       let variables = {};
       
-      // Postman v2.1 format: { variable: [{ key: "baseUrl", value: "..." }] }
       if (data.variable) {
         for (const v of data.variable) {
-          // Handle both array format and object format
           const key = v.key || v.id;
           const value = v.value || v.initialValue || '';
           if (key === 'baseUrl' || key === 'url' || key === 'host' || key === 'URL') {
@@ -457,12 +455,10 @@ function Integrations() {
         }
       }
       
-      // Also check info.server (Postman v2+ format)
       if (data.info?.server && typeof data.info.server === 'string') {
         baseUrl = data.info.server;
       }
       
-      // Scan all URLs for {{variable}} patterns and add to variables
       if (data.item) {
         const scanUrls = (items) => {
           for (const item of items) {
@@ -488,7 +484,6 @@ function Integrations() {
       setPostmanConfig({ ...postmanConfig, baseUrl });
       setPostmanVariables(variables);
       
-      // Extract requests from collection
       const requests = [];
       const extractRequests = (item, path = '') => {
         if (item.request) {
@@ -559,7 +554,6 @@ function Integrations() {
         result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
       }
     }
-    // Also substitute the baseUrl for {{baseUrl}} style variables
     if (postmanConfig.baseUrl) {
       result = result.replace(/\{\{baseUrl\}\}/g, postmanConfig.baseUrl);
       result = result.replace(/\{\{url\}\}/g, postmanConfig.baseUrl);
@@ -666,7 +660,7 @@ function Integrations() {
             <input
               ref={filterInputRef}
               className="search-input"
-              placeholder="Filter integrations... (⌘K)"
+              placeholder="Filter integrations... (\u2318K)"
               value={filter}
               onChange={e => setFilter(e.target.value)}
               style={{ paddingLeft: '36px' }}
@@ -704,19 +698,13 @@ function Integrations() {
             ))}
           </div>
         ) : filteredIntegrations.length === 0 ? (
-          <div className="empty-state-dashed">
-            <div className="empty-icon" style={{ fontSize: '48px' }}>-</div>
-            <h3>No integrations found</h3>
-            <p>{filter ? 'Try adjusting your search filter' : 'Add your first integration or discover an API'}</p>
-            {!filter && <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <button className="btn btn-secondary" onClick={() => setShowDiscoverModal(true)}>
-                Discover API
-              </button>
-              <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-                Add Integration
-              </button>
-            </div>}
-          </div>
+          <EmptyState
+            icon="-"
+            title="No integrations found"
+            description={filter ? 'Try adjusting your search filter' : 'Add your first integration or discover an API'}
+            actionLabel={!filter ? 'Add Integration' : undefined}
+            onAction={!filter ? () => setShowModal(true) : undefined}
+          />
         ) : (
           <div className="grid">
             {filteredIntegrations.map(integration => (
@@ -726,9 +714,7 @@ function Integrations() {
                     <span style={{ marginRight: '0.5rem', display: 'flex', alignItems: 'center' }}>{getIntegrationIcon(integration.type)}</span>
                     <span className="integration-name">{integration.name}</span>
                     {isBuiltIn(integration) && (
-                      <span className="badge badge-system" title="Built-in integration managed by MCP Depot" style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.03em' }}>
-                        SYSTEM
-                      </span>
+                      <StatusBadge status="system" label="SYSTEM" />
                     )}
                     {integration.requiresCredentials && !integration.canUse && (
                       <span 
@@ -737,7 +723,7 @@ function Integrations() {
                         style={{ cursor: integration.isOwner ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
                         onClick={() => integration.isOwner ? window.location.href = `/integrations/${integration._id}/tools` : handleConnectShared(integration)}
                       >
-                        {integration.isOwner ? '⚠️ Credentials needed' : '⚠️ Connect required'}
+                        {integration.isOwner ? '\u26A0\uFE0F Credentials needed' : '\u26A0\uFE0F Connect required'}
                       </span>
                     )}
                   </div>
@@ -751,9 +737,7 @@ function Integrations() {
                       />
                       <span className="toggle-slider"></span>
                     </label>
-                    <span className={`badge ${integration.isActive ? 'badge-success' : 'badge-warning'}`}>
-                      {integration.isActive ? 'Active' : 'Inactive'}
-                    </span>
+                    <StatusBadge status={integration.isActive ? 'active' : 'inactive'} />
                   </div>
                   {integration.visibility === 'shared' && (
                     <span className="badge badge-info" style={{ marginLeft: '0.5rem' }}>
@@ -763,10 +747,10 @@ function Integrations() {
                 </div>
                 <p className="integration-description">{integration.description}</p>
                 <p className="integration-url" style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  {showAllUrls ? integration.baseUrl : '••••••••••'}
+                  {showAllUrls ? integration.baseUrl : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
                 </p>
                 <span className="integration-type">{integration.type}</span>
-                {integration.metadata?.toolCount > 0 && (<span className="badge badge-info" style={{ fontSize: '0.7rem' }}>{integration.metadata.toolCount} tools</span>)}
+                {integration.metadata?.toolCount > 0 && (<StatusBadge status="info" label={`${integration.metadata.toolCount} tools`} />)}
                 {integration.tags?.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: '0.5rem' }}>
                     {integration.tags.slice(0, 3).map(tag => (
@@ -814,7 +798,7 @@ function Integrations() {
                       {isBuiltIn(integration) ? (
                         <span 
                           className="btn btn-icon" 
-                          title="Built-in integrations cannot be deleted — use the toggle above to disable"
+                          title="Built-in integrations cannot be deleted \u2014 use the toggle above to disable"
                           style={{ opacity: 0.5, cursor: 'not-allowed', color: 'var(--text-dim)' }}
                         >
                           Del
@@ -838,137 +822,9 @@ function Integrations() {
 
         {/* Discover API Modal */}
         {showDiscoverModal && (
-          <div className="modal-overlay">
-            <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>Discover API Endpoints</h2>
-                <button className="modal-close" onClick={() => setShowDiscoverModal(false)}>&times;</button>
-              </div>
-              <div className="modal-body">
-                {discoveredEndpoints.length === 0 ? (
-                  <form onSubmit={handleDiscover}>
-                    <div className="form-group">
-                      <label>API Base URL</label>
-                      <input 
-                        type="url" 
-                        value={discoverForm.baseUrl} 
-                        onChange={e => setDiscoverForm({ ...discoverForm, baseUrl: e.target.value })} 
-                        placeholder="https://api.github.com" 
-                        required 
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>OpenAPI Spec Path (optional)</label>
-                      <input 
-                        type="text" 
-                        value={discoverForm.openApiPath} 
-                        onChange={e => setDiscoverForm({ ...discoverForm, openApiPath: e.target.value })} 
-                        placeholder="/openapi.json or leave empty for auto-detect"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Authentication (if needed)</label>
-                      <StyledSelect
-                        options={[
-                          { value: 'none', label: 'None' },
-                          { value: 'basic', label: 'Basic Auth' },
-                          { value: 'bearer', label: 'Bearer Token' },
-                          { value: 'token', label: 'Token' },
-                          { value: 'custom', label: 'Custom' },
-                          { value: 'apiKey', label: 'API Key' },
-                          { value: 'oauth2', label: 'OAuth 2.0' }
-                        ]}
-                        value={{ value: discoverForm.authType, label: discoverForm.authType === 'none' ? 'None' : discoverForm.authType === 'basic' ? 'Basic Auth' : discoverForm.authType === 'bearer' ? 'Bearer Token' : discoverForm.authType === 'token' ? 'Token' : discoverForm.authType === 'custom' ? 'Custom' : discoverForm.authType === 'apiKey' ? 'API Key' : discoverForm.authType }}
-                        onChange={(opt) => setDiscoverForm({ ...discoverForm, authType: opt?.value || 'none' })}
-                        isSearchable={false}
-                      />
-                    </div>
-                    {discoverForm.authType === 'bearer' && (
-                      <div className="form-group">
-                        <label>Token</label>
-                        <input 
-                          type="password" 
-                          value={discoverForm.token} 
-                          onChange={e => setDiscoverForm({ ...discoverForm, token: e.target.value })} 
-                          placeholder="Enter your API token or infisical://dev/SECRET_NAME"
-                        />
-                      </div>
-                    )}
-                    {discoverForm.authType === 'token' && (
-                      <div className="form-group">
-                        <label>Token Value</label>
-                        <input 
-                          type="text" 
-                          value={discoverForm.token} 
-                          onChange={e => setDiscoverForm({ ...discoverForm, token: e.target.value })} 
-                          placeholder="e.g., wlu_0hf8VaR9H00t63t0hK3EmWDj04Dmh0kzBt2V"
-                        />
-                      </div>
-                    )}
-                    {discoverForm.authType === 'custom' && (
-                      <div className="form-group">
-                        <label>Authorization Header Value</label>
-                        <input 
-                          type="text" 
-                          value={discoverForm.token} 
-                          onChange={e => setDiscoverForm({ ...discoverForm, token: e.target.value })} 
-                          placeholder="e.g., Token wlu_0hf8VaR9H00t63t0hK3EmWDj04Dmh0kzBt2V"
-                        />
-                      </div>
-                    )}
-                    <button type="submit" className="btn btn-primary" disabled={discovering} style={{ width: '100%' }}>
-                      {discovering ? 'Discovering...' : 'Discover Endpoints'}
-                    </button>
-                  </form>
-                ) : (
-                  <div>
-                    <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--success-bg)', borderRadius: '4px' }}>
-                      <strong>Found {discoveredEndpoints.length} endpoints</strong>
-                    </div>
-                    <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '1rem', border: '1px solid var(--border-light)' }}>
-                      <div style={{ padding: '0.5rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                          <input type="checkbox" checked={selectedEndpoints.length === discoveredEndpoints.length} onChange={toggleSelectAll} />
-                          <strong>Select All</strong>
-                        </label>
-                        <span>{selectedEndpoints.length} selected</span>
-                      </div>
-                      {discoveredEndpoints.map((ep, idx) => (
-                        <div key={idx} style={{ padding: '0.5rem', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <input 
-                            type="checkbox" 
-                            checked={selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method)}
-                            onChange={() => toggleEndpoint(ep)}
-                          />
-                          <span style={{ 
-                            fontFamily: 'monospace', 
-                            fontWeight: 'bold',
-                            color: ep.method === 'GET' ? '#28a745' : ep.method === 'POST' ? '#007bff' : ep.method === 'PUT' ? '#ffc107' : ep.method === 'DELETE' ? '#dc3545' : '#6c757d'
-                          }}>{ep.method}</span>
-                          <span style={{ fontFamily: 'monospace', flex: 1 }}>{ep.path}</span>
-                          {ep.operationId && <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{ep.operationId}</span>}
-                        </div>
-                      ))}
-                    </div>
-                    
-                    <div style={{ borderTop: '1px solid #ddd', paddingTop: '1rem', marginTop: '1rem' }}>
-                      <h4>Save as Integration</h4>
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label>Name</label>
-                          <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="My API" />
-                        </div>
-                        <div className="form-group">
-                          <label>Description</label>
-                          <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional" />
-                        </div>
-                      </div>
-                      <input type="hidden" value={discoverForm.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} />
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="modal-footer">
+          <Modal title="Discover API Endpoints" size="lg" onClose={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); }}
+            footer={
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                 {discoveredEndpoints.length > 0 && (
                   <button className="btn btn-secondary" onClick={() => { setDiscoveredEndpoints([]); setSelectedEndpoints([]); }}>
                     Back
@@ -983,8 +839,96 @@ function Integrations() {
                   </button>
                 )}
               </div>
-            </div>
-          </div>
+            }
+          >
+            {discoveredEndpoints.length === 0 ? (
+              <form onSubmit={handleDiscover}>
+                <div className="form-group">
+                  <label>API Base URL</label>
+                  <input type="url" value={discoverForm.baseUrl} onChange={e => setDiscoverForm({ ...discoverForm, baseUrl: e.target.value })} placeholder="https://api.github.com" required />
+                </div>
+                <div className="form-group">
+                  <label>OpenAPI Spec Path (optional)</label>
+                  <input type="text" value={discoverForm.openApiPath} onChange={e => setDiscoverForm({ ...discoverForm, openApiPath: e.target.value })} placeholder="/openapi.json or leave empty for auto-detect" />
+                </div>
+                <div className="form-group">
+                  <label>Authentication (if needed)</label>
+                  <StyledSelect
+                    options={[
+                      { value: 'none', label: 'None' },
+                      { value: 'basic', label: 'Basic Auth' },
+                      { value: 'bearer', label: 'Bearer Token' },
+                      { value: 'token', label: 'Token' },
+                      { value: 'custom', label: 'Custom' },
+                      { value: 'apiKey', label: 'API Key' },
+                      { value: 'oauth2', label: 'OAuth 2.0' }
+                    ]}
+                    value={{ value: discoverForm.authType, label: discoverForm.authType === 'none' ? 'None' : discoverForm.authType === 'basic' ? 'Basic Auth' : discoverForm.authType === 'bearer' ? 'Bearer Token' : discoverForm.authType === 'token' ? 'Token' : discoverForm.authType === 'custom' ? 'Custom' : discoverForm.authType === 'apiKey' ? 'API Key' : discoverForm.authType }}
+                    onChange={(opt) => setDiscoverForm({ ...discoverForm, authType: opt?.value || 'none' })}
+                    isSearchable={false}
+                  />
+                </div>
+                {discoverForm.authType === 'bearer' && (
+                  <div className="form-group">
+                    <label>Token</label>
+                    <input type="password" value={discoverForm.token} onChange={e => setDiscoverForm({ ...discoverForm, token: e.target.value })} placeholder="Enter your API token or infisical://dev/SECRET_NAME" />
+                  </div>
+                )}
+                {discoverForm.authType === 'token' && (
+                  <div className="form-group">
+                    <label>Token Value</label>
+                    <input type="text" value={discoverForm.token} onChange={e => setDiscoverForm({ ...discoverForm, token: e.target.value })} placeholder="e.g., wlu_0hf8VaR9H00t63t0hK3EmWDj04Dmh0kzBt2V" />
+                  </div>
+                )}
+                {discoverForm.authType === 'custom' && (
+                  <div className="form-group">
+                    <label>Authorization Header Value</label>
+                    <input type="text" value={discoverForm.token} onChange={e => setDiscoverForm({ ...discoverForm, token: e.target.value })} placeholder="e.g., Token wlu_0hf8VaR9H00t63t0hK3EmWDj04Dmh0kzBt2V" />
+                  </div>
+                )}
+                <button type="submit" className="btn btn-primary" disabled={discovering} style={{ width: '100%' }}>
+                  {discovering ? 'Discovering...' : 'Discover Endpoints'}
+                </button>
+              </form>
+            ) : (
+              <div>
+                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--success-bg)', borderRadius: '4px' }}>
+                  <strong>Found {discoveredEndpoints.length} endpoints</strong>
+                </div>
+                <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '1rem', border: '1px solid var(--border-light)' }}>
+                  <div style={{ padding: '0.5rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={selectedEndpoints.length === discoveredEndpoints.length} onChange={toggleSelectAll} />
+                      <strong>Select All</strong>
+                    </label>
+                    <span>{selectedEndpoints.length} selected</span>
+                  </div>
+                  {discoveredEndpoints.map((ep, idx) => (
+                    <div key={idx} style={{ padding: '0.5rem', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <input type="checkbox" checked={selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method)} onChange={() => toggleEndpoint(ep)} />
+                      <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: ep.method === 'GET' ? '#28a745' : ep.method === 'POST' ? '#007bff' : ep.method === 'PUT' ? '#ffc107' : ep.method === 'DELETE' ? '#dc3545' : '#6c757d' }}>{ep.method}</span>
+                      <span style={{ fontFamily: 'monospace', flex: 1 }}>{ep.path}</span>
+                      {ep.operationId && <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{ep.operationId}</span>}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ borderTop: '1px solid #ddd', paddingTop: '1rem', marginTop: '1rem' }}>
+                  <h4>Save as Integration</h4>
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Name</label>
+                      <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="My API" />
+                    </div>
+                    <div className="form-group">
+                      <label>Description</label>
+                      <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional" />
+                    </div>
+                  </div>
+                  <input type="hidden" value={discoverForm.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} />
+                </div>
+              </div>
+            )}
+          </Modal>
         )}
 
         <Drawer
@@ -1140,104 +1084,67 @@ function Integrations() {
           </form>
         </Drawer>
 
+        {/* Import Modal */}
         {showImportModal && (
-          <div className="modal-overlay">
-            <div className="modal" onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>Import Integrations</h2>
-                <button className="modal-close" onClick={() => { setShowImportModal(false); setImportData(null); setSelectedForImport([]); }}>&times;</button>
+          <Modal title="Import Integrations" onClose={() => { setShowImportModal(false); setImportData(null); setSelectedForImport([]); }}
+            footer={importData ? (
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => { setImportData(null); setSelectedForImport([]); }}>Change File</button>
+                <button className="btn btn-primary" onClick={handleImport} disabled={selectedForImport.length === 0}>
+                  Import {selectedForImport.length} Integration{selectedForImport.length !== 1 ? 's' : ''}
+                </button>
               </div>
-              <div className="modal-body">
-                {!importData ? (
-                  <>
-                    <p style={{ marginBottom: '1rem', color: 'var(--text-light)' }}>
-                      Select a previously exported JSON file to import integrations.
-                    </p>
-                    <div className="form-group">
-                      <label>Choose File</label>
-                      <input type="file" accept=".json" onChange={handleImportSelect} />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p style={{ marginBottom: '1rem', color: 'var(--text-light)' }}>
-                      Select integrations to import ({importData.integrations.length} available):
-                    </p>
-                    <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.5rem' }}>
-                      {importData.integrations.map((int, idx) => (
-                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderBottom: '1px solid var(--border)' }}>
-                          <input 
-                            type="checkbox" 
-                            checked={selectedForImport.includes(idx)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedForImport([...selectedForImport, idx]);
-                              } else {
-                                setSelectedForImport(selectedForImport.filter(i => i !== idx));
-                              }
-                            }}
-                          />
-                          <span style={{ fontWeight: 500 }}>{int.name}</span>
-                          <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>({int.type})</span>
-                          {int.tools && <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>{int.tools.length} tools</span>}
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
-                      <button className="btn btn-secondary btn-small" onClick={() => setSelectedForImport(importData.integrations.map((_, idx) => idx))}>Select All</button>
-                      <button className="btn btn-secondary btn-small" onClick={() => setSelectedForImport([])}>Select None</button>
-                    </div>
-                  </>
-                )}
-              </div>
-              {importData && (
-                <div className="modal-footer">
-                  <button className="btn btn-secondary" onClick={() => { setImportData(null); setSelectedForImport([]); }}>Change File</button>
-                  <button className="btn btn-primary" onClick={handleImport} disabled={selectedForImport.length === 0}>
-                    Import {selectedForImport.length} Integration{selectedForImport.length !== 1 ? 's' : ''}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {showExportModal && (
-          <div className="modal-overlay">
-            <div className="modal" onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>Export Integrations</h2>
-                <button className="modal-close" onClick={() => { setShowExportModal(false); setSelectedForExport([]); }}>&times;</button>
-              </div>
-              <div className="modal-body">
+            ) : null}
+          >
+            {!importData ? (
+              <>
                 <p style={{ marginBottom: '1rem', color: 'var(--text-light)' }}>
-                  Select integrations to export:
+                  Select a previously exported JSON file to import integrations.
+                </p>
+                <div className="form-group">
+                  <label>Choose File</label>
+                  <input type="file" accept=".json" onChange={handleImportSelect} />
+                </div>
+              </>
+            ) : (
+              <>
+                <p style={{ marginBottom: '1rem', color: 'var(--text-light)' }}>
+                  Select integrations to import ({importData.integrations.length} available):
                 </p>
                 <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.5rem' }}>
-                  {integrations.map(int => (
-                    <div key={int._id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderBottom: '1px solid var(--border)' }}>
+                  {importData.integrations.map((int, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderBottom: '1px solid var(--border)' }}>
                       <input 
                         type="checkbox" 
-                        checked={selectedForExport.includes(int._id)}
+                        checked={selectedForImport.includes(idx)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedForExport([...selectedForExport, int._id]);
+                            setSelectedForImport([...selectedForImport, idx]);
                           } else {
-                            setSelectedForExport(selectedForExport.filter(id => id !== int._id));
+                            setSelectedForImport(selectedForImport.filter(i => i !== idx));
                           }
                         }}
                       />
                       <span style={{ fontWeight: 500 }}>{int.name}</span>
                       <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>({int.type})</span>
+                      {int.tools && <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>{int.tools.length} tools</span>}
                     </div>
                   ))}
                 </div>
                 <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
-                  <button className="btn btn-secondary btn-small" onClick={() => setSelectedForExport(integrations.map(i => i._id))}>Select All</button>
-                  <button className="btn btn-secondary btn-small" onClick={() => setSelectedForExport([])}>Select None</button>
+                  <button className="btn btn-secondary btn-small" onClick={() => setSelectedForImport(importData.integrations.map((_, idx) => idx))}>Select All</button>
+                  <button className="btn btn-secondary btn-small" onClick={() => setSelectedForImport([])}>Select None</button>
                 </div>
-              </div>
-              <div className="modal-footer">
+              </>
+            )}
+          </Modal>
+        )}
+
+        {/* Export Modal */}
+        {showExportModal && (
+          <Modal title="Export Integrations" onClose={() => { setShowExportModal(false); setSelectedForExport([]); }}
+            footer={
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                 <button className="btn btn-secondary" onClick={() => { setShowExportModal(false); setSelectedForExport([]); }}>Cancel</button>
                 <button className="btn btn-primary" onClick={() => handleExport(true)} disabled={selectedForExport.length === 0}>
                   Export {selectedForExport.length} with Tools
@@ -1246,219 +1153,184 @@ function Integrations() {
                   Export {selectedForExport.length} without Tools
                 </button>
               </div>
+            }
+          >
+            <p style={{ marginBottom: '1rem', color: 'var(--text-light)' }}>
+              Select integrations to export:
+            </p>
+            <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.5rem' }}>
+              {integrations.map(int => (
+                <div key={int._id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', borderBottom: '1px solid var(--border)' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={selectedForExport.includes(int._id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedForExport([...selectedForExport, int._id]);
+                      } else {
+                        setSelectedForExport(selectedForExport.filter(id => id !== int._id));
+                      }
+                    }}
+                  />
+                  <span style={{ fontWeight: 500 }}>{int.name}</span>
+                  <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>({int.type})</span>
+                </div>
+              ))}
             </div>
-          </div>
+            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary btn-small" onClick={() => setSelectedForExport(integrations.map(i => i._id))}>Select All</button>
+              <button className="btn btn-secondary btn-small" onClick={() => setSelectedForExport([])}>Select None</button>
+            </div>
+          </Modal>
         )}
 
         {/* Postman Import Modal */}
         {showPostmanImport && (
-          <div className="modal-overlay" onClick={resetPostmanImport}>
-            <div className="modal" style={{ maxWidth: '800px' }} onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>Import Postman Collection</h2>
-                <button className="modal-close" onClick={resetPostmanImport}>&times;</button>
-              </div>
-              
-              {/* Steps indicator */}
-              <div style={{ display: 'flex', gap: '1rem', padding: '1rem', borderBottom: '1px solid var(--border)', justifyContent: 'center' }}>
-                {[1, 2, 3].map(step => (
-                  <div key={step} style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '0.5rem',
-                    color: postmanStep >= step ? 'var(--primary)' : 'var(--text-dim)'
-                  }}>
-                    <div style={{ 
-                      width: '24px', 
-                      height: '24px', 
-                      borderRadius: '50%', 
-                      background: postmanStep >= step ? 'var(--primary)' : 'var(--surface-hover)',
-                      color: postmanStep >= step ? '#fff' : 'var(--text-dim)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.8rem',
-                      fontWeight: 600
-                    }}>{step}</div>
-                    <span>{step === 1 ? 'Upload' : step === 2 ? 'Configure' : step === 3 ? 'Select' : 'Import'}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="modal-body" style={{ minHeight: '300px' }}>
-                {/* Step 1: Upload */}
-                {postmanStep === 1 && (
-                  <div style={{ textAlign: 'center', padding: '2rem' }}>
-                    <div style={{ marginBottom: '1.5rem' }}>
-                      <label className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                        <Upload size={16} />
-                        Choose Postman Collection
-                        <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && parsePostmanCollection(e.target.files[0])} style={{ display: 'none' }} />
-                      </label>
-                    </div>
-                    <div style={{ color: 'var(--text-dim)', marginBottom: '1rem' }}>or</div>
-                    <div>
-                      <label className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                        <Upload size={16} />
-                        Choose Environment (optional)
-                        <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && parsePostmanEnvironment(e.target.files[0])} style={{ display: 'none' }} />
-                      </label>
-                    </div>
-                  </div>
-                )}
-
-                {/* Step 2: Configure */}
-                {postmanStep === 2 && (
-                  <div style={{ padding: '1rem' }}>
-                    {Object.keys(postmanVariables).length > 0 && (
-                      <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: '4px' }}>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>
-                          Variables (from collection/environment)
-                        </div>
-                        {Object.entries(postmanVariables).map(([key, value]) => (
-                          <div key={key} className="form-group">
-                            <label>{key}</label>
-                            <input 
-                              type="text" 
-                              value={value} 
-                              onChange={(e) => setPostmanVariables({ ...postmanVariables, [key]: e.target.value })} 
-                              placeholder={`Value for ${key}`}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="form-group">
-                      <label>Base URL {Object.keys(postmanVariables).includes('baseUrl') && <span style={{ color: 'var(--text-dim)' }}> (overrides {{baseUrl}} variable)</span>}</label>
-                      <input 
-                        type="url" 
-                        value={postmanConfig.baseUrl} 
-                        onChange={(e) => setPostmanConfig({ ...postmanConfig, baseUrl: e.target.value })} 
-                        placeholder="https://api.example.com"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Authentication</label>
-                      <StyledSelect
-                        options={[
-                          { value: 'none', label: 'None' },
-                          { value: 'basic', label: 'Basic Auth' },
-                          { value: 'bearer', label: 'Bearer Token' },
-                          { value: 'token', label: 'Token (Token xyz)' },
-                          { value: 'custom', label: 'Custom' },
-                          { value: 'apiKey', label: 'API Key' }
-                        ]}
-                        value={{ value: postmanConfig.authType, label: postmanConfig.authType === 'none' ? 'None' : postmanConfig.authType }}
-                        onChange={(opt) => setPostmanConfig({ ...postmanConfig, authType: opt?.value || 'none' })}
-                        isSearchable={false}
-                      />
-                    </div>
-                    {postmanConfig.authType === 'basic' && (
-                      <>
-                        <div className="form-row">
-                          <div className="form-group">
-                            <label>Username</label>
-                            <input type="text" value={postmanConfig.username} onChange={(e) => setPostmanConfig({ ...postmanConfig, username: e.target.value })} />
-                          </div>
-                          <div className="form-group">
-                            <label>Password/Token</label>
-                            <input type="password" value={postmanConfig.password} onChange={(e) => setPostmanConfig({ ...postmanConfig, password: e.target.value })} />
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    {['bearer', 'token', 'custom'].includes(postmanConfig.authType) && (
-                      <div className="form-group">
-                        <label>Token</label>
-                        <input 
-                          type={postmanConfig.authType === 'bearer' ? 'password' : 'text'} 
-                          value={postmanConfig.token} 
-                          onChange={(e) => setPostmanConfig({ ...postmanConfig, token: e.target.value })} 
-                          placeholder={postmanConfig.authType === 'token' ? 'e.g., wlu_xxx' : postmanConfig.authType === 'custom' ? 'e.g., Token wlu_xxx' : 'Enter token'}
-                        />
-                      </div>
-                    )}
-                    {postmanConfig.authType === 'apiKey' && (
-                      <div className="form-row">
-                        <div className="form-group">
-                          <label>Key Name</label>
-                          <input type="text" value={postmanConfig.username} onChange={(e) => setPostmanConfig({ ...postmanConfig, username: e.target.value })} placeholder="X-API-Key" />
-                        </div>
-                        <div className="form-group">
-                          <label>Key Value</label>
-                          <input type="password" value={postmanConfig.password} onChange={(e) => setPostmanConfig({ ...postmanConfig, password: e.target.value })} />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Step 3: Select Requests */}
-                {postmanStep === 3 && (
-                  <div>
-                    <div style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>{postmanRequests.length} requests found</span>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button className="btn btn-small btn-secondary" onClick={() => setPostmanSelected(new Set(postmanRequests.map((_, i) => i)))}>Select All</button>
-                        <button className="btn btn-small btn-secondary" onClick={() => setPostmanSelected(new Set())}>Select None</button>
-                      </div>
-                    </div>
-                    <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '4px' }}>
-                      {postmanRequests.map((req, idx) => (
-                        <div key={idx} style={{ 
-                          padding: '0.5rem', 
-                          borderBottom: '1px solid var(--border-light)', 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          gap: '0.5rem',
-                          background: postmanSelected.has(idx) ? 'var(--surface-hover)' : 'transparent'
-                        }}>
-                          <input 
-                            type="checkbox" 
-                            checked={postmanSelected.has(idx)}
-                            onChange={() => togglePostmanRequest(idx)}
-                          />
-                          <span style={{ 
-                            fontFamily: 'monospace', 
-                            fontSize: '0.8rem',
-                            minWidth: '60px',
-                            color: req.method === 'GET' ? 'var(--success)' : req.method === 'POST' ? 'var(--warning)' : req.method === 'DELETE' ? 'var(--danger)' : 'var(--primary)'
-                          }}>{req.method}</span>
-                          <span style={{ fontSize: '0.85rem', flex: 1 }}>{req.name}</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{req.url}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="modal-footer">
+          <Modal title="Import Postman Collection" size="xl" onClose={resetPostmanImport}
+            footer={
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                 <button className="btn btn-secondary" onClick={resetPostmanImport}>Cancel</button>
                 {postmanStep > 1 && (
                   <button className="btn btn-secondary" onClick={() => setPostmanStep(postmanStep - 1)}>Back</button>
                 )}
                 {postmanStep < 3 && (
-                  <button 
-                    className="btn btn-primary" 
-                    onClick={() => setPostmanStep(postmanStep + 1)}
-                    disabled={postmanStep === 1 && !postmanCollection}
-                  >
+                  <button className="btn btn-primary" onClick={() => setPostmanStep(postmanStep + 1)} disabled={postmanStep === 1 && !postmanCollection}>
                     Next
                   </button>
                 )}
                 {postmanStep === 3 && (
-                  <button 
-                    className="btn btn-primary" 
-                    onClick={handlePostmanImport}
-                    disabled={postmanSelected.size === 0 || postmanImporting}
-                  >
+                  <button className="btn btn-primary" onClick={handlePostmanImport} disabled={postmanSelected.size === 0 || postmanImporting}>
                     {postmanImporting ? 'Importing...' : `Import ${postmanSelected.size} Tools`}
                   </button>
                 )}
               </div>
+            }
+          >
+            {/* Steps indicator */}
+            <div style={{ display: 'flex', gap: '1rem', padding: '1rem', borderBottom: '1px solid var(--border)', justifyContent: 'center' }}>
+              {[1, 2, 3].map(step => (
+                <div key={step} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: postmanStep >= step ? 'var(--primary)' : 'var(--text-dim)' }}>
+                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: postmanStep >= step ? 'var(--primary)' : 'var(--surface-hover)', color: postmanStep >= step ? '#fff' : 'var(--text-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 600 }}>{step}</div>
+                  <span>{step === 1 ? 'Upload' : step === 2 ? 'Configure' : 'Select'}</span>
+                </div>
+              ))}
             </div>
-          </div>
+
+            {/* Step 1: Upload */}
+            {postmanStep === 1 && (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <label className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <Upload size={16} />
+                    Choose Postman Collection
+                    <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && parsePostmanCollection(e.target.files[0])} style={{ display: 'none' }} />
+                  </label>
+                </div>
+                <div style={{ color: 'var(--text-dim)', marginBottom: '1rem' }}>or</div>
+                <div>
+                  <label className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <Upload size={16} />
+                    Choose Environment (optional)
+                    <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && parsePostmanEnvironment(e.target.files[0])} style={{ display: 'none' }} />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Configure */}
+            {postmanStep === 2 && (
+              <div style={{ padding: '1rem' }}>
+                {Object.keys(postmanVariables).length > 0 && (
+                  <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: '4px' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>
+                      Variables (from collection/environment)
+                    </div>
+                    {Object.entries(postmanVariables).map(([key, value]) => (
+                      <div key={key} className="form-group">
+                        <label>{key}</label>
+                        <input type="text" value={value} onChange={(e) => setPostmanVariables({ ...postmanVariables, [key]: e.target.value })} placeholder={`Value for ${key}`} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="form-group">
+                  <label>Base URL {Object.keys(postmanVariables).includes('baseUrl') && <span style={{ color: 'var(--text-dim)' }}> (overrides {{baseUrl}} variable)</span>}</label>
+                  <input type="url" value={postmanConfig.baseUrl} onChange={(e) => setPostmanConfig({ ...postmanConfig, baseUrl: e.target.value })} placeholder="https://api.example.com" />
+                </div>
+                <div className="form-group">
+                  <label>Authentication</label>
+                  <StyledSelect
+                    options={[
+                      { value: 'none', label: 'None' },
+                      { value: 'basic', label: 'Basic Auth' },
+                      { value: 'bearer', label: 'Bearer Token' },
+                      { value: 'token', label: 'Token (Token xyz)' },
+                      { value: 'custom', label: 'Custom' },
+                      { value: 'apiKey', label: 'API Key' }
+                    ]}
+                    value={{ value: postmanConfig.authType, label: postmanConfig.authType === 'none' ? 'None' : postmanConfig.authType }}
+                    onChange={(opt) => setPostmanConfig({ ...postmanConfig, authType: opt?.value || 'none' })}
+                    isSearchable={false}
+                  />
+                </div>
+                {postmanConfig.authType === 'basic' && (
+                  <>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Username</label>
+                        <input type="text" value={postmanConfig.username} onChange={(e) => setPostmanConfig({ ...postmanConfig, username: e.target.value })} />
+                      </div>
+                      <div className="form-group">
+                        <label>Password/Token</label>
+                        <input type="password" value={postmanConfig.password} onChange={(e) => setPostmanConfig({ ...postmanConfig, password: e.target.value })} />
+                      </div>
+                    </div>
+                  </>
+                )}
+                {['bearer', 'token', 'custom'].includes(postmanConfig.authType) && (
+                  <div className="form-group">
+                    <label>Token</label>
+                    <input type={postmanConfig.authType === 'bearer' ? 'password' : 'text'} value={postmanConfig.token} onChange={(e) => setPostmanConfig({ ...postmanConfig, token: e.target.value })} placeholder={postmanConfig.authType === 'token' ? 'e.g., wlu_xxx' : postmanConfig.authType === 'custom' ? 'e.g., Token wlu_xxx' : 'Enter token'} />
+                  </div>
+                )}
+                {postmanConfig.authType === 'apiKey' && (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Key Name</label>
+                      <input type="text" value={postmanConfig.username} onChange={(e) => setPostmanConfig({ ...postmanConfig, username: e.target.value })} placeholder="X-API-Key" />
+                    </div>
+                    <div className="form-group">
+                      <label>Key Value</label>
+                      <input type="password" value={postmanConfig.password} onChange={(e) => setPostmanConfig({ ...postmanConfig, password: e.target.value })} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 3: Select Requests */}
+            {postmanStep === 3 && (
+              <div>
+                <div style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>{postmanRequests.length} requests found</span>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button className="btn btn-small btn-secondary" onClick={() => setPostmanSelected(new Set(postmanRequests.map((_, i) => i)))}>Select All</button>
+                    <button className="btn btn-small btn-secondary" onClick={() => setPostmanSelected(new Set())}>Select None</button>
+                  </div>
+                </div>
+                <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '4px' }}>
+                  {postmanRequests.map((req, idx) => (
+                    <div key={idx} style={{ padding: '0.5rem', borderBottom: '1px solid var(--border-light)', display: 'flex', alignItems: 'center', gap: '0.5rem', background: postmanSelected.has(idx) ? 'var(--surface-hover)' : 'transparent' }}>
+                      <input type="checkbox" checked={postmanSelected.has(idx)} onChange={() => togglePostmanRequest(idx)} />
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', minWidth: '60px', color: req.method === 'GET' ? 'var(--success)' : req.method === 'POST' ? 'var(--warning)' : req.method === 'DELETE' ? 'var(--danger)' : 'var(--primary)' }}>{req.method}</span>
+                      <span style={{ fontSize: '0.85rem', flex: 1 }}>{req.name}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{req.url}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Modal>
         )}
       </div>
     </div>

@@ -1,13 +1,14 @@
-export function Modal({ title, onClose, size = 'md', children }) {
-  const sizes = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg', xl: 'max-w-2xl' };
+export function Modal({ title, onClose, size = 'md', children, footer }) {
+  const maxWidths = { sm: '400px', md: '500px', lg: '700px', xl: '900px' };
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className={`bg-white rounded-lg p-6 w-full ${sizes[size]} mx-4`}>
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">&times;</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: maxWidths[size] }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <button className="modal-close" onClick={onClose}>&times;</button>
         </div>
-        {children}
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
       </div>
     </div>
   );
