@@ -1389,6 +1389,12 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       mergedHeaders['X-Session-Id'] = req.body.sessionId;
     }
 
+    const internalUserId = req.user?.id || req.apiKey?.userId;
+    if (internalUserId) {
+      mergedHeaders['X-Internal-Secret'] = config.internalSecret;
+      mergedHeaders['X-Internal-User-Id'] = String(internalUserId);
+    }
+
     let result;
     
     try {
