@@ -11,6 +11,23 @@ const ExternalMcpTool = require('../models/ExternalMcpTool');
 const router = express.Router();
 const pool = require('../services/mcp-connection-pool');
 
+function isBlockedUrl(urlString) {
+  try {
+    const url = new URL(urlString);
+    const blocked = ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254', '::1'];
+    if (blocked.includes(url.hostname)) return true;
+    if (/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/.test(url.hostname)) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+const ALLOWED_STDIO_COMMANDS = ['node', 'python', 'python3', 'uvx', 'npx'];
+const SHELL_SAFE_ARGS = /^[a-zA-Z0-9_\-\.\/\\@:]+$/;
+
+const PACKAGE_NAME_RE = /^(@?[\w\-\.]+\/)?[\w\-\.]+(@[\w\.\-]+)?$/;
+
 function isCommandAvailable(cmd) {
   try {
     execSync(`${process.platform === 'win32' ? 'where' : 'which'} ${cmd}`, { stdio: 'ignore' });
@@ -155,10 +172,7 @@ router.get('/registry/search', auth, async (req, res) => {
     }
 
     res.json({ servers: result.servers, nextCursor: result.nextCursor });
-
-    res.json({ servers: allServers });
   } catch (err) {
-    console.error('[registry/search] failed:', err.message);
     logger.error({ error: err.message, status: err.response?.status }, 'Registry fetch error');
     res.status(502).json({ error: 'Failed to reach MCP registry: ' + err.message });
   }
@@ -169,6 +183,19 @@ router.post('/', auth, async (req, res) => {
     const { error, value } = externalMcpCreateSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
+    }
+
+    if (value.url && isBlockedUrl(value.url)) {
+      return res.status(400).json({ error: 'URL points to a blocked internal address' });
+    }
+
+    if (value.transportType === 'stdio') {
+      if (!ALLOWED_STDIO_COMMANDS.includes(value.command)) {
+        return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
+      }
+      if (value.args && !SHELL_SAFE_ARGS.test(value.args)) {
+        return res.status(400).json({ error: 'Arguments contain unsafe characters' });
+      }
     }
     
     const { ExternalMcpServer } = loadModels();
@@ -220,6 +247,19 @@ router.put('/:id', auth, async (req, res) => {
     const { error, value } = externalMcpSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
+    }
+
+    if (value.url && isBlockedUrl(value.url)) {
+      return res.status(400).json({ error: 'URL points to a blocked internal address' });
+    }
+
+    if (value.transportType === 'stdio') {
+      if (value.command && !ALLOWED_STDIO_COMMANDS.includes(value.command)) {
+        return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
+      }
+      if (value.args && !SHELL_SAFE_ARGS.test(value.args)) {
+        return res.status(400).json({ error: 'Arguments contain unsafe characters' });
+      }
     }
     
     const updates = { ...value };
@@ -346,6 +386,10 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
     }
     
     const pkgName = packageName.trim();
+
+    if (!PACKAGE_NAME_RE.test(pkgName)) {
+      return res.status(400).json({ error: 'Invalid package name format' });
+    }
     
     return new Promise((resolve, reject) => {
       let cmd, args;
@@ -359,8 +403,7 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
       }
       
       const proc = spawn(cmd, args, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true
+        stdio: ['pipe', 'pipe', 'pipe']
       });
       
       let stdout = '';

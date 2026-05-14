@@ -26,6 +26,7 @@ const config = require('./config/env');
 const logger = require('./services/logger');
 const promClient = require('prom-client');
 const { middleware: metricsMiddleware } = require('./services/metrics');
+const { auth } = require('./middleware/auth');
 
 const authRoutes = require('./routes/auth');
 const integrationRoutes = require('./routes/integrations');
@@ -51,7 +52,11 @@ promClient.register.setDefaultLabels({ app: 'mcp-depot' });
 
 app.set('trust proxy', 1);
 app.use(helmet());
-app.use(cors({ origin: process.env.ALLOWED_ORIGINS?.split(',') || [] }));
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'];
+if (!process.env.ALLOWED_ORIGINS) {
+  logger.warn('ALLOWED_ORIGINS not set, defaulting to http://localhost:5173. Set ALLOWED_ORIGINS env var for production.');
+}
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: '512kb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -110,7 +115,7 @@ app.use('/api', v1Router); // Backward compatibility
 
 setExternalMcpClearCache(clearToolsCache);
 
-app.get('/metrics', async (req, res) => {
+app.get('/metrics', auth, async (req, res) => {
   res.set('Content-Type', promClient.register.contentType);
   res.end(await promClient.register.metrics());
 });

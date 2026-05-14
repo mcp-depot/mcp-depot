@@ -1,5 +1,6 @@
 const axios = require('axios');
 const encryption = require('../services/encryption');
+const logger = require('../services/logger');
 
 class DynamicAdapter {
   constructor(config, options = {}) {
@@ -308,7 +309,7 @@ class DynamicAdapter {
         await integration.save();
       }
     } catch (err) {
-      console.error('Failed to persist OAuth credentials:', err.message);
+      logger.error({ err: err.message }, 'Failed to persist OAuth credentials');
     }
   }
 }

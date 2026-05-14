@@ -119,17 +119,18 @@ router.get('/hello', async (req, res) => {
 // Session Context internal routes - exposed via DB seed tools
 const DEFAULT_TTL_HOURS = 168; // 7 days
 
-router.post('/session-contexts/store', async (req, res) => {
+router.post('/session-contexts/store', optionalAuth, async (req, res) => {
   try {
     const { name, content, shared = false } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
     const callerId = req.user?.id ?? null;
+    const MAX_TTL_HOURS = 8760;
     const ttlProvided = Object.prototype.hasOwnProperty.call(req.body, 'ttlHours');
     const rawTtl = ttlProvided ? req.body.ttlHours : undefined;
     const rawNum = (rawTtl !== undefined && rawTtl !== null) ? Number(rawTtl) : DEFAULT_TTL_HOURS;
-    const ttlHours = rawNum === 0 ? null : rawNum;
+    const ttlHours = rawNum === 0 ? null : Math.min(rawNum, MAX_TTL_HOURS);
 
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name },
@@ -152,7 +153,7 @@ router.post('/session-contexts/store', async (req, res) => {
   }
 });
 
-router.get('/session-contexts/get', async (req, res) => {
+router.get('/session-contexts/get', optionalAuth, async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
@@ -173,7 +174,7 @@ router.get('/session-contexts/get', async (req, res) => {
   }
 });
 
-router.get('/session-contexts/list', async (req, res) => {
+router.get('/session-contexts/list', optionalAuth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const { Op } = require('sequelize');
@@ -205,7 +206,7 @@ router.get('/session-contexts/list', async (req, res) => {
   }
 });
 
-router.delete('/session-contexts/delete', async (req, res) => {
+router.delete('/session-contexts/delete', optionalAuth, async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
@@ -224,7 +225,7 @@ router.delete('/session-contexts/delete', async (req, res) => {
 });
 
 // Session Channel internal routes
-router.post('/session-channels', async (req, res) => {
+router.post('/session-channels', optionalAuth, async (req, res) => {
   try {
     const { channel, message } = req.body;
     if (!channel || !message) return res.status(400).json({ error: 'channel and message are required' });
@@ -251,7 +252,7 @@ router.post('/session-channels', async (req, res) => {
   }
 });
 
-router.get('/session-channels/read', async (req, res) => {
+router.get('/session-channels/read', optionalAuth, async (req, res) => {
   try {
     const { channel } = req.query;
     if (!channel) return res.status(400).json({ error: 'channel is required' });
@@ -273,7 +274,7 @@ router.get('/session-channels/read', async (req, res) => {
 });
 
 // Legacy path-param route for direct access
-router.get('/session-channels/:channel', async (req, res) => {
+router.get('/session-channels/:channel', optionalAuth, async (req, res) => {
   try {
     const { channel } = req.params;
     const { since } = req.query;
@@ -303,7 +304,7 @@ router.get('/session-channels/:channel', async (req, res) => {
   }
 });
 
-router.get('/session-channels', async (req, res) => {
+router.get('/session-channels', optionalAuth, async (req, res) => {
   try {
     const { SessionChannel } = loadModels();
     const all = await SessionChannel.findAll({ order: [['createdAt', 'DESC']] });
@@ -324,7 +325,7 @@ router.get('/session-channels', async (req, res) => {
   }
 });
 
-router.delete('/session-channels/clear', async (req, res) => {
+router.delete('/session-channels/clear', optionalAuth, async (req, res) => {
   try {
     const { channel } = req.query;
     if (!channel) return res.status(400).json({ error: 'channel is required' });
@@ -337,7 +338,7 @@ router.delete('/session-channels/clear', async (req, res) => {
 });
 
 // Legacy path-param route for direct access
-router.delete('/session-channels/:channel', async (req, res) => {
+router.delete('/session-channels/:channel', optionalAuth, async (req, res) => {
   try {
     const { channel } = req.params;
     const { SessionChannel } = loadModels();
@@ -349,7 +350,7 @@ router.delete('/session-channels/:channel', async (req, res) => {
 });
 
 // GET /session-channels/:channel/watch — long-poll for CLI proxy watch_channel tool
-router.get('/session-channels/:channel/watch', async (req, res) => {
+router.get('/session-channels/:channel/watch', optionalAuth, async (req, res) => {
   try {
     const channel = req.params.channel;
     const channelEmitter = require('../services/channel-events');

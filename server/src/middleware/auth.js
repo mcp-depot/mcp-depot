@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const config = require('../config/env');
 const User = require('../models/User');
+
+function hashApiKey(apiKey) {
+  return crypto.createHash('sha256').update(apiKey).digest('hex');
+}
 
 const auth = async (req, res, next) => {
   try {
@@ -59,7 +64,8 @@ const authWithApiKey = async (req, res, next) => {
     }
     
     if (!authenticated && apiKeyHeader) {
-      user = await User.findOne({ where: { apiKey: apiKeyHeader } });
+      const hashedKey = hashApiKey(apiKeyHeader);
+      user = await User.findOne({ where: { apiKey: hashedKey } });
       if (user) {
         authenticated = true;
       }
@@ -113,7 +119,8 @@ const optionalApiKey = async (req, res, next) => {
   }
 
   try {
-    const user = await User.findOne({ where: { apiKey } });
+    const hashedKey = hashApiKey(apiKey);
+    const user = await User.findOne({ where: { apiKey: hashedKey } });
     if (user) {
       req.user = user;
       req.apiKeyAuth = true;

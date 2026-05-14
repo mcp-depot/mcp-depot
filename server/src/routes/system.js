@@ -2,6 +2,7 @@ const express = require('express');
 const Joi = require('joi');
 const { auth, requireAdmin } = require('../middleware/auth');
 const SystemSetting = require('../models/SystemSetting');
+const logger = require('../services/logger');
 
 const router = express.Router();
 
@@ -283,7 +284,7 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
           toolData.integrationId = integrationNameToId.get(tool.integrationName);
         }
         if (!toolData.integrationId) {
-          console.warn(`Skipping tool "${tool.name}" — no linked integration found`);
+          logger.warn({ toolName: tool.name }, 'Skipping tool — no linked integration found');
           continue;
         }
         await Tool.findOrCreate({

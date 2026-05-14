@@ -1,5 +1,6 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const Joi = require('joi');
 const User = require('../models/User');
 const SystemSetting = require('../models/SystemSetting');
@@ -8,6 +9,15 @@ const logger = require('../services/logger');
 const { auth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
+
+const rateLimit = require('express-rate-limit');
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many login attempts, please try again later' },
+  skipSuccessfulRequests: true
+});
 
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
@@ -41,7 +51,7 @@ function generateTokens(userId) {
   return { accessToken, refreshToken };
 }
 
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   try {
     if (process.env.ALLOW_REGISTRATION !== 'true') {
       return res.status(403).json({ error: 'Registration is disabled. Contact your administrator.' });
@@ -74,7 +84,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { error, value } = loginSchema.validate(req.body);
     if (error) {
@@ -257,6 +267,15 @@ const OAUTH_CONFIGS = {
   }
 };
 
+const oauthStateStore = new Map();
+
+function generateOAuthState(provider) {
+  const state = crypto.randomBytes(16).toString('hex');
+  oauthStateStore.set(state, { provider, createdAt: Date.now() });
+  setTimeout(() => oauthStateStore.delete(state), 10 * 60 * 1000);
+  return state;
+}
+
 const oidcDiscoveryCache = {};
 
 async function getOidcEndpoints(issuerUrl) {
@@ -299,7 +318,7 @@ router.get('/oauth-url/:provider', async (req, res) => {
 
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
   const redirectUri = `${clientUrl}/login`;
-  const state = provider;
+  const state = generateOAuthState(provider);
 
   const params = new URLSearchParams({
     client_id: config.clientId,
@@ -309,12 +328,12 @@ router.get('/oauth-url/:provider', async (req, res) => {
     state
   });
 
-  res.json({ url: `${authUrl}?${params.toString()}` });
+  res.json({ url: `${authUrl}?${params.toString()}`, state });
 });
 
 router.post('/oauth/:provider', async (req, res) => {
   const { provider } = req.params;
-  const { code, redirectUri } = req.body;
+  const { code, redirectUri, state } = req.body;
   const config = OAUTH_CONFIGS[provider];
 
   if (!config || !config.clientId) {
@@ -323,6 +342,17 @@ router.post('/oauth/:provider', async (req, res) => {
 
   if (!code) {
     return res.status(400).json({ error: 'Authorization code is required' });
+  }
+
+  if (!state || !oauthStateStore.has(state)) {
+    return res.status(400).json({ error: 'Invalid or expired OAuth state parameter' });
+  }
+
+  const storedState = oauthStateStore.get(state);
+  oauthStateStore.delete(state);
+
+  if (storedState.provider !== provider) {
+    return res.status(400).json({ error: 'OAuth state mismatch' });
   }
 
   try {
@@ -357,7 +387,7 @@ router.post('/oauth/:provider', async (req, res) => {
     });
   } catch (err) {
     logger.error({ err: err.message, provider }, 'OAuth login error');
-    res.status(500).json({ error: 'OAuth login failed: ' + err.message });
+    res.status(500).json({ error: 'OAuth login failed' });
   }
 });
 
