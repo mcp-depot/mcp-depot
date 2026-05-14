@@ -20,12 +20,16 @@ const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
 
 function getCallerId(req) {
+  const incomingSecret = req.headers['x-internal-secret'];
+  const configSecret = config.internalSecret;
+  const userIdHeader = req.headers['x-internal-user-id'];
   if (
-    req.headers['x-internal-secret'] === config.internalSecret &&
-    req.headers['x-internal-user-id']
+    incomingSecret === configSecret &&
+    userIdHeader
   ) {
-    return req.headers['x-internal-user-id'];
+    return userIdHeader;
   }
+  logger.info({ incomingPre: incomingSecret?.slice(0, 8), configPre: configSecret?.slice(0, 8), match: incomingSecret === configSecret, hasUserId: !!userIdHeader, incomingLen: incomingSecret?.length, configLen: configSecret?.length }, '[MCP DEBUG getCallerId]');
   return req.user?.id ?? null;
 }
 
@@ -1393,6 +1397,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     if (internalUserId) {
       mergedHeaders['X-Internal-Secret'] = config.internalSecret;
       mergedHeaders['X-Internal-User-Id'] = String(internalUserId);
+      logger.info({ secretLen: config.internalSecret?.length, secretPre: config.internalSecret?.slice(0, 8), userIdPre: String(internalUserId).slice(0, 8) }, '[MCP DEBUG execute] internalHeaders set');
     }
 
     let result;
