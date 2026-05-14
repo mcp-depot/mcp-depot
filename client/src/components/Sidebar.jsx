@@ -61,7 +61,7 @@ function Sidebar() {
     { section: 'Tools', items: filterItems([
       { path: '/tools', icon: Wrench, label: 'Tools', feature: 'tools' },
       { path: '/skills', icon: FileText, label: 'Skills', feature: 'skills' },
-      { path: '/personas', icon: User, label: 'Personas', feature: 'personas' },
+      { path: '/agents', icon: User, label: 'Agents', feature: 'agents' },
     ])},
     { section: 'Sessions', items: filterItems([
       { path: '/session-contexts', icon: Layers, label: 'Contexts', feature: 'sessions' },

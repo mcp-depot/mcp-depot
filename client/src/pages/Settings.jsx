@@ -1385,7 +1385,7 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                 ) : (
                   <div className="card" style={{ padding: '1rem' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
-                      {['integrations', 'tools', 'skills', 'sessions', 'channels', 'personas', 'users', 'monitoring', 'health'].map(feature => {
+                      {['integrations', 'tools', 'skills', 'sessions', 'channels', 'agents', 'users', 'monitoring', 'health'].map(feature => {
                         const locked = ['integrations', 'tools'].includes(feature);
                         return (
                           <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.7 : 1 }}>

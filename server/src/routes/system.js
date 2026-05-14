@@ -42,7 +42,7 @@ router.get('/mcp', auth, async (req, res) => {
   }
 });
 
-const DEFAULT_FEATURES = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'personas', 'users', 'monitoring', 'health'];
+const DEFAULT_FEATURES = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'agents', 'users', 'monitoring', 'health'];
 
 router.get('/features', auth, async (req, res) => {
   try {

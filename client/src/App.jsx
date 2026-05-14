@@ -12,7 +12,7 @@ import Workflows from './pages/Workflows';
 import Settings from './pages/Settings';
 import Monitoring from './pages/Monitoring';
 import Skills from './pages/Skills';
-import Personas from './pages/Personas';
+import Agents from './pages/Agents';
 
 import HealthDashboard from './pages/HealthDashboard';
 import SessionContexts from './pages/SessionContexts';
@@ -75,7 +75,8 @@ function AppRoutes() {
       <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
       <Route path="/users" element={<PrivateRoute><Layout><Users /></Layout></PrivateRoute>} />
       <Route path="/skills" element={<PrivateRoute><Layout><Skills /></Layout></PrivateRoute>} />
-      <Route path="/personas" element={<PrivateRoute><Layout><Personas /></Layout></PrivateRoute>} />
+      <Route path="/agents" element={<PrivateRoute><Layout><Agents /></Layout></PrivateRoute>} />
+      <Route path="/personas" element={<Navigate to="/agents" replace />} />
       
       <Route path="/health" element={<PrivateRoute><Layout><HealthDashboard /></Layout></PrivateRoute>} />
       <Route path="/session-contexts" element={<PrivateRoute><Layout><SessionContexts /></Layout></PrivateRoute>} />

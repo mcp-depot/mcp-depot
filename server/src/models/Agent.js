@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
-  const AgentPersona = sequelize.define('AgentPersona', {
+  const Agent = sequelize.define('Agent', {
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
@@ -23,6 +23,15 @@ module.exports = (sequelize) => {
     description: {
       type: DataTypes.TEXT
     },
+    tools: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: '[]'
+    },
+    model: {
+      type: DataTypes.STRING(100),
+      allowNull: true
+    },
     isShared: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
@@ -36,5 +45,5 @@ module.exports = (sequelize) => {
     tableName: 'agent_personas'
   });
 
-  return AgentPersona;
+  return Agent;
 };

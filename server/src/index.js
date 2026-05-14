@@ -41,7 +41,7 @@ const sessionContextRoutes = require('./routes/session-context');
 const sessionChannelRoutes = require('./routes/session-channel');
 const systemRoutes = require('./routes/system');
 const oauthRoutes = require('./routes/oauth');
-const personasRoutes = require('./routes/personas');
+const agentsRoutes = require('./routes/agents');
 const healthRoutes = require('./routes/health');
 const usersRoutes = require('./routes/users');
 const pool = require('./services/mcp-connection-pool');
@@ -106,7 +106,8 @@ v1Router.use('/consume', consumeRoutes);
   v1Router.use('/session-channels', sessionChannelRoutes);
   v1Router.use('/system', systemRoutes);
   v1Router.use('/oauth', oauthRoutes);
-  v1Router.use('/personas', personasRoutes);
+  v1Router.use('/agents', agentsRoutes);
+  v1Router.use('/personas', agentsRoutes);
   v1Router.use('/health', healthRoutes);
   v1Router.use('/users', usersRoutes);
 

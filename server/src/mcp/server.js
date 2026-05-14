@@ -41,6 +41,37 @@ function fmtDuration(ms) {
   return `${h}h ${m % 60}m`;
 }
 
+function generateInstallConfig(agent, clientType, tools) {
+  const base = {
+    name: agent.name,
+    description: agent.description,
+    systemPrompt: agent.systemPrompt,
+    tools,
+    model: agent.model || null
+  };
+
+  if (clientType === 'claude-code') {
+    return {
+      installPath: `.claude/agents/${agent.name}/AGENT.md`,
+      content: `---
+description: ${agent.description || `${agent.role} agent`}
+tools: [${(tools.length ? tools.join(', ') : 'read, grep, bash')}]
+model: ${agent.model || ''}
+---
+${agent.systemPrompt}`
+    };
+  }
+
+  if (clientType === 'opencode') {
+    return {
+      installPath: `.opencode/agents/${agent.name}.md`,
+      content: `# ${agent.name}\n\n${agent.systemPrompt}`
+    };
+  }
+
+  return base;
+}
+
 const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
 const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
 
@@ -80,7 +111,7 @@ class MCPDepotServer {
    }
 
   async initialize() {
-    const { Tool, Integration, PromptLibrary, AgentPersona } = loadModels();
+    const { Tool, Integration, PromptLibrary, Agent } = loadModels();
     
     const tools = await Tool.findAll({
       where: { isActive: true },
@@ -204,18 +235,18 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       this.registerSkill(skill);
     }
 
-    const personas = await AgentPersona.findAll();
-    for (const persona of personas) {
-      this.registerPersona(persona);
+    const agents = await Agent.findAll();
+    for (const agent of agents) {
+      this.registerAgent(agent);
     }
 
-    this.registerPersonaTools();
+    this.registerAgentTools();
 
     this.registerMetaTools();
 
     this.registerWatchUntilDone();
 
-    logger.info({ toolCount: tools.length, skillCount: skills.length, personaCount: personas.length }, 'MCP Server initialized');
+    logger.info({ toolCount: tools.length, skillCount: skills.length, agentCount: agents.length }, 'MCP Server initialized');
   }
 
   registerTool(tool) {
@@ -586,13 +617,13 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     logger.debug({ skill: skillName }, 'Skill registered');
   }
 
-  registerPersona(persona) {
-    const personaName = this.sanitizeToolName(`get-${persona.name}`);
+  registerAgent(agent) {
+    const agentName = this.sanitizeToolName(`get-${agent.name}`);
 
     this.server.tool(
-      personaName,
+      agentName,
       {
-        description: `Retrieve the ${persona.role} persona system prompt`,
+        description: `Retrieve the ${agent.role} agent system prompt`,
         inputSchema: { type: 'object', properties: {} }
       },
       async () => {
@@ -600,10 +631,12 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           content: [{
             type: 'text',
             text: JSON.stringify({
-              name: persona.name,
-              role: persona.role,
-              description: persona.description,
-              systemPrompt: persona.systemPrompt
+              name: agent.name,
+              role: agent.role,
+              description: agent.description,
+              systemPrompt: agent.systemPrompt,
+              tools: agent.tools ? JSON.parse(agent.tools) : [],
+              model: agent.model || null
             }, null, 2)
           }]
         };
@@ -611,25 +644,27 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     );
   }
 
-  async registerPersonaTools() {
-    const { AgentPersona } = require('../config/database').loadModels();
+  async registerAgentTools() {
+    const { Agent } = require('../config/database').loadModels();
 
     this.server.tool(
-      'list-personas',
+      'list-agents',
       {
-        description: 'List all available agent personas. Each persona is a named system prompt that can be applied to any MCP client session.',
+        description: 'List all available agents. Each agent is a named system prompt with optional tool and model constraints that can be applied to any MCP client session.',
         inputSchema: z.object({})
       },
       async () => {
         try {
-          const personas = await AgentPersona.findAll({ order: [['name', 'ASC']] });
+          const agents = await Agent.findAll({ order: [['name', 'ASC']] });
           return {
             content: [{
               type: 'text',
-              text: JSON.stringify(personas.map(p => ({
-                name: p.name,
-                role: p.role,
-                description: p.description
+              text: JSON.stringify(agents.map(a => ({
+                name: a.name,
+                role: a.role,
+                description: a.description,
+                tools: a.tools ? JSON.parse(a.tools) : [],
+                model: a.model || null
               })), null, 2)
             }]
           };
@@ -643,29 +678,42 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     );
 
     this.server.tool(
-      'get-persona',
+      'get-agent',
       {
-        description: 'Retrieve the system prompt and metadata for a named persona.',
-        inputSchema: z.object({ name: z.string().describe('Persona name, e.g. "security-reviewer"') })
+        description: 'Retrieve the system prompt, metadata, tools, and model for a named agent. Optionally specify a clientType for an install config snippet.',
+        inputSchema: z.object({
+          name: z.string().describe('Agent name, e.g. "security-reviewer"'),
+          clientType: z.string().optional().describe('Client format: "claude-code", "opencode", or "generic" (default)')
+        })
       },
       async (params) => {
         try {
-          const persona = await AgentPersona.findOne({ where: { name: params.name } });
-          if (!persona) {
+          const agent = await Agent.findOne({ where: { name: params.name } });
+          if (!agent) {
             return {
-              content: [{ type: 'text', text: `Persona "${params.name}" not found` }],
+              content: [{ type: 'text', text: `Agent "${params.name}" not found` }],
               isError: true
             };
           }
+
+          const tools = agent.tools ? JSON.parse(agent.tools) : [];
+          const response = {
+            name: agent.name,
+            role: agent.role,
+            description: agent.description,
+            systemPrompt: agent.systemPrompt,
+            tools,
+            model: agent.model || null
+          };
+
+          if (params.clientType) {
+            response.installConfig = generateInstallConfig(agent, params.clientType.toLowerCase(), tools);
+          }
+
           return {
             content: [{
               type: 'text',
-              text: JSON.stringify({
-                name: persona.name,
-                role: persona.role,
-                description: persona.description,
-                systemPrompt: persona.systemPrompt
-              }, null, 2)
+              text: JSON.stringify(response, null, 2)
             }]
           };
         } catch (error) {
@@ -678,41 +726,49 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     );
 
     this.server.tool(
-      'store-persona',
+      'create-agent',
       {
-        description: 'Save or update an agent persona. Use to create new personas or update existing ones.',
+        description: 'Save or update an agent. Use to create new agent personas or update existing ones with tool and model constraints.',
         inputSchema: z.object({
-          name: z.string().describe('Persona key, e.g. "security-reviewer"'),
+          name: z.string().describe('Agent key, e.g. "security-reviewer"'),
           role: z.string().describe('Short display label, e.g. "Security Reviewer"'),
-          systemPrompt: z.string().describe('Full system prompt for this persona'),
+          systemPrompt: z.string().describe('Full system prompt for this agent'),
           description: z.string().optional().describe('One-line summary'),
+          tools: z.array(z.string()).optional().describe('List of allowed tool names'),
+          model: z.string().optional().describe('Model constraint, e.g. "claude-opus-4-7"'),
           shared: z.boolean().optional().describe('If true, visible to all team members')
         })
       },
       async (params) => {
         try {
-          const [persona, created] = await AgentPersona.findOrCreate({
+          const defaults = {
+            name: params.name,
+            role: params.role,
+            systemPrompt: params.systemPrompt,
+            description: params.description || '',
+            isShared: params.shared || false,
+            tools: params.tools ? JSON.stringify(params.tools) : '[]',
+            model: params.model || null
+          };
+
+          const [agent, created] = await Agent.findOrCreate({
             where: { name: params.name },
-            defaults: {
-              name: params.name,
-              role: params.role,
-              systemPrompt: params.systemPrompt,
-              description: params.description || '',
-              isShared: params.shared || false
-            }
+            defaults
           });
           if (!created) {
-            await persona.update({
+            await agent.update({
               role: params.role,
               systemPrompt: params.systemPrompt,
-              description: params.description !== undefined ? params.description : persona.description,
-              isShared: params.shared !== undefined ? params.shared : persona.isShared
+              description: params.description !== undefined ? params.description : agent.description,
+              isShared: params.shared !== undefined ? params.shared : agent.isShared,
+              tools: params.tools !== undefined ? JSON.stringify(params.tools) : agent.tools,
+              model: params.model !== undefined ? params.model : agent.model
             });
           }
           return {
             content: [{
               type: 'text',
-              text: `Persona "${params.name}" ${created ? 'created' : 'updated'}.`
+              text: `Agent "${params.name}" ${created ? 'created' : 'updated'}.`
             }]
           };
         } catch (error) {
@@ -724,7 +780,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     );
 
-    logger.debug('Persona tools registered');
+    logger.debug('Agent tools registered');
   }
 
   registerMetaTools() {
@@ -1102,7 +1158,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   async refreshTools() {
     this.toolsMap.clear();
     
-    const { Tool, Integration, PromptLibrary, AgentPersona } = loadModels();
+    const { Tool, Integration, PromptLibrary, Agent } = loadModels();
     const tools = await Tool.findAll({
       where: { isActive: true },
       include: [{ model: Integration, where: { isActive: true } }]
@@ -1117,12 +1173,12 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       this.registerSkill(skill);
     }
 
-    const personas = await AgentPersona.findAll();
-    for (const persona of personas) {
-      this.registerPersona(persona);
+    const agents = await Agent.findAll();
+    for (const agent of agents) {
+      this.registerAgent(agent);
     }
     
-    this.registerPersonaTools();
+    this.registerAgentTools();
 
     this.registerMetaTools();
 
@@ -1130,7 +1186,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
     await this.server.sendToolListChanged();
     
-    logger.info({ toolCount: tools.length, skillCount: skills.length, personaCount: personas.length }, 'Tools refreshed');
+    logger.info({ toolCount: tools.length, skillCount: skills.length, agentCount: agents.length }, 'Tools refreshed');
   }
 }
 
