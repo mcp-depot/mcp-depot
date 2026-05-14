@@ -15,6 +15,36 @@ const { filterFields } = require('../utils/fieldFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
 const transformerLoader = require('../transformers/loader');
 const { z } = require('zod/v3');
+const { AsyncLocalStorage } = require('async_hooks');
+const jwt = require('jsonwebtoken');
+const config = require('../config/env');
+const User = require('../models/User');
+
+const requestStore = new AsyncLocalStorage();
+
+function hashApiKey(apiKey) {
+  return require('crypto').createHash('sha256').update(apiKey).digest('hex');
+}
+
+const authenticateMcpRequest = async (req, res, next) => {
+  let userId = null;
+  try {
+    const apiKey = req.header('X-API-Key');
+    const authHeader = req.header('Authorization');
+    if (apiKey) {
+      const hashed = hashApiKey(apiKey);
+      const user = await User.findOne({ where: { apiKey: hashed } });
+      if (user) userId = user.id;
+    } else if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '');
+      const decoded = jwt.verify(token, config.jwtSecret);
+      const user = await User.findByPk(decoded.userId);
+      if (user) userId = user.id;
+    }
+  } catch (e) {
+  }
+  requestStore.run({ userId }, next);
+};
 
 function coerceParam(value, paramDefs, key) {
   const type = paramDefs?.[key]?.type;
@@ -99,6 +129,8 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         async (req, extra) => {
           const clientInfo = req.params?.clientInfo ?? { name: 'unknown', version: '0.0.0' };
           const sessionId = extra?.sessionId || 'stdio';
+          const store = requestStore.getStore();
+          const sessionUserId = store?.userId ?? null;
           this._sessionClientMap.set(sessionId, {
             sessionId,
             clientName: clientInfo.name,
@@ -106,7 +138,8 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
             connectedAt: new Date().toISOString(),
             lastCallAt: new Date().toISOString(),
             lastTool: null,
-            callCount: 0
+            callCount: 0,
+            userId: sessionUserId
           });
           this._broadcastSessions();
           return {
@@ -266,7 +299,8 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       async (params, extra) => {
         const startTime = Date.now();
         const sessionId = extra?.sessionId || 'stdio';
-        const clientInfo = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
+        const sessionData = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
+        const clientInfo = { clientName: sessionData.clientName, clientVersion: sessionData.clientVersion };
 
         try {
           const toolLimit = tool.rateLimit || 0;
@@ -284,7 +318,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
             };
           }
 
-          const result = await this.executeTool(tool, params, clientInfo);
+          const result = await this.executeTool(tool, params, clientInfo, sessionData.userId ?? null);
           this._updateSession(sessionId, toolName, true);
           recordToolCall(toolName, Date.now() - startTime, true);
           return {
@@ -317,7 +351,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     logger.debug({ tool: toolName }, 'Tool registered');
   }
 
-  async executeTool(tool, params, clientInfo) {
+  async executeTool(tool, params, clientInfo, callerUserId = null) {
     if (tool.type === 'composite') {
       const result = await executeCompositeTool(tool, params, tool.userId);
       return result;
@@ -349,6 +383,13 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     }
 
+    const internalHeaders = callerUserId
+      ? {
+          'X-Internal-Secret': config.internalSecret,
+          'X-Internal-User-Id': callerUserId,
+        }
+      : {};
+
     const adapter = AdapterFactory.create(integration.type, resolvedConfig);
     
     const originalPath = endpoint.path || '';
@@ -377,6 +418,8 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       bodyParams = pruneNulls(bodyParams);
     }
 
+    const existingHeaders = endpoint.headers || {};
+
     const method = (endpoint.method || 'GET').toUpperCase();
     const startTime = Date.now();
     let success = true;
@@ -397,20 +440,21 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         }
         data = result.data;
       } else {
+        const requestHeaders = { ...existingHeaders, ...internalHeaders };
         if (method === 'GET') {
-          result = await adapter.get(path, { params: remainingParams });
+          result = await adapter.get(path, { params: remainingParams, headers: requestHeaders });
           data = result.data;
         } else if (method === 'POST') {
-          result = await adapter.post(path, bodyParams);
+          result = await adapter.post(path, bodyParams, { headers: requestHeaders });
         data = result.data;
         } else if (method === 'PUT') {
-          result = await adapter.put(path, bodyParams);
+          result = await adapter.put(path, bodyParams, { headers: requestHeaders });
           data = result.data;
         } else if (method === 'DELETE') {
-          result = await adapter.delete(path, { params: remainingParams });
+          result = await adapter.delete(path, { params: remainingParams, headers: requestHeaders });
           data = result.data;
         } else if (method === 'PATCH') {
-          result = await adapter.patch(path, bodyParams);
+          result = await adapter.patch(path, bodyParams, { headers: requestHeaders });
           data = result.data;
         } else {
           throw new Error(`Unsupported method: ${method}`);
@@ -1034,9 +1078,9 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     };
 
-    app.post('/mcp', (req, res) => transport.handleRequest(req, res, req.body));
-    app.get('/mcp', (req, res) => transport.handleRequest(req, res));
-    app.delete('/mcp', (req, res) => transport.handleRequest(req, res));
+    app.post('/mcp', authenticateMcpRequest, (req, res) => transport.handleRequest(req, res, req.body));
+    app.get('/mcp', authenticateMcpRequest, (req, res) => transport.handleRequest(req, res));
+    app.delete('/mcp', authenticateMcpRequest, (req, res) => transport.handleRequest(req, res));
 
     await this.server.connect(transport);
     logger.info('MCP Server started with HTTP+SSE transport');

@@ -19,6 +19,16 @@ const { checkRateLimit } = require('../services/rate-limiter');
 const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
 
+function getCallerId(req) {
+  if (
+    req.headers['x-internal-secret'] === config.internalSecret &&
+    req.headers['x-internal-user-id']
+  ) {
+    return req.headers['x-internal-user-id'];
+  }
+  return req.user?.id ?? null;
+}
+
 const router = express.Router();
 
 const executeToolSchema = Joi.object({
@@ -125,7 +135,7 @@ router.post('/session-contexts/store', optionalAuth, async (req, res) => {
     if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
-    const callerId = req.user?.id ?? null;
+    const callerId = getCallerId(req);
     const MAX_TTL_HOURS = 8760;
     const ttlProvided = Object.prototype.hasOwnProperty.call(req.body, 'ttlHours');
     const rawTtl = ttlProvided ? req.body.ttlHours : undefined;
@@ -158,7 +168,7 @@ router.get('/session-contexts/get', optionalAuth, async (req, res) => {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
     const { SessionContext } = loadModels();
-    const callerId = req.user?.id ?? null;
+    const callerId = getCallerId(req);
     const callerRole = req.user?.role ?? 'user';
     const ctx = await SessionContext.findOne({
       where: callerId
@@ -178,7 +188,7 @@ router.get('/session-contexts/list', optionalAuth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const { Op } = require('sequelize');
-    const callerId = req.user?.id ?? null;
+    const callerId = getCallerId(req);
     const callerRole = req.user?.role ?? 'user';
 
     const where = callerId
@@ -211,7 +221,7 @@ router.delete('/session-contexts/delete', optionalAuth, async (req, res) => {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
     const { SessionContext } = loadModels();
-    const callerId = req.user?.id ?? null;
+    const callerId = getCallerId(req);
     const ctx = await SessionContext.findOne({ where: { name } });
     if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
     if (callerId !== null && ctx.createdBy !== callerId) {
@@ -230,7 +240,7 @@ router.post('/session-channels', optionalAuth, async (req, res) => {
     const { channel, message } = req.body;
     if (!channel || !message) return res.status(400).json({ error: 'channel and message are required' });
     const { SessionChannel } = loadModels();
-    const callerId = req.user?.id ?? null;
+    const callerId = getCallerId(req);
     const entry = await SessionChannel.create({
       id: require('crypto').randomUUID(),
       channel,

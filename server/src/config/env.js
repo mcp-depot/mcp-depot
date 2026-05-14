@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 const KNOWN_DEFAULTS = ['mcp-secret-key-change-in-production', 'mcp-refresh-secret-change-in-production'];
 
 if (process.env.NODE_ENV === 'production') {
@@ -20,5 +22,6 @@ module.exports = {
   encryptionKey: process.env.ENCRYPTION_KEY || 'mcp-32-byte-encryption-key!',
   port: process.env.PORT || 3000,
   databaseUrl: process.env.DATABASE_URL || 'postgres://admin:admin123@localhost:5432/mcpconnect',
-  allowSelfSignedCerts: process.env.ALLOW_SELF_SIGNED_CERTS === 'true'
+  allowSelfSignedCerts: process.env.ALLOW_SELF_SIGNED_CERTS === 'true',
+  internalSecret: crypto.randomBytes(32).toString('hex')
 };
