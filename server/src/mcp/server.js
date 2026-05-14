@@ -295,6 +295,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
             };
           }
 
+          logger.info({ toolName, sessionId, sessionUserId: sessionData.userId, hasCallerId: !!sessionData.userId }, '[MCP DEBUG] executeTool call');
           const result = await this.executeTool(tool, params, clientInfo, sessionData.userId ?? null);
           this._updateSession(sessionId, toolName, true);
           recordToolCall(toolName, Date.now() - startTime, true);
@@ -329,6 +330,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   }
 
   async executeTool(tool, params, clientInfo, callerUserId = null) {
+    logger.info({ toolName: tool.name, callerUserId: callerUserId?.toString().slice(0,8) }, '[MCP DEBUG] executeTool start');
     if (tool.type === 'composite') {
       const result = await executeCompositeTool(tool, params, tool.userId);
       return result;
@@ -1047,8 +1049,12 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: async (sessionId) => {
         const userId = transport._pendingUserId;
+        logger.info({ sessionId, userId }, '[MCP DEBUG] onsessioninitialized fired');
         if (userId) {
           sessionUserIds.set(sessionId, userId);
+          logger.info({ sessionId, userId }, '[MCP DEBUG] userId stored for session');
+        } else {
+          logger.warn({ sessionId }, '[MCP DEBUG] WARNING: no userId at onsessioninitialized time');
         }
       }
     });
@@ -1083,6 +1089,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
 
       const existingSessionId = req.headers['mcp-session-id'];
+      logger.info({ existingSessionId, userId: userId?.toString().slice(0,8), hasAuth: !!(authHeader), hasApiKey: !!(apiKey) }, '[MCP DEBUG] incoming request');
       if (existingSessionId && userId) {
         sessionUserIds.set(existingSessionId, userId);
       }

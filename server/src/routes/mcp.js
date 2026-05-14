@@ -190,6 +190,7 @@ router.get('/session-contexts/list', optionalAuth, async (req, res) => {
     const { Op } = require('sequelize');
     const callerId = getCallerId(req);
     const callerRole = req.user?.role ?? 'user';
+    logger.info({ callerId: callerId?.toString().slice(0,8), secretMatch: req.headers['x-internal-secret'] === config.internalSecret, hasInternalUserId: !!req.headers['x-internal-user-id'] }, '[MCP DEBUG] list-session-contexts');
 
     const where = callerId
       ? callerRole === 'admin'
