@@ -331,6 +331,64 @@ const createDefaultTool = async () => {
     }
 
     logger.info('MCP Depot Sessions tools created!\n');
+
+    // Create MCP Depot Agents integration
+    let agentsIntegration = await Integration.findOne({
+      where: { name: 'MCP Depot Agents' }
+    });
+
+    if (!agentsIntegration) {
+      agentsIntegration = await Integration.create({
+        userId: adminUser.id,
+        type: 'custom',
+        name: 'MCP Depot Agents',
+        visibility: 'shared',
+        description: 'Agent registry — create, manage and install AI agents across clients. Disable this integration to hide agent tools from Claude.',
+        config: {
+          baseUrl: `http://localhost:${process.env.PORT || 3000}`,
+          auth: { type: 'none' }
+        },
+        isActive: true
+      });
+    }
+
+    // Seed agent tools under MCP Depot Agents
+    const agentTools = [
+      {
+        name: 'list-agents',
+        description: 'List all agents available to the current user (own + shared).',
+        endpoint: { path: '/api/mcp/agents', method: 'GET', params: {}, headers: {} }
+      },
+      {
+        name: 'get-agent',
+        description: 'Get a specific agent by name, optionally including an install config snippet for a given AI client format (claude-code, opencode, generic).',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' }, clientType: { type: 'string', required: false, description: 'AI client format: claude-code, opencode, or generic' } }, headers: {} }
+      },
+      {
+        name: 'create-agent',
+        description: 'Create a new agent with a name, description, role (short label), system prompt, optional tool constraints, optional model preference, and sharing flag.',
+        endpoint: { path: '/api/mcp/agents', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique agent name (slug-style, e.g. security-reviewer)' }, description: { type: 'string', required: false, description: 'Short description' }, role: { type: 'string', required: true, description: 'Short display label, e.g. Security Reviewer' }, systemPrompt: { type: 'string', required: true, description: 'The system prompt / personality for this agent' }, tools: { type: 'string', required: false, description: 'Comma-separated allowed tool names, e.g. read, grep, bash' }, model: { type: 'string', required: false, description: 'Preferred model ID, e.g. claude-opus-4-7' }, isShared: { type: 'boolean', required: false, description: 'Make this agent visible to all users' } }, headers: { 'Content-Type': 'application/json' } }
+      },
+      {
+        name: 'update-agent',
+        description: 'Update an existing agent by name. Only provided fields are changed.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'PUT', params: { name: { type: 'string', required: true, description: 'Agent name to update' }, description: { type: 'string', required: false, description: 'Updated description' }, role: { type: 'string', required: false, description: 'Updated display label' }, systemPrompt: { type: 'string', required: false, description: 'Updated system prompt' }, tools: { type: 'string', required: false, description: 'Updated tool constraints' }, model: { type: 'string', required: false, description: 'Updated model preference' }, isShared: { type: 'boolean', required: false, description: 'Updated sharing flag' } }, headers: { 'Content-Type': 'application/json' } }
+      },
+      {
+        name: 'delete-agent',
+        description: 'Delete an agent by name. Only the owner or an admin can delete an agent.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'DELETE', params: { name: { type: 'string', required: true, description: 'Agent name to delete' } }, headers: {} }
+      }
+    ];
+
+    for (const toolDef of agentTools) {
+      await Tool.findOrCreate({
+        where: { name: toolDef.name },
+        defaults: { userId: adminUser.id, integrationId: agentsIntegration.id, ...toolDef, isActive: true }
+      });
+    }
+
+    logger.info('MCP Depot Agents tools created!\n');
   } else {
     userId = mcpDepotIntegration.userId;
     
@@ -550,6 +608,68 @@ const createDefaultTool = async () => {
     }
 
     logger.info('Additional MCP Depot tools added!\n');
+
+    // Find or create MCP Depot Agents integration
+    let agentsIntegration = await Integration.findOne({
+      where: { name: 'MCP Depot Agents' }
+    });
+
+    if (!agentsIntegration) {
+      agentsIntegration = await Integration.create({
+        userId,
+        type: 'custom',
+        name: 'MCP Depot Agents',
+        visibility: 'shared',
+        description: 'Agent registry — create, manage and install AI agents across clients. Disable this integration to hide agent tools from Claude.',
+        config: { baseUrl: actualBaseUrl, auth: { type: 'none' } },
+        isActive: true
+      });
+    } else if (agentsIntegration.config?.baseUrl !== actualBaseUrl) {
+      await agentsIntegration.update({
+        config: { ...agentsIntegration.config, baseUrl: actualBaseUrl }
+      });
+    }
+
+    // Seed agent tools under MCP Depot Agents
+    const agentTools = [
+      {
+        name: 'list-agents',
+        description: 'List all agents available to the current user (own + shared).',
+        endpoint: { path: '/api/mcp/agents', method: 'GET', params: {}, headers: {} }
+      },
+      {
+        name: 'get-agent',
+        description: 'Get a specific agent by name, optionally including an install config snippet for a given AI client format (claude-code, opencode, generic).',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' }, clientType: { type: 'string', required: false, description: 'AI client format: claude-code, opencode, or generic' } }, headers: {} }
+      },
+      {
+        name: 'create-agent',
+        description: 'Create a new agent with a name, description, role (short label), system prompt, optional tool constraints, optional model preference, and sharing flag.',
+        endpoint: { path: '/api/mcp/agents', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique agent name (slug-style, e.g. security-reviewer)' }, description: { type: 'string', required: false, description: 'Short description' }, role: { type: 'string', required: true, description: 'Short display label, e.g. Security Reviewer' }, systemPrompt: { type: 'string', required: true, description: 'The system prompt / personality for this agent' }, tools: { type: 'string', required: false, description: 'Comma-separated allowed tool names, e.g. read, grep, bash' }, model: { type: 'string', required: false, description: 'Preferred model ID, e.g. claude-opus-4-7' }, isShared: { type: 'boolean', required: false, description: 'Make this agent visible to all users' } }, headers: { 'Content-Type': 'application/json' } }
+      },
+      {
+        name: 'update-agent',
+        description: 'Update an existing agent by name. Only provided fields are changed.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'PUT', params: { name: { type: 'string', required: true, description: 'Agent name to update' }, description: { type: 'string', required: false, description: 'Updated description' }, role: { type: 'string', required: false, description: 'Updated display label' }, systemPrompt: { type: 'string', required: false, description: 'Updated system prompt' }, tools: { type: 'string', required: false, description: 'Updated tool constraints' }, model: { type: 'string', required: false, description: 'Updated model preference' }, isShared: { type: 'boolean', required: false, description: 'Updated sharing flag' } }, headers: { 'Content-Type': 'application/json' } }
+      },
+      {
+        name: 'delete-agent',
+        description: 'Delete an agent by name. Only the owner or an admin can delete an agent.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'DELETE', params: { name: { type: 'string', required: true, description: 'Agent name to delete' } }, headers: {} }
+      }
+    ];
+
+    for (const toolDef of agentTools) {
+      const [tool, created] = await Tool.findOrCreate({
+        where: { name: toolDef.name },
+        defaults: { userId, integrationId: agentsIntegration.id, ...toolDef, isActive: true }
+      });
+      if (!created) {
+        await tool.update({ description: toolDef.description, endpoint: toolDef.endpoint });
+      }
+    }
+
+    logger.info('MCP Depot Agents tools seeded!\n');
   }
 
   // Create MCP Depot - AI Tools integration (meta-tools for AI-driven integration builder)

@@ -1671,4 +1671,165 @@ router.post('/resources/unsubscribe', checkMcpAuth, async (req, res) => {
   }
 });
 
+// Agent internal routes
+const { Op } = require('sequelize');
+
+function generateInstallConfig(agent, clientType, tools) {
+  const base = {
+    name: agent.name,
+    description: agent.description,
+    systemPrompt: agent.systemPrompt,
+    tools,
+    model: agent.model || null
+  };
+
+  if (clientType === 'claude-code') {
+    return {
+      clientType: 'claude-code',
+      installPath: `.claude/agents/${agent.name}/AGENT.md`,
+      content: `---
+description: ${agent.description || `${agent.role} agent`}
+tools: [${(tools.length ? tools.join(', ') : 'read, grep, bash')}]
+model: ${agent.model || ''}
+---
+${agent.systemPrompt}`
+    };
+  }
+
+  if (clientType === 'opencode') {
+    return {
+      clientType: 'opencode',
+      installPath: `.opencode/agents/${agent.name}.md`,
+      content: `# ${agent.name}\n\n${agent.systemPrompt}`
+    };
+  }
+
+  return { clientType: 'generic', agent: base };
+}
+
+router.get('/agents', optionalAuth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
+    const where = callerId
+      ? callerRole === 'admin'
+        ? {}
+        : { [Op.or]: [{ createdBy: callerId }, { isShared: true }] }
+      : { isShared: true };
+    const agents = await Agent.findAll({ where, order: [['name', 'ASC']] });
+    res.json(agents);
+  } catch (error) {
+    logger.error({ error: error.message }, 'List agents error');
+    res.status(500).json({ error: 'Failed to list agents' });
+  }
+});
+
+router.get('/agents/:name', optionalAuth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
+    const where = { name: req.params.name };
+    if (callerId && callerRole !== 'admin') {
+      where[Op.or] = [{ createdBy: callerId }, { isShared: true }];
+    } else if (!callerId) {
+      where.isShared = true;
+    }
+    const agent = await Agent.findOne({ where });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    const response = agent.toJSON();
+    response.tools = agent.tools ? JSON.parse(agent.tools) : [];
+    const clientType = req.query.clientType;
+    if (clientType) {
+      response.installConfig = generateInstallConfig(agent, clientType.toLowerCase(), response.tools);
+    }
+    res.json(response);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Get agent error');
+    res.status(500).json({ error: 'Failed to get agent' });
+  }
+});
+
+router.post('/agents', optionalAuth, async (req, res) => {
+  try {
+    const { name, role, systemPrompt, description, isShared, tools, model } = req.body;
+    if (!name || !role || !systemPrompt) {
+      return res.status(400).json({ error: 'name, role, and systemPrompt are required' });
+    }
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const [agent, created] = await Agent.findOrCreate({
+      where: { name },
+      defaults: {
+        name, role, systemPrompt,
+        description: description || '',
+        isShared: isShared || false,
+        tools: tools ? JSON.stringify(tools) : '[]',
+        model: model || null,
+        createdBy: callerId
+      }
+    });
+    if (!created) {
+      return res.status(409).json({ error: `Agent "${name}" already exists. Use PUT to update.` });
+    }
+    res.status(201).json(agent);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Create agent error');
+    res.status(500).json({ error: 'Failed to create agent' });
+  }
+});
+
+router.put('/agents/:name', optionalAuth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
+    const where = { name: req.params.name };
+    if (callerRole !== 'admin') {
+      where.createdBy = callerId;
+    }
+    const agent = await Agent.findOne({ where });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found or you do not own it' });
+    }
+    const { role, systemPrompt, description, isShared, tools, model } = req.body;
+    const updates = {};
+    if (role !== undefined) updates.role = role;
+    if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
+    if (description !== undefined) updates.description = description;
+    if (isShared !== undefined) updates.isShared = isShared;
+    if (tools !== undefined) updates.tools = JSON.stringify(tools);
+    if (model !== undefined) updates.model = model;
+    await agent.update(updates);
+    res.json(agent);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Update agent error');
+    res.status(500).json({ error: 'Failed to update agent' });
+  }
+});
+
+router.delete('/agents/:name', optionalAuth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
+    const where = { name: req.params.name };
+    if (callerRole !== 'admin') {
+      where.createdBy = callerId;
+    }
+    const agent = await Agent.findOne({ where });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found or you do not own it' });
+    }
+    await agent.destroy();
+    res.json({ success: true });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Delete agent error');
+    res.status(500).json({ error: 'Failed to delete agent' });
+  }
+});
+
 module.exports = { router, clearToolsCache };

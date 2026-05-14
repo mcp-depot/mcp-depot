@@ -40,12 +40,44 @@ router.get('/:name', auth, async (req, res) => {
     if (!agent) {
       return res.status(404).json({ error: 'Agent not found' });
     }
-    res.json(agent);
+
+    const response = agent.toJSON();
+    response.tools = agent.tools ? JSON.parse(agent.tools) : [];
+
+    const clientType = req.query.clientType;
+    if (clientType) {
+      response.installConfig = generateInstallConfig(agent, clientType.toLowerCase(), response.tools);
+    }
+
+    res.json(response);
   } catch (error) {
     logger.error({ error: error.message }, 'Get agent error');
     res.status(500).json({ error: 'Failed to get agent' });
   }
 });
+
+function generateInstallConfig(agent, clientType, tools) {
+  if (clientType === 'claude-code') {
+    return {
+      clientType: 'claude-code',
+      installPath: `.claude/agents/${agent.name}/AGENT.md`,
+      content: `---
+description: ${agent.description || `${agent.role} agent`}
+tools: [${(tools.length ? tools.join(', ') : 'read, grep, bash')}]
+model: ${agent.model || ''}
+---
+${agent.systemPrompt}`
+    };
+  }
+  if (clientType === 'opencode') {
+    return {
+      clientType: 'opencode',
+      installPath: `.opencode/agents/${agent.name}.md`,
+      content: `# ${agent.name}\n\n${agent.systemPrompt}`
+    };
+  }
+  return { clientType: 'generic', agent: agent.toJSON() };
+}
 
 router.post('/', auth, async (req, res) => {
   try {
@@ -82,6 +114,31 @@ router.post('/', auth, async (req, res) => {
   } catch (error) {
     logger.error({ error: error.message }, 'Create agent error');
     res.status(500).json({ error: 'Failed to create agent' });
+  }
+});
+
+router.put('/:name', auth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const agent = await Agent.findOne({
+      where: { name: req.params.name, createdBy: req.user.id }
+    });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found or you do not own it' });
+    }
+    const { role, systemPrompt, description, isShared, tools, model } = req.body;
+    const updates = {};
+    if (role !== undefined) updates.role = role;
+    if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
+    if (description !== undefined) updates.description = description;
+    if (isShared !== undefined) updates.isShared = isShared;
+    if (tools !== undefined) updates.tools = JSON.stringify(tools);
+    if (model !== undefined) updates.model = model;
+    await agent.update(updates);
+    res.json(agent);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Update agent error');
+    res.status(500).json({ error: 'Failed to update agent' });
   }
 });
 
