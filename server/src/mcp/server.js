@@ -15,36 +15,13 @@ const { filterFields } = require('../utils/fieldFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
 const transformerLoader = require('../transformers/loader');
 const { z } = require('zod/v3');
-const { AsyncLocalStorage } = require('async_hooks');
 const jwt = require('jsonwebtoken');
 const config = require('../config/env');
 const User = require('../models/User');
 
-const requestStore = new AsyncLocalStorage();
-
 function hashApiKey(apiKey) {
   return require('crypto').createHash('sha256').update(apiKey).digest('hex');
 }
-
-const authenticateMcpRequest = async (req, res, next) => {
-  let userId = null;
-  try {
-    const apiKey = req.header('X-API-Key');
-    const authHeader = req.header('Authorization');
-    if (apiKey) {
-      const hashed = hashApiKey(apiKey);
-      const user = await User.findOne({ where: { apiKey: hashed } });
-      if (user) userId = user.id;
-    } else if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.replace('Bearer ', '');
-      const decoded = jwt.verify(token, config.jwtSecret);
-      const user = await User.findByPk(decoded.userId);
-      if (user) userId = user.id;
-    }
-  } catch (e) {
-  }
-  requestStore.run({ userId }, next);
-};
 
 function coerceParam(value, paramDefs, key) {
   const type = paramDefs?.[key]?.type;
@@ -129,8 +106,8 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         async (req, extra) => {
           const clientInfo = req.params?.clientInfo ?? { name: 'unknown', version: '0.0.0' };
           const sessionId = extra?.sessionId || 'stdio';
-          const store = requestStore.getStore();
-          const sessionUserId = store?.userId ?? null;
+          const sessionUserId = this._sessionUserIds?.get(sessionId) ?? null;
+          if (this._sessionUserIds) this._sessionUserIds.delete(sessionId);
           this._sessionClientMap.set(sessionId, {
             sessionId,
             clientName: clientInfo.name,
@@ -1063,8 +1040,18 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   }
 
   async startHttp(app) {
+    const sessionUserIds = new Map();
+    let _currentUserId = null;
+    this._sessionUserIds = sessionUserIds;
+
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID()
+      sessionIdGenerator: () => {
+        const sessionId = randomUUID();
+        if (_currentUserId) {
+          sessionUserIds.set(sessionId, _currentUserId);
+        }
+        return sessionId;
+      }
     });
 
     this._httpTransport = transport;
@@ -1078,9 +1065,31 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     };
 
-    app.post('/mcp', authenticateMcpRequest, (req, res) => transport.handleRequest(req, res, req.body));
-    app.get('/mcp', authenticateMcpRequest, (req, res) => transport.handleRequest(req, res));
-    app.delete('/mcp', authenticateMcpRequest, (req, res) => transport.handleRequest(req, res));
+    const authenticateAndRun = async (req, res, body) => {
+      let userId = null;
+      try {
+        const apiKey = req.header('X-API-Key');
+        const authHeader = req.header('Authorization');
+        if (apiKey) {
+          const hashed = hashApiKey(apiKey);
+          const user = await User.findOne({ where: { apiKey: hashed } });
+          if (user) userId = user.id;
+        } else if (authHeader?.startsWith('Bearer ')) {
+          const token = authHeader.replace('Bearer ', '');
+          const decoded = jwt.verify(token, config.jwtSecret);
+          const user = await User.findByPk(decoded.userId);
+          if (user) userId = user.id;
+        }
+      } catch (e) {
+      }
+      _currentUserId = userId;
+      transport.handleRequest(req, res, body);
+      _currentUserId = null;
+    };
+
+    app.post('/mcp', (req, res) => authenticateAndRun(req, res, req.body));
+    app.get('/mcp', (req, res) => authenticateAndRun(req, res, null));
+    app.delete('/mcp', (req, res) => authenticateAndRun(req, res, null));
 
     await this.server.connect(transport);
     logger.info('MCP Server started with HTTP+SSE transport');
