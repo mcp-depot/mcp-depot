@@ -1674,14 +1674,28 @@ router.post('/resources/unsubscribe', checkMcpAuth, async (req, res) => {
 // Agent internal routes
 const { Op } = require('sequelize');
 
+function normalizeTools(tools) {
+  if (!tools || tools === '[]') return [];
+  if (Array.isArray(tools)) return tools;
+  if (typeof tools === 'string') {
+    try {
+      const parsed = JSON.parse(tools);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+    return tools.split(',').map(t => t.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function serializeTools(tools) {
+  if (!tools || tools === '[]') return '';
+  if (Array.isArray(tools)) return tools.join(', ');
+  return tools;
+}
+
 function generateInstallConfig(agent, clientType, tools) {
-  const base = {
-    name: agent.name,
-    description: agent.description,
-    systemPrompt: agent.systemPrompt,
-    tools,
-    model: agent.model || null
-  };
+  const toolsList = normalizeTools(tools);
+  const toolsStr = toolsList.length ? toolsList.join(', ') : 'read, grep, bash';
 
   if (clientType === 'claude-code') {
     return {
@@ -1689,7 +1703,7 @@ function generateInstallConfig(agent, clientType, tools) {
       installPath: `.claude/agents/${agent.name}/AGENT.md`,
       content: `---
 description: ${agent.description || `${agent.role} agent`}
-tools: [${(tools.length ? tools.join(', ') : 'read, grep, bash')}]
+tools: [${toolsStr}]
 model: ${agent.model || ''}
 ---
 ${agent.systemPrompt}`
@@ -1704,7 +1718,7 @@ ${agent.systemPrompt}`
     };
   }
 
-  return { clientType: 'generic', agent: base };
+  return { clientType: 'generic', agent: { ...agent.toJSON(), tools: toolsList } };
 }
 
 router.get('/agents', optionalAuth, async (req, res) => {
@@ -1741,7 +1755,7 @@ router.get('/agents/:name', optionalAuth, async (req, res) => {
       return res.status(404).json({ error: 'Agent not found' });
     }
     const response = agent.toJSON();
-    response.tools = agent.tools ? JSON.parse(agent.tools) : [];
+    response.tools = normalizeTools(agent.tools);
     const clientType = req.query.clientType;
     if (clientType) {
       response.installConfig = generateInstallConfig(agent, clientType.toLowerCase(), response.tools);
@@ -1767,7 +1781,7 @@ router.post('/agents', optionalAuth, async (req, res) => {
         name, role, systemPrompt,
         description: description || '',
         isShared: isShared || false,
-        tools: tools ? JSON.stringify(tools) : '[]',
+        tools: serializeTools(tools),
         model: model || null,
         createdBy: callerId
       }
@@ -1801,7 +1815,7 @@ router.put('/agents/:name', optionalAuth, async (req, res) => {
     if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
     if (description !== undefined) updates.description = description;
     if (isShared !== undefined) updates.isShared = isShared;
-    if (tools !== undefined) updates.tools = JSON.stringify(tools);
+    if (tools !== undefined) updates.tools = serializeTools(tools);
     if (model !== undefined) updates.model = model;
     await agent.update(updates);
     res.json(agent);

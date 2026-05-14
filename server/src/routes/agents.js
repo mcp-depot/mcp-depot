@@ -6,6 +6,25 @@ const { loadModels } = require('../config/database');
 
 const router = express.Router();
 
+function normalizeTools(tools) {
+  if (!tools || tools === '[]') return [];
+  if (Array.isArray(tools)) return tools;
+  if (typeof tools === 'string') {
+    try {
+      const parsed = JSON.parse(tools);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+    return tools.split(',').map(t => t.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function serializeTools(tools) {
+  if (!tools || tools === '[]') return '';
+  if (Array.isArray(tools)) return tools.join(', ');
+  return tools;
+}
+
 router.get('/', auth, async (req, res) => {
   try {
     const { Agent } = loadModels();
@@ -42,7 +61,7 @@ router.get('/:name', auth, async (req, res) => {
     }
 
     const response = agent.toJSON();
-    response.tools = agent.tools ? JSON.parse(agent.tools) : [];
+    response.tools = normalizeTools(agent.tools);
 
     const clientType = req.query.clientType;
     if (clientType) {
@@ -57,13 +76,16 @@ router.get('/:name', auth, async (req, res) => {
 });
 
 function generateInstallConfig(agent, clientType, tools) {
+  const toolsList = normalizeTools(tools);
+  const toolsStr = toolsList.length ? toolsList.join(', ') : 'read, grep, bash';
+
   if (clientType === 'claude-code') {
     return {
       clientType: 'claude-code',
       installPath: `.claude/agents/${agent.name}/AGENT.md`,
       content: `---
 description: ${agent.description || `${agent.role} agent`}
-tools: [${(tools.length ? tools.join(', ') : 'read, grep, bash')}]
+tools: [${toolsStr}]
 model: ${agent.model || ''}
 ---
 ${agent.systemPrompt}`
@@ -76,7 +98,7 @@ ${agent.systemPrompt}`
       content: `# ${agent.name}\n\n${agent.systemPrompt}`
     };
   }
-  return { clientType: 'generic', agent: agent.toJSON() };
+  return { clientType: 'generic', agent: { ...agent.toJSON(), tools: toolsList } };
 }
 
 router.post('/', auth, async (req, res) => {
@@ -94,7 +116,7 @@ router.post('/', auth, async (req, res) => {
         systemPrompt,
         description: description || '',
         isShared: isShared || false,
-        tools: tools ? JSON.stringify(tools) : '[]',
+        tools: serializeTools(tools),
         model: model || null,
         createdBy: req.user.id
       }
@@ -105,7 +127,7 @@ router.post('/', auth, async (req, res) => {
         systemPrompt,
         description: description !== undefined ? description : agent.description,
         isShared: isShared !== undefined ? isShared : agent.isShared,
-        tools: tools !== undefined ? JSON.stringify(tools) : agent.tools,
+        tools: tools !== undefined ? serializeTools(tools) : agent.tools,
         model: model !== undefined ? model : agent.model,
         createdBy: req.user.id
       });
@@ -132,7 +154,7 @@ router.put('/:name', auth, async (req, res) => {
     if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
     if (description !== undefined) updates.description = description;
     if (isShared !== undefined) updates.isShared = isShared;
-    if (tools !== undefined) updates.tools = JSON.stringify(tools);
+    if (tools !== undefined) updates.tools = serializeTools(tools);
     if (model !== undefined) updates.model = model;
     await agent.update(updates);
     res.json(agent);
