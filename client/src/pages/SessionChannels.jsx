@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { RefreshCw, Trash2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 import { formatDateTime } from '../utils/date';
 
 function SessionChannels() {
@@ -110,7 +110,7 @@ function SessionChannels() {
                       {formatDateTime(m.createdAt)}
                     </span>
                     <div className="log-message">
-                      <ReactMarkdown>{m.message}</ReactMarkdown>
+                      <MarkdownRenderer content={m.message} />
                     </div>
                   </div>
                 ))}

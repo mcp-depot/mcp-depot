@@ -66,6 +66,7 @@ router.get('/:name', auth, async (req, res) => {
     const clientType = req.query.clientType;
     if (clientType) {
       response.installConfig = generateInstallConfig(agent, clientType.toLowerCase(), response.tools);
+      response.modelCompatibility = checkModelCompatibility(agent.model, clientType.toLowerCase());
     }
 
     res.json(response);
@@ -74,6 +75,56 @@ router.get('/:name', auth, async (req, res) => {
     res.status(500).json({ error: 'Failed to get agent' });
   }
 });
+
+const CLAUDE_MODELS  = /^claude-/i;
+const OPENAI_MODELS  = /^(gpt-|o1-|o3-|o4-)/i;
+const GOOGLE_MODELS  = /^(gemini-|palm-)/i;
+
+const CLIENT_PROVIDER = {
+  'claude-code': 'anthropic',
+  'opencode':    'openai',
+  'codex':       'openai',
+  'generic':     null,
+};
+
+function detectModelProvider(model) {
+  if (!model) return null;
+  if (CLAUDE_MODELS.test(model))  return 'anthropic';
+  if (OPENAI_MODELS.test(model))  return 'openai';
+  if (GOOGLE_MODELS.test(model))  return 'google';
+  return 'unknown';
+}
+
+function checkModelCompatibility(agentModel, clientType) {
+  if (!agentModel) return null;
+
+  const modelProvider  = detectModelProvider(agentModel);
+  const clientProvider = CLIENT_PROVIDER[clientType] ?? null;
+
+  if (!clientProvider || !modelProvider) {
+    return {
+      compatible: false,
+      warning: `This agent specifies model "${agentModel}". Verify this model is available in your AI client before installing.`,
+      suggestedAction: 'review',
+    };
+  }
+
+  if (modelProvider !== clientProvider) {
+    const suggestions = {
+      openai:     'gpt-4o, o3, o4-mini',
+      anthropic:  'claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5',
+      google:     'gemini-2.0-flash, gemini-2.5-pro',
+    };
+    return {
+      compatible: false,
+      warning: `This agent was created with model "${agentModel}" (${modelProvider}), which is not supported by ${clientType}. You should change the model before installing.`,
+      suggestedModels: suggestions[clientProvider] ?? null,
+      suggestedAction: 'change-model',
+    };
+  }
+
+  return { compatible: true };
+}
 
 function generateInstallConfig(agent, clientType, tools) {
   const toolsList = normalizeTools(tools);

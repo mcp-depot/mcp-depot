@@ -6,6 +6,19 @@ import api from '../services/api';
 import TagInput from '../components/TagInput';
 import { getApiError } from '../utils/apiError';
 
+function stripMarkdown(text = '', maxLength = 120) {
+  if (!text) return '';
+  return text
+    .replace(/```[\s\S]*?```/g, '[code]')
+    .replace(/`[^`]+`/g, '')
+    .replace(/#{1,6}\s/g, '')
+    .replace(/[*_~]/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\n+/g, ' ')
+    .trim()
+    .slice(0, maxLength) + (text.length > maxLength ? '\u2026' : '');
+}
+
 function Skills() {
   const { user } = useAuth();
   const [customSkills, setCustomSkills] = useState([]);
@@ -205,12 +218,8 @@ function Skills() {
 
             <div>
               <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>Rendered Prompt:</label>
-              <div style={{ position: 'relative' }}>
-                <textarea 
-                  readOnly
-                  value={generatePrompt(selectedSkill.id, inputValues)}
-                  style={{ width: '100%', minHeight: '200px', padding: '1rem', fontSize: '0.85rem', fontFamily: 'monospace', borderRadius: '8px', border: '1px solid var(--border-light)', background: 'var(--background)', color: 'var(--text)' }}
-                />
+              <div style={{ position: 'relative', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '1rem', background: 'var(--surface-hover)' }}>
+                <MarkdownRenderer content={generatePrompt(selectedSkill.id, inputValues)} />
                 <button 
                   className="btn btn-primary btn-small"
                   style={{ position: 'absolute', top: '0.5rem', right: '0.5rem' }}
@@ -266,6 +275,11 @@ function Skills() {
                   <div>
                     <h3 style={{ margin: 0 }}>{skill.name}</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>{skill.description}</p>
+                    {skill.prompt && (
+                      <p style={{ color: 'var(--text-dim)', fontSize: '0.75rem', marginTop: '0.25rem', lineClamp: 2, WebkitLineClamp: 2, overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical' }}>
+                        {stripMarkdown(skill.prompt, 100)}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>

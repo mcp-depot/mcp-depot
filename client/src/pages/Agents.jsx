@@ -1,8 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
 import { getApiError } from '../utils/apiError';
+
+function stripMarkdown(text = '', maxLength = 120) {
+  if (!text) return '';
+  return text
+    .replace(/```[\s\S]*?```/g, '[code]')
+    .replace(/`[^`]+`/g, '')
+    .replace(/#{1,6}\s/g, '')
+    .replace(/[*_~]/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\n+/g, ' ')
+    .trim()
+    .slice(0, maxLength) + (text.length > maxLength ? '\u2026' : '');
+}
 
 function Agents() {
   const { user } = useAuth();
@@ -115,6 +129,11 @@ function Agents() {
                   {a.description && (
                     <p style={{ color: '#8899aa', fontSize: '0.85rem', margin: 0 }}>{a.description}</p>
                   )}
+                  {a.systemPrompt && (
+                    <p style={{ color: 'var(--text-dim)', fontSize: '0.75rem', marginTop: '0.25rem', lineClamp: 2, WebkitLineClamp: 2, overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical' }}>
+                      {stripMarkdown(a.systemPrompt, 100)}
+                    </p>
+                  )}
                   {(a.tools || a.model) && (
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
                       {a.tools && Array.isArray(a.tools) && a.tools.length > 0 && (
@@ -158,9 +177,9 @@ function Agents() {
                   <strong>Model:</strong> {viewingAgent.model}
                 </p>
               )}
-              <pre style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: '8px', whiteSpace: 'pre-wrap', fontSize: '0.85rem', lineHeight: '1.6', color: 'var(--text)' }}>
-                {viewingAgent.systemPrompt}
-              </pre>
+              <div style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: '8px' }}>
+                <MarkdownRenderer content={viewingAgent.systemPrompt} />
+              </div>
             </div>
           </div>
         </div>
