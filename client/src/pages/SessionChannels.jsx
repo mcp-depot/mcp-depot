@@ -109,9 +109,9 @@ function SessionChannels() {
                     <span className="log-ts">
                       {formatDateTime(m.createdAt)}
                     </span>
-                    <span className="log-message">
+                    <div className="log-message">
                       <ReactMarkdown>{m.message}</ReactMarkdown>
-                    </span>
+                    </div>
                   </div>
                 ))}
                 {!loadingMessages && messages.length === 0 && (

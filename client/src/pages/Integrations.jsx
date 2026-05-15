@@ -8,9 +8,10 @@ import { IntegrationCardSkeleton } from '../components/Skeleton';
 import { Modal } from '../components/Modal';
 import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
-import { Eye, EyeOff, Upload, Search, X } from 'lucide-react';
+import { Eye, EyeOff, Upload, Search, X, LayoutGrid, PanelLeft, List } from 'lucide-react';
 import { showSuccess, showError } from '../utils/toast';
 import { Drawer } from '../components/Drawer';
+import { ViewToggle } from '../components/ViewToggle';
 function Integrations() {
   const { user } = useAuth();
   const [integrations, setIntegrations] = useState([]);
@@ -27,6 +28,9 @@ function Integrations() {
 
   const [filter, setFilter] = useState('');
   const [selectedTag, setSelectedTag] = useState(null);
+  const [viewMode, setViewMode] = useState(
+    () => localStorage.getItem('integrations-view') ?? 'card'
+  );
   const filterInputRef = useRef(null);
   
   const allTags = [...new Set(integrations.flatMap(i => i.tags || []).filter(Boolean))].sort();
@@ -633,7 +637,12 @@ function Integrations() {
             <h1>Integrations</h1>
             <p>Connect to any third-party API</p>
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <ViewToggle value={viewMode} onChange={(m) => {
+              setViewMode(m);
+              localStorage.setItem('integrations-view', m);
+            }} />
+            <div style={{ width: '1px', height: '24px', background: 'var(--border)', margin: '0 0.25rem' }}></div>
             <button 
               className="btn btn-secondary" 
               onClick={() => setShowAllUrls(!showAllUrls)}
@@ -692,11 +701,33 @@ function Integrations() {
         </div>
 
         {loading ? (
-          <div className="grid">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <IntegrationCardSkeleton key={i} />
-            ))}
-          </div>
+          viewMode === 'compact' ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.5rem' }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="skeleton-card" style={{ padding: '0.75rem' }}>
+                  <div className="skeleton skeleton-title" style={{ width: '60%' }}></div>
+                  <div className="skeleton skeleton-text short" style={{ marginTop: '0.5rem' }}></div>
+                </div>
+              ))}
+            </div>
+          ) : viewMode === 'list' ? (
+            <div>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} style={{ display: 'flex', gap: '1rem', padding: '0.75rem 0', borderBottom: i < 3 ? '1px solid var(--border)' : 'none' }}>
+                  <div className="skeleton" style={{ width: '20px', height: '20px', borderRadius: '4px' }}></div>
+                  <div className="skeleton" style={{ flex: 2, height: '14px' }}></div>
+                  <div className="skeleton" style={{ flex: 1, height: '14px' }}></div>
+                  <div className="skeleton" style={{ flex: 1, height: '14px' }}></div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <IntegrationCardSkeleton key={i} />
+              ))}
+            </div>
+          )
         ) : filteredIntegrations.length === 0 ? (
           <EmptyState
             icon="-"
@@ -705,6 +736,58 @@ function Integrations() {
             actionLabel={!filter ? 'Add Integration' : undefined}
             onAction={!filter ? () => setShowModal(true) : undefined}
           />
+        ) : viewMode === 'list' ? (
+          <div style={{ border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 120px 100px 80px 80px', gap: '0.75rem', padding: '0.6rem 0.75rem', background: 'var(--surface-hover)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-dim)', borderBottom: '1px solid var(--border)' }}>
+              <span></span>
+              <span>Name</span>
+              <span>Type</span>
+              <span>Status</span>
+              <span>Tools</span>
+              <span></span>
+            </div>
+            {filteredIntegrations.map((integration, i) => (
+              <div key={integration._id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 120px 100px 80px 80px', gap: '0.75rem', padding: '0.5rem 0.75rem', alignItems: 'center', borderTop: i > 0 ? '1px solid var(--border)' : 'none', fontSize: '0.85rem' }}>
+                <span style={{ display: 'flex', alignItems: 'center' }}>{getIntegrationIcon(integration.type)}</span>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontWeight: 500 }}>{integration.name}</span>
+                  {integration.description && <span style={{ color: 'var(--text-dim)', marginLeft: '0.5rem', fontSize: '0.8rem' }}>{integration.description}</span>}
+                </div>
+                <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>{integration.type}</span>
+                <StatusBadge status={integration.isActive ? 'active' : 'inactive'} />
+                <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>{integration.metadata?.toolCount || 0}</span>
+                <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
+                  <Link to={`/integrations/${integration._id}/tools`} className="btn btn-sm">Tools</Link>
+                  {integration.isOwner && (
+                    <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit" style={{ padding: '4px 6px', fontSize: '0.75rem' }}>Edit</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : viewMode === 'compact' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.5rem' }}>
+            {filteredIntegrations.map(integration => (
+              <Link
+                key={integration._id}
+                to={`/integrations/${integration._id}/tools`}
+                style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '0.75rem', textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--primary)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ display: 'flex', alignItems: 'center' }}>{getIntegrationIcon(integration.type)}</span>
+                  <span style={{ fontWeight: 500, fontSize: '0.85rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{integration.name}</span>
+                  <StatusBadge status={integration.isActive ? 'active' : 'inactive'} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                  <span>{integration.type}</span>
+                  {integration.metadata?.toolCount > 0 && <span>{integration.metadata.toolCount} tools</span>}
+                  {integration.requiresCredentials && !integration.canUse && <span style={{ color: 'var(--warning)', fontWeight: 600 }}>!</span>}
+                </div>
+              </Link>
+            ))}
+          </div>
         ) : (
           <div className="grid">
             {filteredIntegrations.map(integration => (

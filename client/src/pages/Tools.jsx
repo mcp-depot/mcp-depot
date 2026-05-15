@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
-import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown, LayoutGrid, PanelLeft, List } from 'lucide-react';
+import { ViewToggle } from '../components/ViewToggle';
 
 const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
 
@@ -32,6 +33,9 @@ function Tools({ all: isAllTools }) {
   const [filter, setFilter] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
+  const [viewMode, setViewMode] = useState(
+    () => localStorage.getItem('tools-view') ?? 'card'
+  );
   const filterInputRef = useRef(null);
   const filteredToolsData = allToolsData
     .filter(({ integration, tools }) => {
@@ -512,18 +516,6 @@ function Tools({ all: isAllTools }) {
     }
   };
 
-  if (loading) return (
-    <div className="container">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
-          <div className="skeleton skeleton-title"></div>
-          <div className="skeleton skeleton-text"></div>
-          <div className="skeleton skeleton-text short"></div>
-        </div>
-      ))}
-    </div>
-  );
-
   if (isAllTools) {
     return (
       <div>
@@ -533,15 +525,20 @@ function Tools({ all: isAllTools }) {
               <h1>All Tools</h1>
               <p style={{ color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Browse tools grouped by integration</p>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-primary" onClick={() => setShowPromptLibrary(true)}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <ViewToggle value={viewMode} onChange={(m) => {
+                setViewMode(m);
+                localStorage.setItem('tools-view', m);
+              }} />
+              <div style={{ width: '1px', height: '24px', background: 'var(--border)', margin: '0 0.25rem' }}></div>
+              <button className="btn btn-primary" disabled={loading} onClick={() => setShowPromptLibrary(true)}>
                 Prompt Library
               </button>
-              <button className="btn btn-secondary" onClick={() => setShowExternalToolsModal(true)}>
+              <button className="btn btn-secondary" disabled={loading} onClick={() => setShowExternalToolsModal(true)}>
                 External MCP {externalTools.length > 0 && `(${externalTools.length})`}
               </button>
-              <button className="btn btn-secondary" onClick={expandAll}>Expand All</button>
-              <button className="btn btn-secondary" onClick={collapseAll}>Collapse All</button>
+              <button className="btn btn-secondary" disabled={loading} onClick={expandAll}>Expand All</button>
+              <button className="btn btn-secondary" disabled={loading} onClick={collapseAll}>Collapse All</button>
             </div>
           </div>
           
@@ -554,6 +551,7 @@ function Tools({ all: isAllTools }) {
                 placeholder="Filter tools... (⌘K)"
                 value={filter}
                 onChange={e => setFilter(e.target.value)}
+                disabled={loading}
                 style={{ paddingLeft: '36px' }}
               />
             </div>
@@ -562,6 +560,7 @@ function Tools({ all: isAllTools }) {
               <button
                 className={`btn btn-small ${sortBy === 'name' ? 'btn-primary' : ''}`}
                 onClick={() => { setSortBy('name'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}
+                disabled={loading}
                 style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
               >
                 Name {sortBy === 'name' ? (sortOrder === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : <ArrowUpDown size={12} />}
@@ -569,7 +568,39 @@ function Tools({ all: isAllTools }) {
             </div>
           </div>
 
-          {allToolsData.length === 0 ? (
+          {loading ? (
+            viewMode === 'compact' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="skeleton-card" style={{ padding: '0.75rem' }}>
+                    <div className="skeleton skeleton-title" style={{ width: '60%' }}></div>
+                    <div className="skeleton skeleton-text short"></div>
+                  </div>
+                ))}
+              </div>
+            ) : viewMode === 'list' ? (
+              <div>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '1rem', padding: '0.75rem 0', borderBottom: i < 4 ? '1px solid var(--border)' : 'none' }}>
+                    <div className="skeleton" style={{ width: '20px', height: '20px', borderRadius: '4px' }}></div>
+                    <div className="skeleton" style={{ flex: 2, height: '14px' }}></div>
+                    <div className="skeleton" style={{ flex: 1, height: '14px' }}></div>
+                    <div className="skeleton" style={{ flex: 1, height: '14px' }}></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
+                    <div className="skeleton skeleton-title"></div>
+                    <div className="skeleton skeleton-text"></div>
+                    <div className="skeleton skeleton-text short"></div>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : allToolsData.length === 0 ? (
             <div className="empty-state-dashed">
               <div className="empty-icon" style={{ fontSize: '48px' }}>-</div>
               <h3>No tools yet</h3>
@@ -581,6 +612,63 @@ function Tools({ all: isAllTools }) {
               <div className="empty-icon" style={{ fontSize: '48px' }}>🔍</div>
               <h3>No tools match your filter</h3>
               <p>Try adjusting your search query</p>
+            </div>
+          ) : viewMode === 'list' ? (
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 100px 1fr 80px', gap: '0.75rem', padding: '0.6rem 0.75rem', background: 'var(--surface-hover)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-dim)', borderBottom: '1px solid var(--border)' }}>
+                <span>Name</span>
+                <span>Integration</span>
+                <span>Method</span>
+                <span>Path</span>
+                <span></span>
+              </div>
+              {filteredToolsData.flatMap(({ integration, tools }) =>
+                tools.map(tool => (
+                  <div key={tool._id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 100px 1fr 80px', gap: '0.75rem', padding: '0.5rem 0.75rem', alignItems: 'center', borderTop: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                    <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tool.name}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                      <span style={{ flexShrink: 0 }}>{getIntegrationIcon(integration.type)}</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{integration.name}</span>
+                    </span>
+                    <span className={`tool-method ${tool.endpoint?.method?.toLowerCase()}`} style={{ fontSize: '0.75rem', justifySelf: 'start' }}>{tool.endpoint?.method}</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tool.endpoint?.path}</span>
+                    <Link to={`/integrations/${integration._id}/tools?highlighted=${tool._id}`} className="btn btn-icon" style={{ justifySelf: 'end', padding: '4px 8px', fontSize: '0.75rem' }}>View</Link>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : viewMode === 'compact' ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '0.75rem' }}>
+              {filteredToolsData.map(({ integration, tools }) => (
+                <div key={integration._id} className="card" style={{ marginBottom: 0 }}>
+                  <div className="card-header" style={{ padding: '0.6rem 0.75rem', cursor: 'pointer' }} onClick={() => toggleIntegration(integration._id)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontSize: '1rem', transform: collapsedIntegrations[integration._id] ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</span>
+                      <span style={{ display: 'flex', alignItems: 'center' }}>{getIntegrationIcon(integration.type)}</span>
+                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{integration.name}</span>
+                      <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>{tools.length}</span>
+                    </div>
+                  </div>
+                  {!collapsedIntegrations[integration._id] && (
+                    <div style={{ padding: '0 0.75rem 0.75rem' }}>
+                      {tools.slice(0, 5).map(tool => (
+                        <div key={tool._id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
+                            <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tool.name}</span>
+                            <span className={`tool-method ${tool.endpoint?.method?.toLowerCase()}`} style={{ fontSize: '0.65rem', flexShrink: 0 }}>{tool.endpoint?.method}</span>
+                          </div>
+                          <Link to={`/integrations/${integration._id}/tools?highlighted=${tool._id}`} className="btn btn-icon" style={{ padding: '2px 6px', fontSize: '0.75rem', flexShrink: 0 }}>View</Link>
+                        </div>
+                      ))}
+                      {tools.length > 5 && (
+                        <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+                          +{tools.length - 5} more tools
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           ) : (
             <div>
@@ -665,6 +753,46 @@ function Tools({ all: isAllTools }) {
               ))}
             </div>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div>
+        <div className="container">
+          <div className="page-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: '0.5rem' }}>
+              <Link to="/integrations" style={{ color: 'var(--primary)' }}>Integrations</Link>
+              <span>/</span>
+              <span>...</span>
+              <span>/</span>
+              <span style={{ color: 'var(--text)' }}>Tools</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <p>Loading integration...</p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <button className="btn btn-secondary" disabled>Explore API</button>
+                <button className="btn btn-primary" disabled>Prompt Library</button>
+                <button className="btn btn-primary" disabled>+ Add Tool</button>
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} style={{ padding: '1rem', borderBottom: i < 2 ? '1px solid var(--border)' : 'none' }}>
+                <div className="skeleton skeleton-title"></div>
+                <div className="skeleton skeleton-text" style={{ marginTop: '0.5rem' }}></div>
+              </div>
+            ))}
+          </div>
+          <div className="card" style={{ marginTop: '1.5rem' }}>
+            <div className="skeleton skeleton-title"></div>
+            <div className="skeleton skeleton-text" style={{ marginTop: '0.5rem' }}></div>
+          </div>
         </div>
       </div>
     );
