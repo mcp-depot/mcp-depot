@@ -41,7 +41,7 @@ async function runMigrations(sequelize) {
     } catch (error) {
       if (error.message.includes('already exists') || error.message.includes('already exist') || error.message.includes('duplicate column name')) {
         await sequelize.query(
-          'INSERT OR IGNORE INTO migrations (name) VALUES (:name)',
+          'INSERT INTO migrations (name) VALUES (:name) ON CONFLICT (name) DO NOTHING',
           { replacements: { name: file } }
         );
         logger.info({ migration: file }, 'Migration skipped (already applied)');
