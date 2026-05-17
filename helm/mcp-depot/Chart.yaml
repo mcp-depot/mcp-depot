@@ -3,7 +3,7 @@ name: mcp-depot
 description: MCP Depot - Connect any HTTP API as an MCP tool
 type: application
 version: 0.1.0
-appVersion: "latest"
+appVersion: "1.0.0"
 keywords:
   - mcp
   - model-context-protocol

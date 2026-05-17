@@ -8,11 +8,11 @@ replicaCount: 1
 image:
   server:
     repository: mcphub-server
-    tag: latest
+    tag: "1.0.0"
     pullPolicy: IfNotPresent
   client:
     repository: mcphub-client
-    tag: latest
+    tag: "1.0.0"
     pullPolicy: IfNotPresent
 
 imagePullSecrets: []
