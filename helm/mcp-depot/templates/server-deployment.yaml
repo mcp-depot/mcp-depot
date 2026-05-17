@@ -34,6 +34,9 @@ spec:
                 name: {{ include "mcp-depot.fullname" . }}-config
             - secretRef:
                 name: {{ include "mcp-depot.fullname" . }}-secrets
+          env:
+            - name: DATABASE_URL
+              value: "postgres://postgres:$(POSTGRES_PASSWORD)@{{ include "mcp-depot.fullname" . }}-postgres:5432/mcpconnect"
           {{- if .Values.livenessProbe.enabled }}
           livenessProbe:
             httpGet:

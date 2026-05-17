@@ -7,7 +7,6 @@ metadata:
 data:
   PORT: {{ .Values.env.PORT | quote }}
   NODE_ENV: {{ .Values.env.NODE_ENV }}
-  DATABASE_URL: {{ include "mcp-depot.databaseUrl" . | quote }}
   JWT_EXPIRE: {{ .Values.env.JWT_EXPIRE }}
   JWT_REFRESH_EXPIRE: {{ .Values.env.JWT_REFRESH_EXPIRE }}
   ALLOW_REGISTRATION: {{ .Values.env.ALLOW_REGISTRATION }}

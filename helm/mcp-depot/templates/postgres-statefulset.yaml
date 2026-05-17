@@ -46,7 +46,7 @@ spec:
     - metadata:
         name: postgres-data
         labels:
-          {{- include "mcp-depot.labels" . | nindent 8 }}
+          {{- include "mcp-depot.labels" . | nindent 10 }}
       spec:
         accessModes: ["ReadWriteOnce"]
         resources:
