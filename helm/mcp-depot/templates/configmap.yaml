@@ -6,13 +6,13 @@ metadata:
     {{- include "mcp-depot.labels" . | nindent 4 }}
 data:
   PORT: {{ .Values.env.PORT | quote }}
-  NODE_ENV: {{ .Values.env.NODE_ENV }}
-  JWT_EXPIRE: {{ .Values.env.JWT_EXPIRE }}
-  JWT_REFRESH_EXPIRE: {{ .Values.env.JWT_REFRESH_EXPIRE }}
-  ALLOW_REGISTRATION: {{ .Values.env.ALLOW_REGISTRATION }}
-  API_BASE_URL: {{ .Values.env.API_BASE_URL }}
+  NODE_ENV: {{ .Values.env.NODE_ENV | quote }}
+  JWT_EXPIRE: {{ .Values.env.JWT_EXPIRE | quote }}
+  JWT_REFRESH_EXPIRE: {{ .Values.env.JWT_REFRESH_EXPIRE | quote }}
+  ALLOW_REGISTRATION: {{ .Values.env.ALLOW_REGISTRATION | quote }}
+  API_BASE_URL: {{ .Values.env.API_BASE_URL | quote }}
   {{- if .Values.ingress.enabled }}
-  API_BASE_URL: {{ printf "https://%s" .Values.ingress.host }}
+  API_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
   {{- end }}
   MCP_PACKAGES_PATH: "/opt/mcp-packages"
 ---
