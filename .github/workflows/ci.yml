@@ -36,13 +36,8 @@ jobs:
             server/package-lock.json
             client/package-lock.json
 
-      - name: Upgrade npm
-        run: npm install -g npm@11
-          
       - name: Install server dependencies
-        run: |
-          cd server
-          npm ci
+        run: cd server && npx --yes npm@11 ci
           
       - name: Run server tests
         run: |
@@ -55,9 +50,7 @@ jobs:
           NODE_ENV: test
           
       - name: Install client dependencies
-        run: |
-          cd client
-          npm ci
+        run: cd client && npx --yes npm@11 ci
           
       - name: Build client
         run: |
