@@ -30,7 +30,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Upgrade npm
+        run: npm install -g npm@11
           
       - name: Install server dependencies
         run: |
