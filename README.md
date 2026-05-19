@@ -56,6 +56,28 @@ docker compose logs server | grep -E "Email:|Password:|API Key:"
 # Login at http://localhost:5173
 ```
 
+### Option 3 — Kubernetes (Helm)
+
+```bash
+git clone https://github.com/mcp-depot/mcp-depot
+cd mcp-depot
+
+# Build images
+docker build -t mcphub-server ./server
+docker build -t mcphub-client ./client
+
+# Install
+helm install mcp-depot ./helm/mcp-depot \
+  --namespace mcp-depot \
+  --create-namespace
+
+# Access via port-forward
+kubectl port-forward -n mcp-depot svc/mcp-depot-client 8080:80
+# Open http://localhost:8080
+```
+
+See [docs/KUBERNETES.md](./docs/KUBERNETES.md) for ingress setup, production values, and full configuration reference.
+
 ---
 
 ## Connecting to Claude Code
