@@ -415,6 +415,10 @@ function getAuthHeaders() {
 async function apiGet(endpoint) {
   const url = `${getBaseUrl()}${endpoint}`;
   const res = await fetch(url, { headers: getAuthHeaders() });
+  if (res.status === 401) {
+    console.error('Error: Invalid API key.');
+    process.exit(1);
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(`HTTP ${res.status}: ${body.error || res.statusText}`);
@@ -429,6 +433,10 @@ async function apiPost(endpoint, body) {
     headers: getAuthHeaders(),
     body: JSON.stringify(body)
   });
+  if (res.status === 401) {
+    console.error('Error: Invalid API key.');
+    process.exit(1);
+  }
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
     throw new Error(`HTTP ${res.status}: ${errBody.error || res.statusText}`);
@@ -442,6 +450,10 @@ async function apiDelete(endpoint) {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
+  if (res.status === 401) {
+    console.error('Error: Invalid API key.');
+    process.exit(1);
+  }
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
     throw new Error(`HTTP ${res.status}: ${errBody.error || res.statusText}`);
