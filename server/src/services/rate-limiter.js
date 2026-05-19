@@ -35,29 +35,28 @@ function checkSlidingWindow(resourceId, limit, windowMs) {
   if (!limit || limit <= 0) return { allowed: true, remaining: Infinity };
 
   const now = Date.now();
-  const currentWindowStart = now - windowMs;
+  const windowOffset = now % windowMs;
+  const currentWindowStart = now - windowOffset;
   const currentWindowKey = getWindowKey(resourceId, windowMs);
-  const prevWindowKey = `${resourceId}:${Math.floor(currentWindowStart / windowMs)}`;
+  const prevWindowKey = `${resourceId}:${Math.floor(currentWindowStart / windowMs) - 1}`;
 
   const current = getCounter(currentWindowKey);
   const prev = getCounter(prevWindowKey);
 
-  const elapsedInPrev = now - prevWindowKey;
-  const prevWeight = Math.max(0, 1 - elapsedInPrev / windowMs);
+  const elapsedInCurrent = now - currentWindowStart;
+  const prevWeight = Math.max(0, 1 - elapsedInCurrent / windowMs);
   const weightedCount = current.count + prev.count * prevWeight;
 
   if (weightedCount >= limit) {
-    const resetIn = Math.ceil((currentWindowKey.split(':').pop() * windowMs + windowMs - now) / 1000);
-    return { allowed: false, remaining: 0, resetInSeconds: Math.max(1, resetIn) };
+    return { allowed: false, remaining: 0, resetInSeconds: Math.max(1, Math.ceil((windowMs - elapsedInCurrent) / 1000)) };
   }
 
   incrementCounter(currentWindowKey);
 
   const newWeightedCount = weightedCount + 1;
   const remaining = Math.max(0, Math.floor(limit - newWeightedCount));
-  const resetIn = Math.ceil((currentWindowKey.split(':').pop() * windowMs + windowMs - now) / 1000);
 
-  return { allowed: true, remaining, resetInSeconds: Math.max(1, resetIn) };
+  return { allowed: true, remaining, resetInSeconds: Math.max(1, Math.ceil((windowMs - elapsedInCurrent) / 1000)) };
 }
 
 function checkRateLimit(toolId, userId, toolLimit, integrationLimitRpm, integrationLimitRph) {
@@ -103,7 +102,7 @@ function checkRateLimit(toolId, userId, toolLimit, integrationLimitRpm, integrat
 
   return {
     allowed: true,
-    toolRemaining: toolCheck.remaining,
+    remaining: toolCheck.remaining,
     integrationRemaining: Math.min(integrationMinCheck.remaining, integrationHourCheck.remaining),
     resetInSeconds: toolCheck.resetInSeconds
   };

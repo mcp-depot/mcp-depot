@@ -7,7 +7,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "mcp": "node mcp-wrapper.js",
-    "test": "jest"
+    "test": "jest --forceExit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

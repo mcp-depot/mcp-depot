@@ -71,6 +71,7 @@ jobs:
           ENCRYPTION_KEY=ci-test-32-byte-encryption-key!! \
           JWT_SECRET=ci-test-secret \
           docker compose up -d
-          sleep 15
+          sleep 20
           docker compose ps
+          docker compose logs server
           curl --fail --retry 10 --retry-delay 3 --retry-all-errors http://localhost:3000/health

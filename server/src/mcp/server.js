@@ -298,7 +298,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
             }],
             meta: {
               rateLimit: {
-                toolRemaining: rateCheck.toolRemaining !== Infinity ? rateCheck.toolRemaining : null,
+                toolRemaining: rateCheck.remaining !== Infinity ? rateCheck.remaining : null,
                 integrationRemaining: rateCheck.integrationRemaining !== Infinity ? rateCheck.integrationRemaining : null,
                 resetInSeconds: rateCheck.resetInSeconds
               }

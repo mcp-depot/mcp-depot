@@ -1190,7 +1190,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         });
       }
 
-      res.set('X-RateLimit-Tool-Remaining', String(rateCheck.toolRemaining !== Infinity ? rateCheck.toolRemaining : ''));
+      res.set('X-RateLimit-Tool-Remaining', String(rateCheck.remaining !== Infinity ? rateCheck.remaining : ''));
       res.set('X-RateLimit-Integration-Remaining', String(rateCheck.integrationRemaining !== Infinity ? rateCheck.integrationRemaining : ''));
       res.set('X-RateLimit-Reset', String(rateCheck.resetInSeconds));
     }
