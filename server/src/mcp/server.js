@@ -957,7 +957,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     const { Tool, Integration, PromptLibrary } = loadModels();
     const tools = await Tool.findAll({
       where: { isActive: true },
-      include: [{ model: Integration, where: { isActive: true } }]
+      include: [{ model: Integration, as: 'integration', where: { isActive: true } }]
     });
 
     for (const tool of tools) {
