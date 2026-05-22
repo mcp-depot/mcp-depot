@@ -1,6 +1,6 @@
 const express = require('express');
 const Joi = require('joi');
-const { optionalApiKey } = require('../middleware/auth');
+const { optionalAuthWithApiKey } = require('../middleware/auth');
 const Integration = require('../models/Integration');
 const Tool = require('../models/Tool');
 const AdapterFactory = require('../adapters');
@@ -48,7 +48,7 @@ const getUserCredentials = async (userId, integrationId) => {
   return null;
 };
 
-router.get('/integrations', optionalApiKey, async (req, res) => {
+router.get('/integrations', optionalAuthWithApiKey, async (req, res) => {
   try {
     const query = req.user ? { userId: req.user.id } : {};
     
@@ -71,7 +71,7 @@ router.get('/integrations', optionalApiKey, async (req, res) => {
   }
 });
 
-router.get('/integrations/:id', optionalApiKey, async (req, res) => {
+router.get('/integrations/:id', optionalAuthWithApiKey, async (req, res) => {
   try {
     const integration = await Integration.findByPk(req.params.id);
     
@@ -96,7 +96,7 @@ router.get('/integrations/:id', optionalApiKey, async (req, res) => {
   }
 });
 
-router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
+router.post('/tools/:toolId/execute', optionalAuthWithApiKey, async (req, res) => {
   try {
     const { error, value } = executeToolSchema.validate(req.body);
     if (error) {
@@ -374,7 +374,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
   }
 });
 
-router.post('/trigger', optionalApiKey, async (req, res) => {
+router.post('/trigger', optionalAuthWithApiKey, async (req, res) => {
   try {
     const { integrationId, method, path, data, params, headers } = req.body;
 

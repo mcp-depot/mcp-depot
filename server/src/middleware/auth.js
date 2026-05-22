@@ -131,6 +131,44 @@ const optionalApiKey = async (req, res, next) => {
   }
 };
 
+const optionalAuthWithApiKey = async (req, res, next) => {
+  try {
+    const authHeader = req.header('Authorization');
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '');
+      try {
+        const decoded = jwt.verify(token, config.jwtSecret);
+        const user = await User.findByPk(decoded.userId);
+        if (user) {
+          req.user = user;
+          req.token = token;
+        }
+      } catch (e) {
+      }
+    }
+    
+    if (!req.user) {
+      const apiKey = req.header('X-API-Key');
+      if (apiKey) {
+        try {
+          const hashedKey = hashApiKey(apiKey);
+          const user = await User.findOne({ where: { apiKey: hashedKey } });
+          if (user) {
+            req.user = user;
+            req.apiKeyAuth = true;
+          }
+        } catch (e) {
+        }
+      }
+    }
+    
+    next();
+  } catch (error) {
+    next();
+  }
+};
+
 const requireAdmin = async (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -141,4 +179,4 @@ const requireAdmin = async (req, res, next) => {
   next();
 };
 
-module.exports = { auth, optionalAuth, optionalApiKey, authWithApiKey, requireAdmin };
+module.exports = { auth, optionalAuth, optionalApiKey, optionalAuthWithApiKey, authWithApiKey, requireAdmin };
