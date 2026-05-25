@@ -20,6 +20,22 @@ const portArg = portFlagValue
 
 if (portArg) process.env.PORT = portArg;
 
+const PROFILE_REGEX = /^[a-zA-Z0-9_-]+$/;
+
+function getActiveProfile() {
+  const profileFlagIndex = args.findIndex(a => a === '--profile');
+  const profileFlagValue = args.find(a => a.startsWith('--profile='));
+  const profile = profileFlagValue
+    ? profileFlagValue.split('=')[1]
+    : profileFlagIndex !== -1 ? args[profileFlagIndex + 1] : null;
+  if (!profile || profile.startsWith('--')) return null;
+  if (!PROFILE_REGEX.test(profile)) {
+    console.error(`Invalid profile name: "${profile}". Use alphanumeric, hyphens, and underscores only.`);
+    process.exit(1);
+  }
+  return profile;
+}
+
 const DATA_DIR = path.join(os.homedir(), '.mcp-depot');
 const PID_FILE = path.join(DATA_DIR, 'mcp-depot.pid');
 const LOG_FILE = path.join(DATA_DIR, 'mcp-depot.log');
@@ -68,6 +84,22 @@ if (args.includes('--daemon')) { daemonStart(); process.exit(0); }
 if (args.includes('--stop')) { daemonStop(); process.exit(0); }
 if (args.includes('--status')) { daemonStatus(); process.exit(0); }
 
+if (args.includes('--list-profiles')) {
+  listProfiles();
+  process.exit(0);
+}
+
+if (args.includes('--remove-profile')) {
+  const idx = args.indexOf('--remove-profile');
+  const name = args[idx + 1];
+  if (!name || name.startsWith('--')) {
+    console.error('Usage: mcp-depot --remove-profile <name>');
+    process.exit(1);
+  }
+  removeProfile(name);
+  process.exit(0);
+}
+
 if (args.includes('--login')) {
   runLogin();
 } else if (args.includes('--mcp')) {
@@ -111,9 +143,16 @@ function startMcpProxy() {
 
   console.error(banner);
 
+  const profileName = getActiveProfile() || 'default';
   const config = loadConfig();
-  const MCP_DEPOT_URL = config.url || 'http://localhost:3000/api/mcp';
-  const AUTH_TOKEN = config.apiKey || '';
+  const profile = getProfileConfig(config, profileName);
+  if (!profile.url) {
+    console.error(`Profile "${profileName}" not found. Run 'mcp-depot --login${profileName !== 'default' ? ` --profile ${profileName}` : ''}' to set it up.`);
+    process.exit(1);
+  }
+  const MCP_DEPOT_URL = profile.url;
+  const AUTH_TOKEN = profile.apiKey || '';
+  console.error(`[MCP Depot] Using profile: ${profileName}`);
 
   let tools = [];
   let toolsLoaded = false;
@@ -332,16 +371,18 @@ function startMcpProxy() {
 }
 
 function runLogin() {
+  const profileName = getActiveProfile() || 'default';
   const readline = require('readline');
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
 
   const ask = (q) => new Promise((resolve) => rl.question(q, resolve));
 
   (async () => {
-    console.error('\n=== MCP Depot Login ===\n');
-    const existingConfig = loadConfig();
+    console.error(`\n=== MCP Depot Login (profile: ${profileName}) ===\n`);
+    const config = loadConfig();
+    const existingProfile = getProfileConfig(config, profileName);
     const defaultPort = process.env.PORT || 3000;
-    const defaultUrl = existingConfig.url || `http://localhost:${defaultPort}/api/mcp`;
+    const defaultUrl = existingProfile.url || `http://localhost:${defaultPort}/api/mcp`;
     const url = await ask(`Server URL [${defaultUrl}]: `);
     const apiKey = await ask('API key: ');
     rl.close();
@@ -371,24 +412,41 @@ function runLogin() {
       process.exit(1);
     }
 
-    const configDir = path.join(os.homedir(), '.mcp-depot');
-    const configFile = path.join(configDir, 'config.json');
-    fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(configFile, JSON.stringify({
-      url: finalUrl,
-      apiKey: apiKey.trim()
-    }, null, 2));
+    config[profileName] = { url: finalUrl, apiKey: apiKey.trim() };
+    saveConfig(config);
 
-    console.error(`\nConfig saved to ${configFile}`);
-    console.error('Run: claude mcp add mcp-depot -- mcp-depot --mcp');
+    const configFile = path.join(os.homedir(), '.mcp-depot', 'config.json');
+    console.error(`\nProfile "${profileName}" saved to ${configFile}`);
+    console.error(`Run: claude mcp add mcp-depot -- mcp-depot --mcp${profileName !== 'default' ? ` --profile ${profileName}` : ''}`);
   })();
+}
+
+function saveConfig(config) {
+  const configFile = path.join(os.homedir(), '.mcp-depot', 'config.json');
+  const configDir = path.join(os.homedir(), '.mcp-depot');
+  fs.mkdirSync(configDir, { recursive: true });
+  const tmpFile = configFile + '.tmp.' + process.pid;
+  try {
+    fs.writeFileSync(tmpFile, JSON.stringify(config, null, 2));
+    fs.renameSync(tmpFile, configFile);
+  } catch (e) {
+    try { fs.unlinkSync(tmpFile); } catch {}
+    throw e;
+  }
 }
 
 function loadConfig() {
   const configFile = path.join(os.homedir(), '.mcp-depot', 'config.json');
   if (fs.existsSync(configFile)) {
     try {
-      return JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+      const raw = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+      if (raw.url && !raw.default) {
+        const migrated = { default: { url: raw.url, apiKey: raw.apiKey || '' } };
+        saveConfig(migrated);
+        console.error('Migrated existing config to default profile.');
+        return migrated;
+      }
+      return raw;
     } catch (e) {
       return {};
     }
@@ -396,19 +454,67 @@ function loadConfig() {
   return {};
 }
 
+function getProfileConfig(config, profileName) {
+  const name = profileName || 'default';
+  const profile = config[name];
+  if (!profile || typeof profile !== 'object') return {};
+  return profile;
+}
+
+function listProfiles() {
+  const config = loadConfig();
+  const active = getActiveProfile() || 'default';
+  console.log(`\nProfiles in ${path.join(os.homedir(), '.mcp-depot', 'config.json')}:`);
+  const profileNames = Object.keys(config).filter(k => {
+    const v = config[k];
+    return v && typeof v === 'object' && v.url;
+  });
+  if (profileNames.length === 0) {
+    console.log('  No profiles configured.');
+    return;
+  }
+  profileNames.forEach(name => {
+    const marker = name === active ? '*' : ' ';
+    const profile = config[name];
+    console.log(`  ${marker} ${name}  (${profile.url})`);
+  });
+  if (active === 'default' && !profileNames.includes('default')) {
+    console.log('  (* = active/default)');
+  }
+}
+
+function removeProfile(name) {
+  const config = loadConfig();
+  if (!config[name]) {
+    console.error(`Profile "${name}" not found.`);
+    process.exit(1);
+  }
+  if (name === 'default') {
+    console.error('Cannot remove the default profile.');
+    process.exit(1);
+  }
+  delete config[name];
+  saveConfig(config);
+  console.log(`Profile "${name}" removed.`);
+}
+
 // ─── CLI Management Subcommands ──────────────────────────────────────
 
 function getBaseUrl() {
+  const profileName = getActiveProfile() || 'default';
   const config = loadConfig();
-  let url = config.url || 'http://localhost:3000/api';
+  const profile = getProfileConfig(config, profileName);
+  let url = profile.url || 'http://localhost:3000/api';
   if (url.endsWith('/mcp')) url = url.slice(0, -4);
   return url;
 }
 
 function getAuthHeaders() {
+  const profileName = getActiveProfile() || 'default';
   const config = loadConfig();
+  const profile = getProfileConfig(config, profileName);
   const headers = { 'Content-Type': 'application/json' };
-  if (config.apiKey) headers['x-api-key'] = config.apiKey;
+  if (profile.apiKey) headers['x-api-key'] = profile.apiKey;
   return headers;
 }
 
@@ -727,12 +833,19 @@ Commands:
 Global options:
   --json                    Output as JSON (for list commands)
   --login                   Interactive login to configure API key
-  --mcp                     Start MCP stdio proxy
+  --login --profile <name>  Login to a named profile
+  --mcp                     Start MCP stdio proxy (uses default profile)
+  --mcp --profile <name>    Start MCP stdio proxy with a named profile
+  --list-profiles           List all configured profiles
+  --remove-profile <name>   Remove a named profile
   --port <n>                Run server on custom port
   --daemon                  Run server as background daemon
   --stop                    Stop background daemon
   --status                  Show daemon status
 
 Configuration: ~/.mcp-depot/config.json
+Profiles:     Named configurations (default, project1, work, etc.)
+                mcp-depot --login --profile project1
+                mcp-depot --mcp --profile project1
 `);
 }
