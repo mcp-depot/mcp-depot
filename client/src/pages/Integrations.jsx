@@ -274,7 +274,7 @@ function Integrations() {
       apiKeyIn: credentials.addTo || 'header',
       bearerToken: credentials.token || '',
       tags: integration.tags || [],
-      allowSelfSignedCerts: integration.config?.allowSelfSignedCerts || false
+      allowSelfSignedCerts: integration.allowSelfSignedCerts || false
     });
     setShowModal(true);
   };

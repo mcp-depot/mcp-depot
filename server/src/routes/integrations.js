@@ -138,6 +138,7 @@ router.get('/', authWithApiKey, async (req, res) => {
         name: i.name,
         description: i.description,
         baseUrl: i.config.baseUrl,
+        allowSelfSignedCerts: i.config?.allowSelfSignedCerts || false,
         authType,
         requiresCredentials,
         hasUserCredentials,
