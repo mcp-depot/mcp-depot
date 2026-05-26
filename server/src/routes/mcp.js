@@ -1289,7 +1289,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
             'Accept': 'text/html,application/json,application/xml,text/plain,*/*'
           },
           validateStatus: () => true,
-          ...(isHttps ? { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: !config.allowSelfSignedCerts }) } : {})
+          ...(isHttps ? { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: !(config.allowSelfSignedCerts || require('../config/env').allowSelfSignedCerts) }) } : {})
         });
         
         const contentType = response.headers['content-type'] || '';

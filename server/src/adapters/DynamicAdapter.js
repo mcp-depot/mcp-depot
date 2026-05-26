@@ -1,6 +1,8 @@
 const axios = require('axios');
+const https = require('https');
 const encryption = require('../services/encryption');
 const logger = require('../services/logger');
+const envConfig = require('../config/env');
 
 class DynamicAdapter {
   constructor(config, options = {}) {
@@ -16,13 +18,15 @@ class DynamicAdapter {
   }
 
   initClient() {
+    const skipSsl = this.config.allowSelfSignedCerts || envConfig.allowSelfSignedCerts;
     this.client = axios.create({
       baseURL: this.baseUrl,
       timeout: this.timeout,
       headers: {
         'Content-Type': 'application/json',
         ...this.customHeaders
-      }
+      },
+      ...(skipSsl ? { httpsAgent: new https.Agent({ rejectUnauthorized: false }) } : {})
     });
   }
 

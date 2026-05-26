@@ -75,7 +75,8 @@ function Integrations() {
     apiKeyName: '',
     apiKeyIn: 'header',
     bearerToken: '',
-    tags: []
+    tags: [],
+    allowSelfSignedCerts: false
   });
 
   const [tagInput, setTagInput] = useState('');
@@ -206,7 +207,8 @@ function Integrations() {
             auth: {
               type: form.authType,
               credentials: {}
-            }
+            },
+            allowSelfSignedCerts: form.allowSelfSignedCerts
           };
 
           if (form.authType === 'basic') {
@@ -225,7 +227,8 @@ function Integrations() {
           auth: {
             type: form.authType,
             credentials: {}
-          }
+          },
+          allowSelfSignedCerts: form.allowSelfSignedCerts
         };
 
         if (form.authType === 'basic') {
@@ -270,7 +273,8 @@ function Integrations() {
       apiKeyName: credentials.key || '',
       apiKeyIn: credentials.addTo || 'header',
       bearerToken: credentials.token || '',
-      tags: integration.tags || []
+      tags: integration.tags || [],
+      allowSelfSignedCerts: integration.config?.allowSelfSignedCerts || false
     });
     setShowModal(true);
   };
@@ -1056,6 +1060,16 @@ function Integrations() {
             <div className="form-group">
               <label>Base URL</label>
               <input type="url" value={form.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://api.example.com" required />
+            </div>
+            <div className="form-group">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.allowSelfSignedCerts}
+                  onChange={e => setForm({ ...form, allowSelfSignedCerts: e.target.checked })} />
+                <span>Disable SSL certificate verification</span>
+              </label>
+              {form.allowSelfSignedCerts && (
+                <p className="text-amber-500 text-xs mt-1">Only enable for trusted internal services. Disabling SSL verification exposes requests to man-in-the-middle attacks.</p>
+              )}
             </div>
             <div className="form-group">
               <label>Authentication</label>

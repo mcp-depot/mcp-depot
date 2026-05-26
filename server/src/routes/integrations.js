@@ -22,15 +22,16 @@ const integrationSchema = Joi.object({
   type: Joi.string().required(),
   name: Joi.string().required(),
   description: Joi.string().allow('').optional(),
-  config: Joi.object({
-    baseUrl: Joi.string().uri().required(),
-    auth: Joi.object({
-      type: Joi.string().valid('none', 'basic', 'bearer', 'token', 'custom', 'apiKey', 'oauth2').default('none'),
-      credentials: Joi.object()
-    }).default({ type: 'none' }),
-    headers: Joi.object().default({}),
-    timeout: Joi.number().default(30000)
-  }).required(),
+    config: Joi.object({
+      baseUrl: Joi.string().uri().required(),
+      auth: Joi.object({
+        type: Joi.string().valid('none', 'basic', 'bearer', 'token', 'custom', 'apiKey', 'oauth2').default('none'),
+        credentials: Joi.object()
+      }).default({ type: 'none' }),
+      headers: Joi.object().default({}),
+      timeout: Joi.number().default(30000),
+      allowSelfSignedCerts: Joi.boolean().default(false)
+    }).required(),
   metadata: Joi.object().default({}),
   tags: Joi.array().items(Joi.string()).default([])
 });
