@@ -541,46 +541,52 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
     const zodSchema = z.object(buildZodSchema(schema, required));
 
-    this.server.tool(
-      skillName,
-      {
-        description: skill.description || `Skill: ${skill.name}`,
-        inputSchema: zodSchema
-      },
-      async (params) => {
-        try {
-          const renderedPrompt = this.renderSkillPrompt(skill, params);
-          
-          let result;
-          if (skill.outputFormat === 'json') {
-            try {
-              result = JSON.parse(renderedPrompt);
-            } catch {
-              result = { output: renderedPrompt };
+    try {
+      this.server.tool(
+        skillName,
+        {
+          description: skill.description || `Skill: ${skill.name}`,
+          inputSchema: zodSchema
+        },
+        async (params) => {
+          try {
+            const renderedPrompt = this.renderSkillPrompt(skill, params);
+            
+            let result;
+            if (skill.outputFormat === 'json') {
+              try {
+                result = JSON.parse(renderedPrompt);
+              } catch {
+                result = { output: renderedPrompt };
+              }
+            } else if (skill.outputFormat === 'markdown') {
+              result = { format: 'markdown', content: renderedPrompt };
+            } else {
+              result = renderedPrompt;
             }
-          } else if (skill.outputFormat === 'markdown') {
-            result = { format: 'markdown', content: renderedPrompt };
-          } else {
-            result = renderedPrompt;
-          }
 
-          return {
-            content: [{
-              type: 'text',
-              text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-            }]
-          };
-        } catch (error) {
-          return {
-            content: [{
-              type: 'text',
-              text: `Error: ${error.message}`
-            }],
-            isError: true
-          };
+            return {
+              content: [{
+                type: 'text',
+                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+              }]
+            };
+          } catch (error) {
+            return {
+              content: [{
+                type: 'text',
+                text: `Error: ${error.message}`
+              }],
+              isError: true
+            };
+          }
         }
+      );
+    } catch (e) {
+      if (!e.message?.includes('already registered')) {
+        logger.warn({ err: e.message, skillName }, 'Skill registration failed');
       }
-    );
+    }
 
     logger.debug({ skill: skillName }, 'Skill registered');
   }
@@ -607,72 +613,78 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       timeoutSeconds: z.number().optional().describe('Maximum watch duration in seconds (default 3600)')
     });
 
-    this.server.tool('watch_until_done', {
-      description: 'Wait for an asynchronous external process (CI build, deployment, pipeline) to complete. Polls internally and sends progress notifications. Returns structured summary on completion.',
-      inputSchema: watchSchema
-    }, async (args, extra) => {
-      const startTime = Date.now();
-      const watchId = `watch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      this.server.tool('watch_until_done', {
+        description: 'Wait for an asynchronous external process (CI build, deployment, pipeline) to complete. Polls internally and sends progress notifications. Returns structured summary on completion.',
+        inputSchema: watchSchema
+      }, async (args, extra) => {
+        const startTime = Date.now();
+        const watchId = `watch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-      try {
-        const integration = await Integration.findByPk(args.integrationId);
-        if (!integration) {
-          throw new Error(`Integration ${args.integrationId} not found`);
-        }
+        try {
+          const integration = await Integration.findByPk(args.integrationId);
+          if (!integration) {
+            throw new Error(`Integration ${args.integrationId} not found`);
+          }
 
-        let resolvedConfig = integration.config;
-        if (secretStore.isInitialized()) {
-          const credentials = resolvedConfig.auth?.credentials;
-          if (credentials) {
-            for (const [key, value] of Object.entries(credentials)) {
-              if (typeof value === 'string' && secretStore.isSecretRef(value)) {
-                const resolved = await secretStore.resolveSecret(value);
-                if (resolved) {
-                  resolvedConfig = { ...resolvedConfig };
-                  resolvedConfig.auth = { ...resolvedConfig.auth };
-                  resolvedConfig.auth.credentials = { ...credentials };
-                  resolvedConfig.auth.credentials[key] = resolved;
+          let resolvedConfig = integration.config;
+          if (secretStore.isInitialized()) {
+            const credentials = resolvedConfig.auth?.credentials;
+            if (credentials) {
+              for (const [key, value] of Object.entries(credentials)) {
+                if (typeof value === 'string' && secretStore.isSecretRef(value)) {
+                  const resolved = await secretStore.resolveSecret(value);
+                  if (resolved) {
+                    resolvedConfig = { ...resolvedConfig };
+                    resolvedConfig.auth = { ...resolvedConfig.auth };
+                    resolvedConfig.auth.credentials = { ...credentials };
+                    resolvedConfig.auth.credentials[key] = resolved;
+                  }
                 }
               }
             }
           }
-        }
 
-        const adapter = await loadAdapter(integration.type);
+          const adapter = await loadAdapter(integration.type);
 
-        const result = await runWatcher({
-          watchId,
-          adapter,
-          trigger: args.trigger,
-          credentials: resolvedConfig,
-          integrationType: integration.type,
-          meta: { pollIntervalSeconds: args.pollIntervalSeconds, timeoutSeconds: args.timeoutSeconds },
-          signal: extra?.signal,
-          onProgress: ({ status, progress, elapsed }) => {
-            if (extra?.progressToken) {
-              this.server.server.notification({
-                method: 'notifications/progress',
-                params: {
-                  progressToken: extra.progressToken,
-                  progress: elapsed,
-                  total: args.timeoutSeconds ?? 3600,
-                  message: `${status}${progress ? ` - ${progress}` : ''} (${elapsed}s)`
-                }
-              }).catch(() => {});
+          const result = await runWatcher({
+            watchId,
+            adapter,
+            trigger: args.trigger,
+            credentials: resolvedConfig,
+            integrationType: integration.type,
+            meta: { pollIntervalSeconds: args.pollIntervalSeconds, timeoutSeconds: args.timeoutSeconds },
+            signal: extra?.signal,
+            onProgress: ({ status, progress, elapsed }) => {
+              if (extra?.progressToken) {
+                this.server.server.notification({
+                  method: 'notifications/progress',
+                  params: {
+                    progressToken: extra.progressToken,
+                    progress: elapsed,
+                    total: args.timeoutSeconds ?? 3600,
+                    message: `${status}${progress ? ` - ${progress}` : ''} (${elapsed}s)`
+                  }
+                }).catch(() => {});
+              }
             }
-          }
-        });
+          });
 
-        recordToolCall('watch_until_done', Date.now() - startTime, true);
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-      } catch (error) {
-        recordToolCall('watch_until_done', Date.now() - startTime, false);
-        return {
-          content: [{ type: 'text', text: `Error: ${error.message}` }],
-          isError: true
-        };
+          recordToolCall('watch_until_done', Date.now() - startTime, true);
+          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        } catch (error) {
+          recordToolCall('watch_until_done', Date.now() - startTime, false);
+          return {
+            content: [{ type: 'text', text: `Error: ${error.message}` }],
+            isError: true
+          };
+        }
+      });
+    } catch (e) {
+      if (!e.message?.includes('already registered')) {
+        logger.warn({ err: e.message }, 'watch_until_done registration failed');
       }
-    });
+    }
 
     logger.info('watch_until_done tool registered');
   }
