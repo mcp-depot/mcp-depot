@@ -111,7 +111,7 @@ function registerMetaTools(server, toolsMap) {
     return {
       content: [{
         type: 'text',
-        text: `Tool "${params.name}" added to integration "${params.integration}" (ID: ${tool.id}). It is now available for AI clients to call.`
+        text: `Tool "${params.name}" added to integration "${params.integration}" (ID: ${tool.id}). Run /mcp to reconnect and it will be available in this session.`
       }]
     };
   });
