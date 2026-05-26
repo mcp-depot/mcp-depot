@@ -952,6 +952,18 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   }
 
   async refreshTools() {
+    if (this._refreshPromise) {
+      return this._refreshPromise;
+    }
+    this._refreshPromise = this._doRefreshTools();
+    try {
+      await this._refreshPromise;
+    } finally {
+      this._refreshPromise = null;
+    }
+  }
+
+  async _doRefreshTools() {
     this.toolsMap.clear();
     
     const { Tool, Integration, PromptLibrary } = loadModels();
