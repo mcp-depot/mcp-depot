@@ -484,6 +484,13 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       integration.config = config;
     }
 
+    if (req.body.allowSelfSignedCerts !== undefined) {
+      integration.config = {
+        ...integration.config,
+        allowSelfSignedCerts: req.body.allowSelfSignedCerts
+      };
+    }
+
     await integration.save();
 
     res.json({

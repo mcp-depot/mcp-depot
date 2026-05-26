@@ -195,7 +195,7 @@ function Integrations() {
       let payload;
 
       if (editingId) {
-        payload = { name: form.name, description: form.description, tags: form.tags };
+        payload = { name: form.name, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts };
         
         const hasNewCredentials = (form.authType === 'basic' && (form.username || form.token)) ||
           (form.authType === 'bearer' && form.bearerToken) ||
