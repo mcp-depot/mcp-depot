@@ -259,64 +259,70 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
     const annotations = endpoint.annotations || deriveAnnotations(endpoint.method);
 
-    this.server.tool(
-      toolName,
-      {
-        description: tool.description || toolName,
-        inputSchema,
-        annotations
-      },
-      async (params, extra) => {
-        const startTime = Date.now();
-        const sessionId = extra?.sessionId || 'stdio';
-        const sessionData = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
-        const clientInfo = { clientName: sessionData.clientName, clientVersion: sessionData.clientVersion };
+    try {
+      this.server.tool(
+        toolName,
+        {
+          description: tool.description || toolName,
+          inputSchema,
+          annotations
+        },
+        async (params, extra) => {
+          const startTime = Date.now();
+          const sessionId = extra?.sessionId || 'stdio';
+          const sessionData = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
+          const clientInfo = { clientName: sessionData.clientName, clientVersion: sessionData.clientVersion };
 
-        try {
-          const toolLimit = tool.rateLimit || 0;
-          const intLimit = tool.Integration?.rateLimit || {};
-          const integrationLimitRpm = intLimit.requestsPerMinute || 0;
-          const integrationLimitRph = intLimit.requestsPerHour || 0;
-          const rateCheck = checkToolRateLimit(tool.id, tool.userId, toolLimit, integrationLimitRpm, integrationLimitRph);
-          if (!rateCheck.allowed) {
+          try {
+            const toolLimit = tool.rateLimit || 0;
+            const intLimit = tool.Integration?.rateLimit || {};
+            const integrationLimitRpm = intLimit.requestsPerMinute || 0;
+            const integrationLimitRph = intLimit.requestsPerHour || 0;
+            const rateCheck = checkToolRateLimit(tool.id, tool.userId, toolLimit, integrationLimitRpm, integrationLimitRph);
+            if (!rateCheck.allowed) {
+              return {
+                content: [{
+                  type: 'text',
+                  text: `Rate limit exceeded for ${tool.name}. Retry in ${rateCheck.resetInSeconds}s.`
+                }],
+                isError: true
+              };
+            }
+
+            const result = await this.executeTool(tool, params, clientInfo, sessionData.userId ?? null);
+            this._updateSession(sessionId, toolName, true);
+            recordToolCall(toolName, Date.now() - startTime, true);
             return {
               content: [{
                 type: 'text',
-                text: `Rate limit exceeded for ${tool.name}. Retry in ${rateCheck.resetInSeconds}s.`
+                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+              }],
+              meta: {
+                rateLimit: {
+                  toolRemaining: rateCheck.remaining !== Infinity ? rateCheck.remaining : null,
+                  integrationRemaining: rateCheck.integrationRemaining !== Infinity ? rateCheck.integrationRemaining : null,
+                  resetInSeconds: rateCheck.resetInSeconds
+                }
+              }
+            };
+          } catch (error) {
+            this._updateSession(sessionId, toolName, false);
+            recordToolCall(toolName, Date.now() - startTime, false);
+            return {
+              content: [{
+                type: 'text',
+                text: `Error: ${error.message}`
               }],
               isError: true
             };
           }
-
-          const result = await this.executeTool(tool, params, clientInfo, sessionData.userId ?? null);
-          this._updateSession(sessionId, toolName, true);
-          recordToolCall(toolName, Date.now() - startTime, true);
-          return {
-            content: [{
-              type: 'text',
-              text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-            }],
-            meta: {
-              rateLimit: {
-                toolRemaining: rateCheck.remaining !== Infinity ? rateCheck.remaining : null,
-                integrationRemaining: rateCheck.integrationRemaining !== Infinity ? rateCheck.integrationRemaining : null,
-                resetInSeconds: rateCheck.resetInSeconds
-              }
-            }
-          };
-        } catch (error) {
-          this._updateSession(sessionId, toolName, false);
-          recordToolCall(toolName, Date.now() - startTime, false);
-          return {
-            content: [{
-              type: 'text',
-              text: `Error: ${error.message}`
-            }],
-            isError: true
-          };
         }
+      );
+    } catch (e) {
+      if (!e.message?.includes('already registered')) {
+        logger.warn({ err: e.message, toolName }, 'Tool registration failed');
       }
-    );
+    }
 
     logger.debug({ tool: toolName }, 'Tool registered');
   }
