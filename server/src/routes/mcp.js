@@ -1418,6 +1418,22 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
           return res.status(400).json({ error: 'Unsupported method' });
       }
       
+      const responseFields = tool.responseFields || tool.endpoint?.responseFields;
+      if (responseFields?.length) {
+        const { filterFields } = require('../utils/fieldFilter');
+        const data = result.data ?? result;
+        if (data !== undefined) {
+          const filtered = Array.isArray(data)
+            ? data.map(item => filterFields(item, responseFields))
+            : filterFields(data, responseFields);
+          if (result.data !== undefined) {
+            result.data = filtered;
+          } else {
+            result = filtered;
+          }
+        }
+      }
+
       res.json({
         success: true,
         tool: tool.name,
