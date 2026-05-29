@@ -272,24 +272,25 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           const sessionId = extra?.sessionId || 'stdio';
           const sessionData = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
           const clientInfo = { clientName: sessionData.clientName, clientVersion: sessionData.clientVersion };
+          const currentTool = this.toolsMap.get(toolName)?.tool ?? tool;
 
           try {
-            const toolLimit = tool.rateLimit || 0;
-            const intLimit = tool.Integration?.rateLimit || {};
+            const toolLimit = currentTool.rateLimit || 0;
+            const intLimit = currentTool.Integration?.rateLimit || {};
             const integrationLimitRpm = intLimit.requestsPerMinute || 0;
             const integrationLimitRph = intLimit.requestsPerHour || 0;
-            const rateCheck = checkToolRateLimit(tool.id, tool.userId, toolLimit, integrationLimitRpm, integrationLimitRph);
+            const rateCheck = checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph);
             if (!rateCheck.allowed) {
               return {
                 content: [{
                   type: 'text',
-                  text: `Rate limit exceeded for ${tool.name}. Retry in ${rateCheck.resetInSeconds}s.`
+                  text: `Rate limit exceeded for ${currentTool.name}. Retry in ${rateCheck.resetInSeconds}s.`
                 }],
                 isError: true
               };
             }
 
-            const result = await this.executeTool(tool, params, clientInfo, sessionData.userId ?? null);
+            const result = await this.executeTool(currentTool, params, clientInfo, sessionData.userId ?? null);
             this._updateSession(sessionId, toolName, true);
             recordToolCall(toolName, Date.now() - startTime, true);
             return {
