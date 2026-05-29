@@ -1067,7 +1067,7 @@ function Tools({ all: isAllTools }) {
                 </div>
                 <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', overflow: 'auto', maxHeight: '350px', fontSize: '0.85rem' }}>
                   <JsonTree
-                    data={testResult.data}
+                    data={testResult.data?.result?.data ?? testResult.data?.result ?? testResult.data}
                     selectedFields={selectedResponseFields}
                     onFieldSelect={(path) => setSelectedResponseFields(prev => new Set([...prev, path]))}
                     onFieldDeselect={(path) => {
