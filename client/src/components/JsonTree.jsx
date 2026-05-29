@@ -88,9 +88,12 @@ function ObjectItem({ name, value, path, selectedFields, onFieldSelect, onFieldD
 
   return (
     <div className="json-row">
-      <span className="json-bracket" onClick={() => setExpanded(!expanded)}>
-        <span className="json-toggle-icon">{expanded ? '▼' : '▶'}</span>
-        <span className="json-key">{name}</span>:
+      <span className="json-bracket">
+        <span className="json-toggle-icon" onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}>{expanded ? '▼' : '▶'}</span>
+        <span
+          className={`json-key ${isSelected ? 'json-selected' : ''}`}
+          onClick={() => isSelected ? onFieldDeselect?.(path) : onFieldSelect?.(path)}
+        >{name}</span>:
         {isArray
           ? <span className="json-bracket-label"> [{value.length}]</span>
           : <span className="json-bracket-label"> {'{'}{Object.keys(value).length}{'}'}</span>

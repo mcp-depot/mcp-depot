@@ -384,7 +384,9 @@ function Tools({ all: isAllTools }) {
     }
     
     const existingFields = currentToolForTest.responseFields || [];
-    setSelectedResponseFields(new Set(existingFields));
+    if (selectedResponseFields.size === 0) {
+      setSelectedResponseFields(new Set(existingFields));
+    }
 
     const fullUrl = (integration?.config?.baseUrl || '') + resolvedPath;
     
@@ -424,7 +426,7 @@ function Tools({ all: isAllTools }) {
   };
 
   const saveResponseFields = async () => {
-    if (!currentToolForTest || selectedResponseFields.size === 0) return;
+    if (!currentToolForTest) return;
     const toolId = currentToolForTest.id || currentToolForTest._id;
     const integrationId = id || currentToolForTest.integrationId;
     setSavingFields(true);
