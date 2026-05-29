@@ -2782,3 +2782,123 @@ code {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* -------- JSON Tree Viewer -------- */
+.json-tree {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.json-row {
+  padding: 0.1rem 0;
+}
+
+.json-children {
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--border-light);
+  margin: 0.1rem 0 0.1rem 0.4rem;
+}
+
+.json-key {
+  color: var(--primary-light);
+}
+
+.json-leaf {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0.1rem 0.25rem;
+  transition: background 0.15s;
+}
+
+.json-leaf:hover {
+  background: var(--surface-active);
+}
+
+.json-leaf.json-selected {
+  background: var(--success-bg);
+  outline: 1px solid var(--success);
+}
+
+.json-string { color: #a3e635; }
+.json-number { color: #60a5fa; }
+.json-boolean { color: #f472b6; }
+.json-null { color: var(--text-dim); font-style: italic; }
+.json-empty { color: var(--text-dim); font-style: italic; }
+
+.json-bracket {
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0.1rem 0.25rem;
+  transition: background 0.15s;
+  user-select: none;
+}
+
+.json-bracket:hover {
+  background: var(--surface-active);
+}
+
+.json-toggle-icon {
+  display: inline-block;
+  width: 0.8rem;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+.json-bracket-label {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+}
+
+.json-array-index {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+/* -------- Response Fields Chips -------- */
+.response-fields-area {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.response-field-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.6rem;
+  background: var(--success-bg);
+  border: 1px solid var(--success);
+  border-radius: var(--radius-full);
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  color: var(--success);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.response-field-chip:hover {
+  background: rgba(16, 185, 129, 0.25);
+}
+
+.response-field-chip .remove-field {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--success);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.response-field-chip .remove-field:hover {
+  background: var(--success);
+  color: white;
+}

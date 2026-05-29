@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
-import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown, LayoutGrid, PanelLeft, List } from 'lucide-react';
+import { JsonTree } from '../components/JsonTree';
+import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown, LayoutGrid, PanelLeft, List, Save, X } from 'lucide-react';
 import { ViewToggle } from '../components/ViewToggle';
 
 const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
@@ -73,6 +74,8 @@ function Tools({ all: isAllTools }) {
   const [testResult, setTestResult] = useState(null);
   const [testParams, setTestParams] = useState({});
   const [currentToolForTest, setCurrentToolForTest] = useState(null);
+  const [selectedResponseFields, setSelectedResponseFields] = useState(new Set());
+  const [savingFields, setSavingFields] = useState(false);
 
   const [exploring, setExploring] = useState(false);
   const [discoveredEndpoints, setDiscoveredEndpoints] = useState([]);
@@ -90,7 +93,8 @@ function Tools({ all: isAllTools }) {
     params: '{\n  "key": "value"\n}',
     headers: '{\n  "key": "value"\n}',
     body: '',
-    responseTransformer: ''
+    responseTransformer: '',
+    responseFields: ''
   });
 
   const [collapsedIntegrations, setCollapsedIntegrations] = useState({});
@@ -241,11 +245,22 @@ function Tools({ all: isAllTools }) {
         body: parsedBody
       };
 
+      let parsedResponseFields = null;
+      if (form.responseFields && form.responseFields.trim()) {
+        try {
+          parsedResponseFields = JSON.parse(form.responseFields);
+          if (!Array.isArray(parsedResponseFields)) throw new Error('Must be an array');
+        } catch (err) {
+          parsedResponseFields = form.responseFields.split(',').map(s => s.trim()).filter(Boolean);
+        }
+      }
+
       const payload = {
         name: form.name,
         description: form.description,
         endpoint,
-        responseTransformer: form.responseTransformer || null
+        responseTransformer: form.responseTransformer || null,
+        responseFields: parsedResponseFields
       };
 
       if (editingTool) {
@@ -274,7 +289,8 @@ function Tools({ all: isAllTools }) {
       params: JSON.stringify(tool.endpoint.params, null, 2),
       headers: JSON.stringify(tool.endpoint.headers, null, 2),
       body: JSON.stringify(tool.endpoint.body, null, 2),
-      responseTransformer: tool.endpoint.responseTransformer || tool.responseTransformer || ''
+      responseTransformer: tool.endpoint.responseTransformer || tool.responseTransformer || '',
+      responseFields: tool.responseFields ? JSON.stringify(tool.responseFields, null, 2) : ''
     });
     setShowModal(true);
   };
@@ -323,6 +339,7 @@ function Tools({ all: isAllTools }) {
     setCurrentToolForTest(tool);
     setTestParams(initialParams);
     setTestResult(null);
+    setSelectedResponseFields(new Set(tool.responseFields || []));
     setShowTestModal(true);
   };
 
@@ -366,6 +383,9 @@ function Tools({ all: isAllTools }) {
       }
     }
     
+    const existingFields = currentToolForTest.responseFields || [];
+    setSelectedResponseFields(new Set(existingFields));
+
     const fullUrl = (integration?.config?.baseUrl || '') + resolvedPath;
     
     const getAuthTypeLabel = (type) => {
@@ -403,9 +423,29 @@ function Tools({ all: isAllTools }) {
     }
   };
 
+  const saveResponseFields = async () => {
+    if (!currentToolForTest || selectedResponseFields.size === 0) return;
+    const toolId = currentToolForTest.id || currentToolForTest._id;
+    const integrationId = id || currentToolForTest.integrationId;
+    setSavingFields(true);
+    try {
+      const fields = [...selectedResponseFields];
+      await api.put(`/integrations/${integrationId}/tools/${toolId}`, { responseFields: fields });
+      if (currentToolForTest.responseFields) {
+        currentToolForTest.responseFields = fields;
+      } else {
+        currentToolForTest.responseFields = fields;
+      }
+    } catch (err) {
+      alert('Failed to save response fields: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSavingFields(false);
+    }
+  };
+
   const resetForm = () => {
     setEditingTool(null);
-    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '' });
+    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '', responseFields: '' });
   };
 
   const handleExplore = async (e) => {
@@ -1019,10 +1059,52 @@ function Tools({ all: isAllTools }) {
             )}
             {testResult.success ? (
               <div style={{ marginTop: '1rem' }}>
-                <strong>Response:</strong>
-                <pre style={{ marginTop: '0.5rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', overflow: 'auto', maxHeight: '300px', fontSize: '0.85rem' }}>
-                  {JSON.stringify(testResult.data, null, 2)}
-                </pre>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <strong>Response:</strong>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                    (click leaf values to add to response fields)
+                  </span>
+                </div>
+                <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', overflow: 'auto', maxHeight: '350px', fontSize: '0.85rem' }}>
+                  <JsonTree
+                    data={testResult.data}
+                    selectedFields={selectedResponseFields}
+                    onFieldSelect={(path) => setSelectedResponseFields(prev => new Set([...prev, path]))}
+                    onFieldDeselect={(path) => {
+                      const next = new Set(selectedResponseFields);
+                      next.delete(path);
+                      setSelectedResponseFields(next);
+                    }}
+                  />
+                </div>
+                {selectedResponseFields.size > 0 && (
+                  <div className="response-fields-area">
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.75rem' }}>
+                      {[...selectedResponseFields].sort().map(field => (
+                        <span key={field} className="response-field-chip">
+                          {field}
+                          <button
+                            className="remove-field"
+                            onClick={() => {
+                              const next = new Set(selectedResponseFields);
+                              next.delete(field);
+                              setSelectedResponseFields(next);
+                            }}
+                          >&times;</button>
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button className="btn btn-primary btn-small" onClick={saveResponseFields} disabled={savingFields}>
+                        <Save size={14} style={{ marginRight: '0.3rem' }} />
+                        {savingFields ? 'Saving...' : 'Save Response Fields'}
+                      </button>
+                      <button className="btn btn-ghost btn-small" onClick={() => setSelectedResponseFields(new Set())}>
+                        Clear All
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="error-message" style={{ marginTop: '0.5rem' }}>{testResult.error}</div>
@@ -1153,6 +1235,19 @@ function Tools({ all: isAllTools }) {
                       value={{ value: form.responseTransformer || '', label: form.responseTransformer ? form.responseTransformer : 'None' }}
                       onChange={(opt) => setForm({ ...form, responseTransformer: opt?.value || '' })}
                       isSearchable={false}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Response Fields
+                      <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
+                        JSON array of dot-notation paths or comma-separated (e.g. issues.fields.summary)
+                      </span>
+                    </label>
+                    <textarea
+                      value={form.responseFields}
+                      onChange={e => setForm({ ...form, responseFields: e.target.value })}
+                      placeholder='["issues.fields.summary", "meta.total"]'
+                      style={{ minHeight: '60px' }}
                     />
                   </div>
                 </div>
