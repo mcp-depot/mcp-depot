@@ -1,36 +1,28 @@
 function filterFields(obj, paths) {
   if (!paths || paths.length === 0) return obj;
-  const result = {};
+  if (obj === null || typeof obj !== 'object') return obj;
+
+  const grouped = {};
   for (const path of paths) {
-    const parts = path.split('.');
-    let src = obj;
-    let dst = result;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (src == null) break;
-      if (Array.isArray(src)) {
-        src = src.map(item => {
-          const nested = {};
-          let n = nested;
-          for (let j = i; j < parts.length - 1; j++) {
-            if (item == null) break;
-            n[parts[j]] = {};
-            n = n[parts[j]];
-            item = item[parts[j]];
-          }
-          const leaf = parts.at(-1);
-          if (item != null && leaf in item) n[leaf] = item[leaf];
-          return nested;
-        });
-        dst[parts[i]] = src;
-        break;
-      }
-      dst[parts[i]] ??= {};
-      dst = dst[parts[i]];
-      src = src?.[parts[i]];
-    }
-    if (!Array.isArray(src)) {
-      const leaf = parts.at(-1);
-      if (src != null && leaf in src) dst[leaf] = src[leaf];
+    const dotIdx = path.indexOf('.');
+    const head = dotIdx === -1 ? path : path.slice(0, dotIdx);
+    const tail = dotIdx === -1 ? null : path.slice(dotIdx + 1);
+    if (!grouped[head]) grouped[head] = [];
+    if (tail) grouped[head].push(tail);
+  }
+
+  const result = {};
+  for (const [key, subPaths] of Object.entries(grouped)) {
+    if (!(key in obj)) continue;
+    const val = obj[key];
+    if (subPaths.length === 0) {
+      result[key] = val;
+    } else if (Array.isArray(val)) {
+      result[key] = val.map(item => filterFields(item, subPaths));
+    } else if (val && typeof val === 'object') {
+      result[key] = filterFields(val, subPaths);
+    } else {
+      result[key] = val;
     }
   }
   return result;
