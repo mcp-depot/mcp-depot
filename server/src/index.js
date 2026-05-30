@@ -70,6 +70,7 @@ app.use(metricsMiddleware);
 
 app.get('/health', (req, res) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   let mcpClients = 0;
   try {
     const { getMcpClients } = require('./mcp/server');
