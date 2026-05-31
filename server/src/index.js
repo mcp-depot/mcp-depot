@@ -51,7 +51,17 @@ const app = express();
 promClient.register.setDefaultLabels({ app: 'mcp-depot' });
 
 app.set('trust proxy', 1);
-app.use(helmet());
+const allowedFrameOrigins = process.env.ALLOWED_FRAME_ORIGINS
+  ? process.env.ALLOWED_FRAME_ORIGINS.split(',').map(s => s.trim())
+  : [];
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'frame-ancestors': ["'self'", ...allowedFrameOrigins],
+    },
+  },
+}));
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'];
 if (!process.env.ALLOWED_ORIGINS) {
   logger.warn('ALLOWED_ORIGINS not set, defaulting to http://localhost:5173. Set ALLOWED_ORIGINS env var for production.');

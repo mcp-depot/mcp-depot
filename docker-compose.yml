@@ -83,6 +83,7 @@ services:
       - OIDC_DISPLAY_NAME=${OIDC_DISPLAY_NAME:-Login with SSO}
       - API_BASE_URL=${API_BASE_URL:-http://localhost:3000}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
+      - ALLOWED_FRAME_ORIGINS=${ALLOWED_FRAME_ORIGINS:-}
       - HEALTH_CORS_ORIGINS=${HEALTH_CORS_ORIGINS:-*}
       - MCP_PACKAGES_PATH=/opt/mcp-packages
     volumes:
