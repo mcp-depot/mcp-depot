@@ -23,3 +23,6 @@ error.png
 opencode.json
 *.har
 mcp-connect-wrapper/config.json
+docker/demo-cleanup.sh
+Dockerfile.demo-cleanup
+docker-compose.demo.yml
