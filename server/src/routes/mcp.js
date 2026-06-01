@@ -1057,7 +1057,11 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { toolId, toolName, params, headers, body, sessionId: cliSessionId } = value;
+    const { toolId, toolName, headers, body, sessionId: cliSessionId } = value;
+    let params = value.params || {};
+    const runtimeFilter = params._lineFilter || body?._lineFilter;
+    if (params) delete params._lineFilter;
+    if (body && typeof body === 'object') delete body._lineFilter;
 
     if (cliSessionId && mcpServer._sessionClientMap?.has(cliSessionId)) {
       const cliSession = mcpServer._sessionClientMap.get(cliSessionId);
@@ -1434,12 +1438,12 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         }
       }
 
-      const lineFilter = tool.responseLineFilter;
-      if (lineFilter) {
+      const activeFilter = runtimeFilter || tool.responseLineFilter;
+      if (activeFilter) {
         const { filterLines } = require('../utils/lineFilter');
         const data = result?.data;
         if (typeof data === 'string') {
-          result = { ...result, data: filterLines(data, lineFilter) };
+          result = { ...result, data: filterLines(data, activeFilter) };
         }
       }
 

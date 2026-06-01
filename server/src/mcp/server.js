@@ -256,7 +256,12 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
     this.toolsMap.set(toolName, { tool, adapter });
 
-    const inputSchema = z.object(buildZodSchema(schema, required));
+    const inputSchema = z.object({
+      ...buildZodSchema(schema, required),
+      _lineFilter: z.string().optional().describe(
+        'Optional regex pattern - only lines matching this pattern are returned. Overrides the tool\'s configured responseLineFilter.'
+      )
+    });
 
     const annotations = endpoint.annotations || deriveAnnotations(endpoint.method);
 
@@ -361,6 +366,11 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     }
 
+    const runtimeFilter = params?._lineFilter;
+    if (params) {
+      delete params._lineFilter;
+    }
+
     const internalHeaders = callerUserId
       ? {
           'X-Internal-Secret': config.internalSecret,
@@ -449,11 +459,11 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         ? data.map(item => filterFields(item, fields))
         : filterFields(data, fields);
       result = filtered;
-      const lineFilter = tool.responseLineFilter;
-      if (lineFilter && typeof result === 'string') {
-        result = filterLines(result, lineFilter);
-      } else if (lineFilter && result?.data && typeof result.data === 'string') {
-        result = { ...result, data: filterLines(result.data, lineFilter) };
+      const activeFilter = runtimeFilter || tool.responseLineFilter;
+      if (activeFilter && typeof result === 'string') {
+        result = filterLines(result, activeFilter);
+      } else if (activeFilter && result?.data && typeof result.data === 'string') {
+        result = { ...result, data: filterLines(result.data, activeFilter) };
       }
       if (transformerName) {
         const fn = transformerLoader.get(transformerName);
