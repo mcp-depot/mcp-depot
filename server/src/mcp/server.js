@@ -448,7 +448,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       const filtered = Array.isArray(data)
         ? data.map(item => filterFields(item, fields))
         : filterFields(data, fields);
-      let result = filtered;
+      result = filtered;
       const lineFilter = tool.responseLineFilter;
       if (lineFilter && typeof result === 'string') {
         result = filterLines(result, lineFilter);
