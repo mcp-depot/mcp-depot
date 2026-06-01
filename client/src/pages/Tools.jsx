@@ -94,7 +94,8 @@ function Tools({ all: isAllTools }) {
     headers: '{\n  "key": "value"\n}',
     body: '',
     responseTransformer: '',
-    responseFields: ''
+    responseFields: '',
+    responseLineFilter: ''
   });
 
   const [collapsedIntegrations, setCollapsedIntegrations] = useState({});
@@ -260,7 +261,8 @@ function Tools({ all: isAllTools }) {
         description: form.description,
         endpoint,
         responseTransformer: form.responseTransformer || null,
-        responseFields: parsedResponseFields
+        responseFields: parsedResponseFields,
+        responseLineFilter: form.responseLineFilter || null
       };
 
       if (editingTool) {
@@ -290,7 +292,8 @@ function Tools({ all: isAllTools }) {
       headers: JSON.stringify(tool.endpoint.headers, null, 2),
       body: JSON.stringify(tool.endpoint.body, null, 2),
       responseTransformer: tool.endpoint.responseTransformer || tool.responseTransformer || '',
-      responseFields: tool.responseFields ? JSON.stringify(tool.responseFields, null, 2) : ''
+      responseFields: tool.responseFields ? JSON.stringify(tool.responseFields, null, 2) : '',
+      responseLineFilter: tool.responseLineFilter || ''
     });
     setShowModal(true);
   };
@@ -447,7 +450,7 @@ function Tools({ all: isAllTools }) {
 
   const resetForm = () => {
     setEditingTool(null);
-    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '', responseFields: '' });
+    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '', responseFields: '', responseLineFilter: '' });
   };
 
   const handleExplore = async (e) => {
@@ -1250,6 +1253,20 @@ function Tools({ all: isAllTools }) {
                       onChange={e => setForm({ ...form, responseFields: e.target.value })}
                       placeholder='["issues.fields.summary", "meta.total"]'
                       style={{ minHeight: '60px' }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Line filter (regex)
+                      <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
+                        Only lines matching this pattern are returned from text responses
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="e.g. \[ERROR\] or BUILD|WARN"
+                      value={form.responseLineFilter || ''}
+                      onChange={e => setForm({ ...form, responseLineFilter: e.target.value })}
                     />
                   </div>
                 </div>

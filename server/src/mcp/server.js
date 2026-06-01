@@ -12,6 +12,7 @@ const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
 const { checkRateLimit: checkToolRateLimit } = require('../services/rate-limiter');
 const { filterFields } = require('../utils/fieldFilter');
+const { filterLines } = require('../utils/lineFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
 const transformerLoader = require('../transformers/loader');
 const { z } = require('zod/v3');
@@ -447,12 +448,19 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       const filtered = Array.isArray(data)
         ? data.map(item => filterFields(item, fields))
         : filterFields(data, fields);
+      let result = filtered;
+      const lineFilter = tool.responseLineFilter;
+      if (lineFilter && typeof result === 'string') {
+        result = filterLines(result, lineFilter);
+      } else if (lineFilter && result?.data && typeof result.data === 'string') {
+        result = { ...result, data: filterLines(result.data, lineFilter) };
+      }
       if (transformerName) {
         const fn = transformerLoader.get(transformerName);
-        if (fn) return fn(filtered);
+        if (fn) return fn(result);
         logger.warn({ tool: tool.name, transformer: transformerName }, 'Response transformer not found');
       }
-      return filtered;
+      return result;
     } catch (error) {
       success = false;
       responseStatus = error.response?.status || 500;

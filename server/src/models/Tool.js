@@ -86,6 +86,12 @@ const Tool = sequelize.define('Tool', {
     defaultValue: null,
     comment: 'Array of dot-notation paths to filter response fields (null = no filtering)'
   },
+  responseLineFilter: {
+    type: DataTypes.STRING(500),
+    defaultValue: null,
+    allowNull: true,
+    comment: 'Regex pattern - only lines matching this pattern are returned from string responses'
+  },
   responseTransformer: {
     type: DataTypes.STRING(50),
     defaultValue: null,

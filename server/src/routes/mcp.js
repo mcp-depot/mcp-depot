@@ -1434,6 +1434,15 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         }
       }
 
+      const lineFilter = tool.responseLineFilter;
+      if (lineFilter) {
+        const { filterLines } = require('../utils/lineFilter');
+        const data = result?.data;
+        if (typeof data === 'string') {
+          result = { ...result, data: filterLines(data, lineFilter) };
+        }
+      }
+
       res.json({
         success: true,
         tool: tool.name,
