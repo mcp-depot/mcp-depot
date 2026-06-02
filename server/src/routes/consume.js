@@ -214,7 +214,11 @@ router.post('/tools/:toolId/execute', optionalAuthWithApiKey, async (req, res) =
       integrationId: integration.id
     }, { userId: req.user?.id });
     
-    const { params, headers, body } = req.body;
+    let { params, headers, body } = req.body;
+    params = params || {};
+    const runtimeFilter = params._lineFilter || body?._lineFilter;
+    if (params) delete params._lineFilter;
+    if (body && typeof body === 'object') delete body._lineFilter;
     const mergedParams = { ...tool.endpoint.params, ...params };
     const mergedHeaders = { ...tool.endpoint.headers, ...headers };
 
@@ -357,6 +361,15 @@ router.post('/tools/:toolId/execute', optionalAuthWithApiKey, async (req, res) =
         details: { toolId: tool.id, toolName: tool.name, method: tool.endpoint.method },
         status: 'success'
       });
+    }
+
+    if (runtimeFilter || tool.responseLineFilter) {
+      const { filterLines } = require('../utils/lineFilter');
+      const activeFilter = runtimeFilter || tool.responseLineFilter;
+      const data = result?.data;
+      if (typeof data === 'string') {
+        result = { ...result, data: filterLines(data, activeFilter) };
+      }
     }
 
     res.json(result);
