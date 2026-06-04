@@ -269,7 +269,8 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       this.server.tool(
         toolName,
         {
-          description: tool.description || toolName,
+          description: (tool.description || toolName) +
+            '\n\n_lineFilter (optional string): regex pattern - only lines matching this pattern are returned. Leave empty for full response.',
           inputSchema,
           annotations
         },
