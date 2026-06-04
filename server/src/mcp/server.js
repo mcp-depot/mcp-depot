@@ -258,8 +258,8 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
     const inputSchema = z.object({
       ...buildZodSchema(schema, required),
-      _lineFilter: z.string().optional().describe(
-        'Optional regex pattern - only lines matching this pattern are returned. Overrides the tool\'s configured responseLineFilter.'
+      _lineFilter: z.string().default('').describe(
+        'Optional regex pattern - only lines matching this pattern are returned. Leave empty to return all lines. Overrides the tool\'s configured responseLineFilter.'
       )
     });
 
