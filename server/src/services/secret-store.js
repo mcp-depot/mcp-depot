@@ -46,12 +46,21 @@ async function init(options) {
     return;
   }
 
+  // If secret store is enabled but credentials aren't provided, warn and skip
+  if (!options.clientId || !options.clientSecret || !options.siteUrl) {
+    logger.warn('Secret store enabled but credentials not provided, skipping initialization');
+    initialized = false;
+    config = null;
+    accessToken = null;
+    return;
+  }
+
   config = {
     provider: options.provider || 'infisical',
     siteUrl: options.siteUrl,
     clientId: options.clientId,
     clientSecret: options.clientSecret,
-    workspaceId: options.workspaceId,  // This is actually the project ID
+    workspaceId: options.workspaceId,
     environment: options.environment || 'dev'
   };
 
@@ -60,11 +69,10 @@ async function init(options) {
     initialized = true;
     logger.info({ provider: config.provider }, 'Secret store initialized');
   } catch (error) {
+    logger.error({ err: error.message }, 'Failed to initialize secret store, continuing without it');
     initialized = false;
     config = null;
     accessToken = null;
-    logger.error({ err: error.message }, 'Failed to initialize secret store');
-    throw error;
   }
 }
 

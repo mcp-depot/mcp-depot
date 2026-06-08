@@ -1,5 +1,8 @@
 const axios = require('axios');
+const https = require('https');
 const encryption = require('../services/encryption');
+const logger = require('../services/logger');
+const envConfig = require('../config/env');
 
 class DynamicAdapter {
   constructor(config, options = {}) {
@@ -15,13 +18,15 @@ class DynamicAdapter {
   }
 
   initClient() {
+    const skipSsl = this.config.allowSelfSignedCerts || envConfig.allowSelfSignedCerts;
     this.client = axios.create({
       baseURL: this.baseUrl,
       timeout: this.timeout,
       headers: {
         'Content-Type': 'application/json',
         ...this.customHeaders
-      }
+      },
+      ...(skipSsl ? { httpsAgent: new https.Agent({ rejectUnauthorized: false }) } : {})
     });
   }
 
@@ -233,6 +238,30 @@ class DynamicAdapter {
     return this.makeRequest('DELETE', path, null, options);
   }
 
+  async fetchBinary(path, options = {}) {
+    const { params, headers } = options;
+    const config = {
+      method: 'GET',
+      url: path,
+      headers: {
+        ...await this.getAuthHeaders(),
+        ...this.customHeaders,
+        ...headers
+      },
+      params: {
+        ...await this.getQueryParams(),
+        ...params
+      },
+      responseType: 'arraybuffer'
+    };
+    const response = await this.client.request(config);
+    return {
+      data: response.data,
+      status: response.status,
+      headers: response.headers
+    };
+  }
+
   async ensureValidToken() {
     if (this.auth.type !== 'oauth2') return;
     
@@ -284,7 +313,7 @@ class DynamicAdapter {
         await integration.save();
       }
     } catch (err) {
-      console.error('Failed to persist OAuth credentials:', err.message);
+      logger.error({ err: err.message }, 'Failed to persist OAuth credentials');
     }
   }
 }

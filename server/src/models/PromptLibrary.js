@@ -19,7 +19,7 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT
     },
     inputs: {
-      type: DataTypes.JSONB,
+      type: DataTypes.JSON,
       defaultValue: []
     },
     prompt: {
@@ -39,6 +39,10 @@ module.exports = (sequelize) => {
     isDefault: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
+    },
+    tags: {
+      type: DataTypes.JSON,
+      defaultValue: []
     }
   }, {
     tableName: 'prompt_library'

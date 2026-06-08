@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Layers, Globe, Lock, Trash2, Share2, MessageSquare } from 'lucide-react';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
+import { formatDate, formatDateTime } from '../utils/date';
+import { getApiError } from '../utils/apiError';
 
 function expiryInfo(ctx, now) {
-  if (ctx.ttlHours == null) return { label: 'Pinned', urgency: 'pinned' };
+  if (ctx.ttlHours == null || ctx.ttlHours === 0) return { label: 'Pinned', urgency: 'pinned' };
   const expiresAt = new Date(ctx.updatedAt).getTime() + ctx.ttlHours * 3600000;
   const msLeft = expiresAt - now;
   if (msLeft <= 0) return { label: 'Expired', urgency: 'urgent' };
@@ -60,23 +63,35 @@ function SessionContexts() {
       setSelected(null);
       loadContexts();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete');
+      alert(`Failed to delete: ${getApiError(err)}`);
     }
   };
 
   const handleToggleShare = async (name, currentShared) => {
     try {
-      await api.patch(`/session-contexts/${encodeURIComponent(name)}/share`, token, { shared: !currentShared });
+      await api.patch(`/session-contexts/${encodeURIComponent(name)}/share`, { shared: !currentShared });
       loadContexts();
       if (selected?.name === name) {
         setSelected(s => ({ ...s, isShared: !currentShared }));
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to toggle share');
+      alert(`Failed to toggle share: ${getApiError(err)}`);
     }
   };
 
-  const isOwner = (ctx) => ctx.createdBy === user?.id;
+  const handleUpdateTtl = async (name, ttlHours) => {
+    try {
+      await api.patch(`/session-contexts/${encodeURIComponent(name)}`, { ttlHours });
+      loadContexts();
+      if (selected?.name === name) {
+        setSelected(s => ({ ...s, ttlHours: ttlHours === 0 ? null : ttlHours }));
+      }
+    } catch (err) {
+      alert(`Failed to update TTL: ${getApiError(err)}`);
+    }
+  };
+
+  const isOwner = (ctx) => ctx.createdBy === user?.id || ctx.createdBy == null;
 
   return (
     <div className="container">
@@ -114,12 +129,36 @@ function SessionContexts() {
                     {ctx.isShared ? 'Shared' : 'Private'}
                   </span>
                 </td>
-                <td>
-                  <span className={`expiry-${expiryInfo(ctx, now).urgency}`}>
-                    {expiryInfo(ctx, now).label}
-                  </span>
+                <td onClick={e => e.stopPropagation()}>
+                  {isOwner(ctx) ? (
+                    <>
+                      <span className={`expiry-${expiryInfo(ctx, now).urgency}`} style={{ marginRight: '6px' }}>
+                        {expiryInfo(ctx, now).label}
+                      </span>
+                      <select
+                        className="input-sm"
+                        value={ctx.ttlHours == null || ctx.ttlHours === 0 ? -1 : ctx.ttlHours}
+                        onChange={e => {
+                          e.stopPropagation();
+                          const val = parseInt(e.target.value);
+                          handleUpdateTtl(ctx.name, val === -1 ? 0 : val);
+                        }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <option value={-1}>Pin permanent</option>
+                        <option value={24}>1 day</option>
+                        <option value={168}>7 days</option>
+                        <option value={720}>30 days</option>
+                        <option value={2160}>90 days</option>
+                      </select>
+                    </>
+                  ) : (
+                    <span className={`expiry-${expiryInfo(ctx, now).urgency}`}>
+                      {expiryInfo(ctx, now).label}
+                    </span>
+                  )}
                 </td>
-                <td>{ctx.updatedAt ? new Date(ctx.updatedAt).toLocaleDateString() : '-'}</td>
+                <td>{formatDate(ctx.updatedAt)}</td>
                 <td>{ctx.content?.length ?? 0} chars</td>
                 <td onClick={e => e.stopPropagation()}>
                   {isOwner(ctx) && (
@@ -157,10 +196,12 @@ function SessionContexts() {
                 <span className={`badge ${selected.isShared ? 'badge-green' : 'badge-muted'}`}>
                   {selected.isShared ? 'Shared' : 'Private'}
                 </span>
-                <span>Updated {selected.updatedAt ? new Date(selected.updatedAt).toLocaleString() : '-'}</span>
+                <span>Updated {formatDateTime(selected.updatedAt)}</span>
                 <span>{selected.content?.length ?? 0} chars</span>
               </div>
-              <pre>{selected.content}</pre>
+              <div className="markdown-body">
+                <MarkdownRenderer content={selected.content} />
+              </div>
             </div>
             <div className="modal-footer">
               {isOwner(selected) && (

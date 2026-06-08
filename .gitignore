@@ -3,6 +3,7 @@ dist/
 build/
 *.log
 .env
+.env.*
 .DS_Store
 Thumbs.db
 *.swp
@@ -17,3 +18,11 @@ scripts/backups/
 *.sql
 *.sql.gz
 internal/
+*.tgz
+error.png
+opencode.json
+*.har
+mcp-connect-wrapper/config.json
+docker/demo-cleanup.sh
+Dockerfile.demo-cleanup
+docker-compose.demo.yml

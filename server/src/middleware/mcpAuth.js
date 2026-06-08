@@ -1,4 +1,9 @@
+const crypto = require('crypto');
 const SystemSetting = require('../models/SystemSetting');
+
+function hashApiKey(apiKey) {
+  return crypto.createHash('sha256').update(apiKey).digest('hex');
+}
 
 async function checkMcpAuth(req, res, next) {
   try {
@@ -58,7 +63,7 @@ async function checkMcpAuth(req, res, next) {
       
       if (!authenticated && apiKeyHeader) {
         const User = require('../models/User');
-        const user = await User.findOne({ where: { apiKey: apiKeyHeader } });
+        const user = await User.findOne({ where: { apiKey: hashApiKey(apiKeyHeader) } });
         if (user) {
           authenticated = true;
           req.user = user;

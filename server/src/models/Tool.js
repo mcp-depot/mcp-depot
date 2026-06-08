@@ -25,15 +25,15 @@ const Tool = sequelize.define('Tool', {
     type: DataTypes.TEXT
   },
   endpoint: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     allowNull: false
   },
   inputSchema: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {}
   },
   outputSchema: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {}
   },
   isActive: {
@@ -45,7 +45,7 @@ const Tool = sequelize.define('Tool', {
     defaultValue: false
   },
   mockResponse: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: null
   },
   usageCount: {
@@ -67,12 +67,12 @@ const Tool = sequelize.define('Tool', {
     comment: 'Cache TTL in seconds (0 = disabled)'
   },
   transformRequest: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {},
     comment: 'Request transformation rules'
   },
   transformResponse: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: {},
     comment: 'Response transformation rules'
   },
@@ -81,8 +81,25 @@ const Tool = sequelize.define('Tool', {
     defaultValue: 'simple',
     comment: "Tool type: 'simple' or 'composite'"
   },
+  responseFields: {
+    type: DataTypes.JSON,
+    defaultValue: null,
+    comment: 'Array of dot-notation paths to filter response fields (null = no filtering)'
+  },
+  responseLineFilter: {
+    type: DataTypes.STRING(500),
+    defaultValue: null,
+    allowNull: true,
+    comment: 'Regex pattern - only lines matching this pattern are returned from string responses'
+  },
+  responseTransformer: {
+    type: DataTypes.STRING(50),
+    defaultValue: null,
+    allowNull: true,
+    comment: 'Name of post-processing transformer to apply (e.g. stripNulls, flattenSingle)'
+  },
   steps: {
-    type: DataTypes.JSONB,
+    type: DataTypes.JSON,
     defaultValue: null,
     comment: 'Composite tool steps array'
   }

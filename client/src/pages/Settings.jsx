@@ -4,6 +4,9 @@ import { useTheme } from '../context/ThemeContext';
 import themes from '../config/themes';
 import api from '../services/api';
 import { StyledSelect } from '../components/StyledSelect';
+import { DropdownMenu, DropdownItem, DropdownSeparator } from '../components/Dropdown';
+import { showSuccess, showError } from '../utils/toast';
+import { Copy, Trash2, Edit2, Wrench, Package, Link2, Compass } from 'lucide-react';
 
 function LoadingDots({ text = 'Loading' }) {
   const [dots, setDots] = useState('');
@@ -23,13 +26,9 @@ function MCPServerSettings() {
   const [saving, setSaving] = useState(false);
   const [mcpSettings, setMcpSettings] = useState({ authMode: 'optional', apiKey: '' });
   const [message, setMessage] = useState({ type: '', text: '' });
-  const abortControllers = {};
 
   useEffect(() => {
     fetchSettings();
-    return () => {
-      Object.values(abortControllers).forEach(controller => controller?.abort());
-    };
   }, []);
 
   async function fetchSettings() {
@@ -146,7 +145,7 @@ mcp-depot
 }
 
 function Settings() {
-  const { user, logout } = useAuth();
+  const { user, logout, appConfig, setAppConfig } = useAuth();
   const { themeName, setThemeName, themes: availableThemes, customColors, previewColors, setPreviewColors, confirmColors, resetPreview, setCustomColors } = useTheme();
   const [activeTab, setActiveTab] = useState('profile');
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
@@ -154,6 +153,7 @@ function Settings() {
   const [generatedApiKey, setGeneratedApiKey] = useState(null);
   const [externalServers, setExternalServers] = useState([]);
   const [externalLoading, setExternalLoading] = useState(true);
+  const [poolStatus, setPoolStatus] = useState([]);
   const [showServerModal, setShowServerModal] = useState(false);
   const [showTestToolModal, setShowTestToolModal] = useState(false);
   const [testingTool, setTestingTool] = useState(null);
@@ -161,6 +161,14 @@ function Settings() {
   const [testResult, setTestResult] = useState(null);
   const [editingServer, setEditingServer] = useState(null);
   const [externalTab, setExternalTab] = useState('servers');
+  const [registryQuery, setRegistryQuery] = useState('');
+  const [registryResults, setRegistryResults] = useState([]);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState('');
+  const [registrySort, setRegistrySort] = useState('published');
+  const [registryTypeFilter, setRegistryTypeFilter] = useState('all');
+  const [registryNextCursor, setRegistryNextCursor] = useState(null);
+  const [registryLoadingMore, setRegistryLoadingMore] = useState(false);
   const [installingPackage, setInstallingPackage] = useState(false);
   const [installMessage, setInstallMessage] = useState('');
   const [loadingServerTools, setLoadingServerTools] = useState(null);
@@ -185,6 +193,45 @@ function Settings() {
     tools: [],
     workflows: []
   });
+  const [features, setFeatures] = useState(null);
+  const [featuresLoading, setFeaturesLoading] = useState(false);
+  const [featuresSaving, setFeaturesSaving] = useState(false);
+
+  const abortControllers = {};
+
+  async function fetchFeatures() {
+    setFeaturesLoading(true);
+    try {
+      const res = await api.get('/system/features');
+      setFeatures(res.data.enabledFeatures);
+    } catch (err) {
+      console.error('Failed to fetch features:', err);
+    } finally {
+      setFeaturesLoading(false);
+    }
+  }
+
+  async function saveFeatures(enabledFeatures) {
+    setFeaturesSaving(true);
+    const previousAppConfig = appConfig;
+    setAppConfig({ ...appConfig, enabledFeatures });
+    try {
+      await api.put('/system/features', { features: enabledFeatures });
+      setFeatures(enabledFeatures);
+      showSuccess('Features updated successfully');
+    } catch (err) {
+      setAppConfig(previousAppConfig);
+      showError(err.response?.data?.error || 'Failed to update features');
+    } finally {
+      setFeaturesSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === 'features') {
+      fetchFeatures();
+    }
+  }, [activeTab]);
 
   async function fetchExternalServers() {
     setExternalLoading(true);
@@ -197,6 +244,132 @@ function Settings() {
       setExternalLoading(false);
     }
   }
+
+  async function fetchPoolStatus() {
+    try {
+      const res = await api.get('/external-mcp/pool-status');
+      setPoolStatus(res.data);
+    } catch (err) {
+      console.error('Failed to fetch pool status:', err);
+    }
+  }
+
+  async function loadRegistry(query = '', cursor = null) {
+    if (cursor) {
+      setRegistryLoadingMore(true);
+    } else {
+      setRegistryLoading(true);
+      setRegistryError('');
+    }
+    try {
+      const params = new URLSearchParams();
+      if (query) params.set('q', query);
+      if (cursor) params.set('cursor', cursor);
+      const res = await api.get(`/external-mcp/registry/search?${params.toString()}`);
+      const incoming = res.data.servers || [];
+      if (cursor) {
+        setRegistryResults(prev => [...prev, ...incoming]);
+      } else {
+        setRegistryResults(incoming);
+      }
+      setRegistryNextCursor(res.data.nextCursor || null);
+    } catch (err) {
+      setRegistryError('Failed to reach MCP registry. Check your connection.');
+    } finally {
+      setRegistryLoading(false);
+      setRegistryLoadingMore(false);
+    }
+  }
+
+  const loadDefaultRegistry = () => {
+    if (registryResults.length > 0) return;
+    loadRegistry('');
+  };
+
+  const searchRegistry = () => {
+    setRegistryTypeFilter('all');
+    setRegistryResults([]);
+    setRegistryNextCursor(null);
+    loadRegistry(registryQuery.trim());
+  };
+
+  const filteredResults = registryTypeFilter === 'all'
+    ? registryResults
+    : registryResults.filter(item => item?.server?.packages?.[0]?.registryType === registryTypeFilter);
+  const filteredCount = filteredResults.length;
+
+  function registryEntryToServerForm(item) {
+    const entry = item?.server;
+    if (!entry) return null;
+
+    const pkg = entry.packages?.[0];
+    if (!pkg) return null;
+
+    const registryType = pkg.registryType;
+    const identifier = pkg.identifier || '';
+    const transport = pkg.transport?.type || 'stdio';
+
+    let command = '';
+    let args = [];
+    let runtime = 'node';
+
+    if (registryType === 'npm') {
+      command = 'npx';
+      args = ['-y', identifier];
+      runtime = 'node';
+    } else if (registryType === 'pypi') {
+      command = 'uvx';
+      args = [identifier];
+      runtime = 'python';
+    } else if (registryType === 'oci') {
+      command = 'docker';
+      args = ['run', '-i', '--rm', identifier];
+      runtime = 'node';
+    } else {
+      return null;
+    }
+
+    const displayName = entry.title || entry.name?.split('/').pop() || 'unnamed';
+
+    const envVars = pkg.environmentVariables || [];
+    const envPairs = envVars.length > 0
+      ? envVars.map(v => ({
+          key: v.name,
+          value: '',
+          description: v.description || '',
+          isRequired: !!v.isRequired,
+          isSecret: !!v.isSecret,
+          fromRegistry: true,
+        }))
+      : [{ key: '', value: '' }];
+
+    return {
+      name: displayName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase(),
+      description: entry.description || '',
+      command,
+      args: JSON.stringify(args),
+      env: '{}',
+      envPairs,
+      runtime,
+      transportType: transport === 'stdio' ? 'stdio' : 'http',
+      authType: 'none',
+      sessionMode: 'stateful',
+    };
+  }
+
+  useEffect(() => {
+    if (activeTab === 'external-mcp' && externalTab === 'servers') {
+      fetchPoolStatus();
+      const interval = setInterval(fetchPoolStatus, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, externalTab]);
+
+  useEffect(() => {
+    if (activeTab === 'external-mcp' && externalTab === 'discover') {
+      loadDefaultRegistry();
+    }
+  }, [activeTab, externalTab]);
 
   async function saveExternalServer() {
     try {
@@ -234,18 +407,20 @@ function Settings() {
     if (!confirm('Are you sure you want to delete this external MCP server?')) return;
     try {
       await api.delete(`/external-mcp/${id}`);
+      showSuccess('External MCP server deleted');
       fetchExternalServers();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete');
+      showError(err.response?.data?.error || 'Failed to delete');
     }
   }
 
   async function toggleExternalServer(id, isActive) {
     try {
       await api.put(`/external-mcp/${id}`, { isActive });
+      showSuccess(`External MCP server ${isActive ? 'enabled' : 'disabled'}`);
       fetchExternalServers();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to update');
+      showError(err.response?.data?.error || 'Failed to update');
     }
   }
 
@@ -357,6 +532,7 @@ function Settings() {
               <div className={`tab ${activeTab === 'preferences' ? 'active' : ''}`} onClick={() => setActiveTab('preferences')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>Preferences</div>
               <div className={`tab ${activeTab === 'external-mcp' ? 'active' : ''}`} onClick={() => { setActiveTab('external-mcp'); fetchExternalServers(); }} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>External MCP</div>
               <div className={`tab ${activeTab === 'oauth' ? 'active' : ''}`} onClick={() => setActiveTab('oauth')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>OAuth Providers</div>
+              <div className={`tab ${activeTab === 'features' ? 'active' : ''}`} onClick={() => setActiveTab('features')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>Features</div>
               <div className={`tab ${activeTab === 'import-export' ? 'active' : ''}`} onClick={() => setActiveTab('import-export')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>Import / Export</div>
               <div className={`tab ${activeTab === 'mcp-server' ? 'active' : ''}`} onClick={() => setActiveTab('mcp-server')} style={{ borderRadius: 'var(--radius)', textAlign: 'left' }}>MCP Server (For AI Assistants)</div>
             </div>
@@ -551,16 +727,23 @@ function Settings() {
                   <div 
                     className={`tab ${externalTab === 'install' ? 'active' : ''}`}
                     onClick={() => setExternalTab('install')}
-                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem' }}
+                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                   >
-                    📦 Install Packages
+                    <Package size={15} /> Install Packages
                   </div>
                   <div 
                     className={`tab ${externalTab === 'servers' ? 'active' : ''}`}
                     onClick={() => setExternalTab('servers')}
-                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem' }}
+                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
                   >
-                    🔗 External Servers
+                    <Link2 size={15} /> External Servers
+                  </div>
+                  <div 
+                    className={`tab ${externalTab === 'discover' ? 'active' : ''}`}
+                    onClick={() => setExternalTab('discover')}
+                    style={{ flex: 1, textAlign: 'center', padding: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                  >
+                    <Compass size={15} /> Discover
                   </div>
                 </div>
 
@@ -671,11 +854,23 @@ function Settings() {
                     <div style={{ marginBottom: '1rem' }}><button className="btn btn-primary" onClick={() => { setEditingServer(null); setServerForm({ name: '', transportType: 'http', runtime: 'node', url: '', command: 'npx', args: '', env: '', envPairs: [{ key: '', value: '' }], authType: 'none', authToken: '', authHeader: '' }); setShowServerModal(true); }}>+ Add External MCP Server</button></div>
                       {externalLoading ? <p><LoadingDots text="External servers" /></p> : externalServers.length === 0 ? <div className="empty-state"><p>No external MCP servers configured</p></div> : (
                       <div>
-                        {externalServers.map(server => (
+                        {externalServers.map(server => {
+                          const entry = poolStatus.find(e => e.serverId === server._id);
+                          return (
                           <div key={server._id} className="card" style={{ marginBottom: '0.5rem', padding: '1rem', borderLeft: server.lastFetchError ? '3px solid var(--danger)' : !server.isActive ? '3px solid var(--warning)' : server.lastFetchedAt ? '3px solid var(--success)' : '3px solid var(--border)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div>
-                                <strong>{server.name}</strong>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{
+                                    width: '8px',
+                                    height: '8px',
+                                    borderRadius: '50%',
+                                    display: 'inline-block',
+                                    background: entry?.state === 'connected' ? '#10b981' : entry?.state === 'connecting' ? '#f59e0b' : server.lastFetchError ? '#ef4444' : '#6b7280',
+                                    animation: entry?.state === 'connected' ? 'pulse 2s infinite' : entry?.state === 'connecting' ? 'spin 1s linear infinite' : 'none'
+                                  }} title={entry?.state === 'connected' ? `Connected · idle ${entry.idleSecs}s` : entry?.state === 'connecting' ? 'Connecting...' : server.lastFetchError ? 'Error' : 'Not connected'} />
+                                  <strong>{server.name}</strong>
+                                </div>
                                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0.25rem 0' }}>{server.transportType === 'stdio' ? `${server.command} ${server.args}` : server.url}</p>
                                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                                   <span className={`badge ${server.isActive ? 'badge-success' : 'badge-warning'}`}>{server.isActive ? 'Active' : 'Disabled'}</span>
@@ -692,17 +887,252 @@ function Settings() {
                                   )}
                                 </div>
                               </div>
-                              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <button className="btn btn-small" onClick={() => fetchServerTools(server._id)} disabled={loadingServerTools === server._id}>
-                                  {loadingServerTools === server._id ? <LoadingDots text="Tools" /> : 'Tools'}
+                              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                                <button className="btn btn-primary btn-small" onClick={() => fetchServerTools(server._id)} disabled={loadingServerTools === server._id}>
+                                  {loadingServerTools === server._id ? <LoadingDots text="Tools" /> : <><Wrench size={14} /> Tools</>}
                                 </button>
-                                <button className={`btn btn-small ${server.isActive ? 'btn-warning' : 'btn-success'}`} onClick={() => toggleExternalServer(server._id, !server.isActive)}>{server.isActive ? 'Disable' : 'Enable'}</button>
-                                <button className="btn btn-small" onClick={() => { setEditingServer(server); const envPairs = server.env ? Object.entries(JSON.parse(server.env)).map(([key, value]) => ({ key, value: String(value) })) : [{ key: '', value: '' }]; setServerForm({ name: server.name, transportType: server.transportType || 'http', runtime: server.runtime || 'node', url: server.url || '', command: server.command || 'npx', args: server.args || '', env: server.env || '', envPairs, authType: server.authType || 'none', authToken: '', authHeader: server.authHeader || '' }); setShowServerModal(true); }}>Edit</button>
-                                <button className="btn btn-small btn-danger" onClick={() => deleteExternalServer(server._id)}>Delete</button>
+                                <DropdownMenu>
+                                  <DropdownItem onClick={() => toggleExternalServer(server._id, !server.isActive)}>
+                                    {server.isActive ? 'Disable' : 'Enable'}
+                                  </DropdownItem>
+                                  <DropdownItem onClick={() => {
+                                    const config = {
+                                      name: server.name,
+                                      transportType: server.transportType,
+                                      command: server.command,
+                                      args: server.args ? JSON.parse(server.args) : [],
+                                      env: server.env ? JSON.parse(server.env) : {}
+                                    };
+                                    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+                                    showSuccess('Config copied to clipboard');
+                                  }}>
+                                    <Copy size={14} /> Copy Config
+                                  </DropdownItem>
+                                  <DropdownSeparator />
+                                  <DropdownItem onClick={() => { setEditingServer(server); const envPairs = server.env ? Object.entries(JSON.parse(server.env)).map(([key, value]) => ({ key, value: String(value) })) : [{ key: '', value: '' }]; setServerForm({ name: server.name, transportType: server.transportType || 'http', runtime: server.runtime || 'node', url: server.url || '', command: server.command || 'npx', args: server.args || '', env: server.env || '', envPairs, authType: server.authType || 'none', authToken: '', authHeader: server.authHeader || '' }); setShowServerModal(true); }}>
+                                    <Edit2 size={14} /> Edit
+                                  </DropdownItem>
+                                  <DropdownItem onClick={() => deleteExternalServer(server._id)} danger>
+                                    <Trash2 size={14} /> Delete
+                                  </DropdownItem>
+                                </DropdownMenu>
                               </div>
                             </div>
                           </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {externalTab === 'discover' && (
+                  <div className="discover-tab" style={{ padding: '1rem', display: 'flex', flexDirection: 'column', minHeight: '300px', height: 'calc(100vh - 280px)' }}>
+                    <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                      Search the official MCP registry and add servers with one click.
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                      <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+                        <input
+                          type="text"
+                          placeholder="Search MCP servers... (e.g. github, filesystem, postgres)"
+                          value={registryQuery}
+                          onChange={e => setRegistryQuery(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && searchRegistry()}
+                        />
+                      </div>
+                      <button
+                        className="btn btn-primary"
+                        onClick={searchRegistry}
+                        disabled={registryLoading}
+                      >
+                        {registryLoading ? 'Searching...' : 'Search'}
+                      </button>
+                    </div>
+
+                    {registryError && <div className="error-message" style={{ marginBottom: '1rem' }}>{registryError}</div>}
+
+                    {registryResults.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                        {[
+                          { value: 'all', label: 'All' },
+                          { value: 'npm', label: 'npm' },
+                          { value: 'pypi', label: 'Python' },
+                        ].map(f => (
+                          <button
+                            key={f.value}
+                            onClick={() => setRegistryTypeFilter(f.value)}
+                            style={{
+                              fontSize: '0.8rem',
+                              padding: '3px 12px',
+                              borderRadius: '12px',
+                              border: '1px solid var(--border-light)',
+                              background: registryTypeFilter === f.value ? 'var(--primary)' : 'transparent',
+                              color: registryTypeFilter === f.value ? '#fff' : 'var(--text-muted)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {f.label}
+                          </button>
                         ))}
+                        {registryTypeFilter !== 'all' && (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.25rem' }}>
+                            ({filteredCount} of {registryResults.length})
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {registryResults.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Sort by:</span>
+                        {[
+                          { value: 'published', label: 'Recently Added' },
+                          { value: 'updated', label: 'Recently Updated' },
+                          { value: 'name', label: 'Name' },
+                        ].map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setRegistrySort(opt.value)}
+                            style={{
+                              fontSize: '0.8rem',
+                              padding: '3px 10px',
+                              borderRadius: '12px',
+                              border: '1px solid var(--border-light)',
+                              background: registrySort === opt.value ? 'var(--primary)' : 'transparent',
+                              color: registrySort === opt.value ? '#fff' : 'var(--text-muted)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                        <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          {registryResults.length} servers
+                        </span>
+                      </div>
+                    )}
+
+                    {registryLoading ? (
+                      <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
+                        {Array.from({ length: 8 }).map((_, i) => (
+                          <div
+                            key={i}
+                            className="registry-result-card registry-skeleton-card"
+                            style={{ animationDelay: `${i * 0.07}s` }}
+                          >
+                            <span className="sk-line sk-title" />
+                            <span className="sk-line sk-badges" />
+                            <span className="sk-line sk-desc-1" />
+                            <span className="sk-line sk-desc-2" />
+                            <span className="sk-line sk-spacer" />
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <span className="sk-line sk-footer" />
+                              <span className="sk-line sk-btn" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="registry-results" style={{ flex: 1, minHeight: 0 }}>
+                        {[...filteredResults].sort((a, b) => {
+                          if (registrySort === 'name') {
+                            const aName = a.server?.title || a.server?.name || '';
+                            const bName = b.server?.title || b.server?.name || '';
+                            return aName.localeCompare(bName);
+                          }
+                          const metaKey = 'io.modelcontextprotocol.registry/official';
+                          if (registrySort === 'updated') {
+                            const aDate = a._meta?.[metaKey]?.updatedAt || '';
+                            const bDate = b._meta?.[metaKey]?.updatedAt || '';
+                            return bDate.localeCompare(aDate);
+                          }
+                          const aDate = a._meta?.[metaKey]?.publishedAt || '';
+                          const bDate = b._meta?.[metaKey]?.publishedAt || '';
+                          return bDate.localeCompare(aDate);
+                        }).map((item, idx) => {
+                          const entry = item?.server;
+                          if (!entry) return null;
+                          const pkg = entry.packages?.[0];
+                          const mapped = registryEntryToServerForm(item);
+                          const meta = item._meta?.['io.modelcontextprotocol.registry/official'];
+                          const publishedAt = meta?.publishedAt ? new Date(meta.publishedAt).toLocaleDateString() : null;
+                          return (
+                            <div key={entry.name} className="registry-result-card" style={{ animationDelay: `${Math.min(idx, 12) * 0.04}s` }}>
+                              <div className="registry-result-header">
+                                <span className="registry-result-name">
+                                  {entry.title || entry.name?.split('/').pop() || 'Unknown'}
+                                </span>
+                                {pkg?.registryType && (
+                                  <span className={`runtime-badge runtime-${pkg.registryType}`}>
+                                    {pkg.registryType}
+                                  </span>
+                                )}
+                                {pkg?.transport?.type && pkg.transport.type !== 'stdio' && (
+                                  <span className="transport-badge">{pkg.transport.type}</span>
+                                )}
+                              </div>
+
+                              <p className="registry-result-description">
+                                {entry.description || 'No description available.'}
+                              </p>
+
+                              <div className="registry-result-footer">
+                                {entry.repository?.url && (
+                                  <a href={entry.repository.url} target="_blank" rel="noopener noreferrer" className="registry-result-link">
+                                    GitHub ↗
+                                  </a>
+                                )}
+                                {publishedAt && (
+                                  <span className="registry-result-date">Added {publishedAt}</span>
+                                )}
+                                <div style={{ marginLeft: 'auto' }}>
+                                  {mapped ? (
+                                    <button
+                                      className="btn btn-sm btn-primary"
+                                      onClick={() => {
+                                        setServerForm({
+                                          ...mapped,
+                                          envPairs: mapped.envPairs || [{ key: '', value: '' }],
+                                          authToken: '',
+                                          authHeader: ''
+                                        });
+                                        setShowServerModal(true);
+                                      }}
+                                    >
+                                      + Add
+                                    </button>
+                                  ) : (
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }} title="Package type not supported for auto-add">Manual setup</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {registryResults.length === 0 && !registryQuery && (
+                          <p style={{ color: 'var(--text-muted)' }}>Browse or search the MCP registry above.</p>
+                        )}
+                        {registryResults.length === 0 && registryQuery && (
+                          <p style={{ color: 'var(--text-muted)' }}>No results found. Try a different search term.</p>
+                        )}
+                        {registryResults.length > 0 && (
+                          <p style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.75rem 0' }}>
+                            {registryResults.length} servers loaded
+                          </p>
+                        )}
+                        {registryNextCursor && !registryLoading && (
+                          <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center', padding: '0.75rem 0' }}>
+                            <button
+                              className="btn btn-secondary"
+                              onClick={() => loadRegistry(registryQuery.trim(), registryNextCursor)}
+                              disabled={registryLoadingMore}
+                            >
+                              {registryLoadingMore ? 'Loading...' : 'Load More'}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -738,13 +1168,18 @@ function Settings() {
                         <input type="checkbox" id="exportWorkflows" />
                         Workflows
                       </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" id="exportSkills" defaultChecked />
+                        Skills
+                      </label>
                     </div>
                     <button className="btn btn-primary" onClick={async () => {
                       const data = {
                         externalMcp: document.getElementById('exportExternalMcp').checked,
                         integrations: document.getElementById('exportIntegrations').checked,
                         tools: document.getElementById('exportTools').checked,
-                        workflows: document.getElementById('exportWorkflows').checked
+                        workflows: document.getElementById('exportWorkflows').checked,
+                        skills: document.getElementById('exportSkills').checked
                       };
                       try {
                         const res = await api.post('/system/export', data, { responseType: 'blob' });
@@ -784,7 +1219,8 @@ function Settings() {
                                 externalMcpServers: (res.data.externalMcpServers || []).map((_, i) => i),
                                 integrations: (res.data.integrations || []).map((_, i) => i),
                                 tools: (res.data.tools || []).map((_, i) => i),
-                                workflows: (res.data.workflows || []).map((_, i) => i)
+                                workflows: (res.data.workflows || []).map((_, i) => i),
+                                skills: (res.data.skills || []).map((_, i) => i)
                               });
                             } catch (err) {
                               alert('Invalid JSON file: ' + (err.message || 'Failed to parse'));
@@ -858,8 +1294,22 @@ function Settings() {
                           )}
                         </div>
                         
+                        <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)' }}>
+                          <strong>Skills ({importPreview.skills?.length || 0})</strong>
+                          {importPreview.skills?.length > 0 && (
+                            <div style={{ marginTop: '0.5rem', marginLeft: '0.5rem' }}>
+                              {importPreview.skills.map((s, idx) => (
+                                <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                                  <input type="checkbox" checked={selectedForImport.skills.includes(idx)} onChange={(e) => setSelectedForImport({ ...selectedForImport, skills: e.target.checked ? [...selectedForImport.skills, idx] : selectedForImport.skills.filter(x => x !== idx) })} />
+                                  {s.name} <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>({s.description})</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        
                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-                          <button className="btn btn-secondary" onClick={() => { setImportPreview(null); setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [] }); document.getElementById('importFile').value = ''; }}>
+                          <button className="btn btn-secondary" onClick={() => { setImportPreview(null); setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [], skills: [] }); }}>
                             Cancel
                           </button>
                           <button className="btn btn-primary" onClick={async () => {
@@ -868,13 +1318,13 @@ function Settings() {
                                 externalMcpServers: selectedForImport.externalMcpServers.map(i => importPreview.externalMcpServers[i]),
                                 integrations: selectedForImport.integrations.map(i => importPreview.integrations[i]),
                                 tools: selectedForImport.tools.map(i => importPreview.tools[i]),
-                                workflows: selectedForImport.workflows.map(i => importPreview.workflows[i])
+                                workflows: selectedForImport.workflows.map(i => importPreview.workflows[i]),
+                                skills: selectedForImport.skills.map(i => importPreview.skills[i])
                               };
                               const res = await api.post('/system/import', payload);
-                              alert(`Import complete!\n\nImported:\n- External MCP: ${res.data.externalMcp || 0}\n- Integrations: ${res.data.integrations || 0}\n- Tools: ${res.data.tools || 0}\n- Workflows: ${res.data.workflows || 0}`);
+                              alert(`Import complete!\n\nImported:\n- External MCP: ${res.data.externalMcp || 0}\n- Integrations: ${res.data.integrations || 0}\n- Tools: ${res.data.tools || 0}\n- Workflows: ${res.data.workflows || 0}\n- Skills: ${res.data.skills || 0}`);
                               setImportPreview(null);
-                              setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [] });
-                              document.getElementById('importFile').value = '';
+                              setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [], skills: [] });
                             } catch (err) {
                               alert('Import failed: ' + (err.response?.data?.error || err.message));
                             }
@@ -917,6 +1367,68 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                     Configure these in your environment and restart the server to enable OAuth providers.
                   </p>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'features' && (
+              <div>
+                <h2 className="card-title" style={{ marginBottom: '1rem' }}>Feature Flags</h2>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                  Enable or disable features in the application. Changes take effect immediately.
+                </p>
+                {user?.role !== 'admin' ? (
+                  <div className="card" style={{ padding: '1rem', background: 'var(--surface-hover)' }}>
+                    <p style={{ color: 'var(--text-secondary)' }}>You need admin privileges to modify features.</p>
+                  </div>
+                ) : featuresLoading ? (
+                  <div className="card" style={{ padding: '1rem' }}><LoadingDots text="Loading features" /></div>
+                ) : (
+                  <div className="card" style={{ padding: '1rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+                      {['integrations', 'tools', 'skills', 'sessions', 'channels', 'agents', 'users', 'monitoring', 'health'].map(feature => {
+                        const locked = ['integrations', 'tools'].includes(feature);
+                        return (
+                          <label key={feature} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.7 : 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={locked || (features?.includes(feature) ?? false)}
+                              disabled={locked || featuresSaving}
+                              onChange={(e) => {
+                                if (locked) return;
+                                const newFeatures = e.target.checked
+                                  ? [...(features || []), feature]
+                                  : (features || []).filter(f => f !== feature);
+                                saveFeatures(newFeatures);
+                              }}
+                              style={{ width: 'auto' }}
+                            />
+                            <span style={{ textTransform: 'capitalize' }}>{feature}</span>
+                            {locked && <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>required</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {featuresSaving && <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>Saving...</p>}
+                  </div>
+                )}
+                {user?.role === 'admin' && (
+                  <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+                    <h3 style={{ marginBottom: '0.5rem' }}>Setup Wizard</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                      Re-run the initial setup wizard to reconfigure features and deployment mode.
+                    </p>
+                    <button className="btn btn-secondary" onClick={async () => {
+                      try {
+                        await api.delete('/system/setup-complete');
+                      } catch (e) {
+                        await api.post('/system/setup-complete-reset').catch(() => {});
+                      }
+                      window.location.href = '/setup';
+                    }}>
+                      Re-run Setup Wizard
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -975,39 +1487,56 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                   <div className="form-group"><label>Command</label><input type="text" value={serverForm.command} onChange={e => setServerForm({ ...serverForm, command: e.target.value })} placeholder={serverForm.runtime === 'python' ? 'uvx' : 'npx'} /></div>
                   <div className="form-group"><label>Args (JSON array)</label><input type="text" value={serverForm.args} onChange={e => setServerForm({ ...serverForm, args: e.target.value })} placeholder={serverForm.runtime === 'python' ? '["mcp-server-myPackage"]' : '["bitbucket-mcp"]'} /></div>
                   <div className="form-group">
-                    <label>Environment Variables (optional)</label>
+                    <label>
+                      Environment Variables
+                      {serverForm.envPairs.some(p => p.fromRegistry) && (
+                        <span style={{ fontWeight: 400, fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '0.4rem' }}>
+                          (pre-filled from registry)
+                        </span>
+                      )}
+                    </label>
                     {serverForm.envPairs.map((pair, idx) => (
-                      <div key={idx} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        <input
-                          type="text"
-                          value={pair.key}
-                          onChange={e => {
-                            const newPairs = [...serverForm.envPairs];
-                            newPairs[idx].key = e.target.value;
-                            setServerForm({ ...serverForm, envPairs: newPairs });
-                          }}
-                          placeholder="KEY"
-                          style={{ flex: 1 }}
-                        />
-                        <input
-                          type="text"
-                          value={pair.value}
-                          onChange={e => {
-                            const newPairs = [...serverForm.envPairs];
-                            newPairs[idx].value = e.target.value;
-                            setServerForm({ ...serverForm, envPairs: newPairs });
-                          }}
-                          placeholder="value"
-                          style={{ flex: 1 }}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-small btn-danger"
-                          onClick={() => {
-                            const newPairs = serverForm.envPairs.filter((_, i) => i !== idx);
-                            setServerForm({ ...serverForm, envPairs: newPairs.length ? newPairs : [{ key: '', value: '' }] });
-                          }}
-                        >×</button>
+                      <div key={idx} style={{ marginBottom: '0.6rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <input
+                            type="text"
+                            value={pair.key}
+                            readOnly={!!pair.fromRegistry}
+                            onChange={e => {
+                              if (pair.fromRegistry) return;
+                              const newPairs = [...serverForm.envPairs];
+                              newPairs[idx] = { ...newPairs[idx], key: e.target.value };
+                              setServerForm({ ...serverForm, envPairs: newPairs });
+                            }}
+                            placeholder="KEY"
+                            style={{ flex: 1, ...(pair.fromRegistry ? { opacity: 0.75 } : {}) }}
+                          />
+                          <input
+                            type={pair.isSecret ? 'password' : 'text'}
+                            value={pair.value}
+                            onChange={e => {
+                              const newPairs = [...serverForm.envPairs];
+                              newPairs[idx] = { ...newPairs[idx], value: e.target.value };
+                              setServerForm({ ...serverForm, envPairs: newPairs });
+                            }}
+                            placeholder={pair.description || 'value'}
+                            style={{ flex: 2 }}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-small btn-danger"
+                            onClick={() => {
+                              const newPairs = serverForm.envPairs.filter((_, i) => i !== idx);
+                              setServerForm({ ...serverForm, envPairs: newPairs.length ? newPairs : [{ key: '', value: '' }] });
+                            }}
+                          >×</button>
+                        </div>
+                        {pair.description && (
+                          <p style={{ margin: '3px 0 0 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {pair.isRequired && <span style={{ color: 'var(--primary)', marginRight: '4px' }}>Required.</span>}
+                            {pair.description}
+                          </p>
+                        )}
                       </div>
                     ))}
                     <button

@@ -1,22 +1,24 @@
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:17
     container_name: mcp-depot-postgres
     restart: unless-stopped
     ports:
       - "5433:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123} # CHANGE IN PRODUCTION
       POSTGRES_DB: ${POSTGRES_DB:-mcp-depot}
       PGTZ: UTC
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d mcp-depot"]
       interval: 10s
@@ -30,11 +32,14 @@ services:
     expose:
       - "6379"
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
     profiles:
       - secret-store
 
   server:
+    image: ghcr.io/mcp-depot/mcp-depot-server:${TAG:-latest}
     build:
       context: ./server
       dockerfile: Dockerfile
@@ -44,18 +49,18 @@ services:
       - "3000:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-      - "mcp-depot.local:host-gateway"
+      - "mcpdepot.local:host-gateway"
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=postgres://admin:admin123@postgres:5432/mcp-depot
+      - DATABASE_URL=postgres://admin:${POSTGRES_PASSWORD:-admin123}@postgres:5432/${POSTGRES_DB:-mcp-depot}
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-key}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       - JWT_EXPIRE=15m
       - JWT_REFRESH_EXPIRE=7d
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       - ALLOW_SELF_SIGNED_CERTS=${ALLOW_SELF_SIGNED_CERTS:-true}
-      - TOOLS_CACHE_ENABLED=${TOOLS_CACHE_ENABLED:-false}
+      - TOOLS_CACHE_ENABLED=${TOOLS_CACHE_ENABLED:-true}
       - TOOLS_CACHE_TTL=${TOOLS_CACHE_TTL:-300000}
       - MCP_ENABLED=${MCP_ENABLED:-true}
       - SECRET_STORE_ENABLED=${SECRET_STORE_ENABLED:-false}
@@ -66,13 +71,33 @@ services:
       - SECRET_STORE_ENVIRONMENT=${SECRET_STORE_ENVIRONMENT:-dev}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@mcp-depot.io}
       - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-false}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-http://keycloak:8080/realms/mcp-depot}
+      - OIDC_ISSUER_PUBLIC_URL=${OIDC_ISSUER_PUBLIC_URL:-http://localhost:8180/realms/mcp-depot}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-mcp-depot}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
+      - OIDC_DISPLAY_NAME=${OIDC_DISPLAY_NAME:-Login with SSO}
+      - API_BASE_URL=${API_BASE_URL:-http://localhost:3000}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
+      - ALLOWED_FRAME_ORIGINS=${ALLOWED_FRAME_ORIGINS:-}
+      - HEALTH_CORS_ORIGINS=${HEALTH_CORS_ORIGINS:-*}
+      - MCP_PACKAGES_PATH=/opt/mcp-packages
+    volumes:
+      - mcp_packages:/opt/mcp-packages
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
 
   client:
+    image: ghcr.io/mcp-depot/mcp-depot-client:${TAG:-latest}
     build:
       context: ./client
       dockerfile: Dockerfile
@@ -82,23 +107,13 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://server:3000
+      - ALLOWED_FRAME_ORIGINS=${ALLOWED_FRAME_ORIGINS:-}
     depends_on:
       - server
     networks:
-      - mcp-depot-network
-
-  demo-mcp:
-    image: node:20-alpine
-    container_name: mcp-depot-demo-mcp
-    restart: unless-stopped
-    working_dir: /app
-    command: ["node", "demo-mcp-server.js"]
-    ports:
-      - "3001:3001"
-    volumes:
-      - ./demo-mcp:/app
-    networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
 
   infisical:
     image: infisical/infisical:latest-postgres
@@ -109,7 +124,7 @@ services:
     environment:
       - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
       - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
-      - DB_CONNECTION_URI=postgres://admin:admin123@postgres:5432/infisical
+      - DB_CONNECTION_URI=postgres://admin:${POSTGRES_PASSWORD:-admin123}@postgres:5432/infisical
       - REDIS_URL=redis://valkey:6379
       - SITE_URL=http://localhost:8181
     depends_on:
@@ -118,13 +133,17 @@ services:
       valkey:
         condition: service_started
     networks:
-      - mcp-depot-network
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
     profiles:
       - secret-store
 
 volumes:
   postgres_data:
     name: mcp-depot_postgres_data
+  mcp_packages:
+    name: mcp-depot_mcp-packages
 
 networks:
   mcp-depot-network:

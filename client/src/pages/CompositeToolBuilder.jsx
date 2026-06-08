@@ -330,7 +330,7 @@ function CompositeToolBuilder() {
       const toolId = stepTool.id || stepTool._id;
       const res = await fetch(`/api/consume/tools/${toolId}/execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Caller': 'ui' },
         body: JSON.stringify({ params })
       });
       const data = await res.json();

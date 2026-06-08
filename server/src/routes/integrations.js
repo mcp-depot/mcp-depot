@@ -4,7 +4,7 @@ const { Op } = require('sequelize');
 const { sequelize, loadModels } = require('../config/database');
 const Integration = require('../models/Integration');
 const Tool = require('../models/Tool');
-const { auth } = require('../middleware/auth');
+const { authWithApiKey } = require('../middleware/auth');
 const AdapterFactory = require('../adapters');
 const audit = require('../services/audit');
 const OpenAPIParser = require('../services/openapi-parser');
@@ -13,6 +13,8 @@ const encryption = require('../services/encryption');
 const secretStore = require('../services/secret-store');
 const logger = require('../services/logger');
 const { executeComposite, executeCompositeTool } = require('../services/compositeExecutor');
+const { refreshMcpTools } = require('../utils/mcpHelpers');
+const { ownerWhereId } = require('../utils/queryHelpers');
 
 const router = express.Router();
 
@@ -20,16 +22,18 @@ const integrationSchema = Joi.object({
   type: Joi.string().required(),
   name: Joi.string().required(),
   description: Joi.string().allow('').optional(),
-  config: Joi.object({
-    baseUrl: Joi.string().uri().required(),
-    auth: Joi.object({
-      type: Joi.string().valid('none', 'basic', 'bearer', 'token', 'custom', 'apiKey', 'oauth2').default('none'),
-      credentials: Joi.object()
-    }).default({ type: 'none' }),
-    headers: Joi.object().default({}),
-    timeout: Joi.number().default(30000)
-  }).required(),
-  metadata: Joi.object().default({})
+    config: Joi.object({
+      baseUrl: Joi.string().uri().required(),
+      auth: Joi.object({
+        type: Joi.string().valid('none', 'basic', 'bearer', 'token', 'custom', 'apiKey', 'oauth2').default('none'),
+        credentials: Joi.object()
+      }).default({ type: 'none' }),
+      headers: Joi.object().default({}),
+      timeout: Joi.number().default(30000),
+      allowSelfSignedCerts: Joi.boolean().default(false)
+    }).required(),
+  metadata: Joi.object().default({}),
+  tags: Joi.array().items(Joi.string()).default([])
 });
 
 const toolSchema = Joi.object({
@@ -43,10 +47,13 @@ const toolSchema = Joi.object({
     body: Joi.any()
   }).required(),
   inputSchema: Joi.object().default({}),
-  outputSchema: Joi.object().default({})
+  outputSchema: Joi.object().default({}),
+  responseFields: Joi.array().items(Joi.string()).optional().allow(null),
+  responseTransformer: Joi.string().max(50).optional().allow(null),
+  responseLineFilter: Joi.string().allow('').optional().allow(null)
 });
 
-router.get('/', auth, async (req, res) => {
+router.get('/', authWithApiKey, async (req, res) => {
   try {
     let integrations;
     
@@ -132,6 +139,7 @@ router.get('/', auth, async (req, res) => {
         name: i.name,
         description: i.description,
         baseUrl: i.config.baseUrl,
+        allowSelfSignedCerts: i.config?.allowSelfSignedCerts || false,
         authType,
         requiresCredentials,
         hasUserCredentials,
@@ -158,13 +166,16 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-router.get('/composite', auth, async (req, res) => {
+router.get('/composite', authWithApiKey, async (req, res) => {
   try {
     const { integrationId } = req.query;
     
     const where = { type: 'composite' };
     if (integrationId) {
       where.integrationId = integrationId;
+    }
+    if (req.user.role !== 'admin') {
+      where.userId = req.user.id;
     }
     
     const tools = await Tool.findAll({ where });
@@ -176,7 +187,7 @@ router.get('/composite', auth, async (req, res) => {
   }
 });
 
-router.post('/composite', auth, async (req, res) => {
+router.post('/composite', authWithApiKey, async (req, res) => {
   try {
     const { error, value } = compositeToolSchema.validate(req.body);
     if (error) {
@@ -217,10 +228,7 @@ router.post('/composite', auth, async (req, res) => {
       steps: value.steps
     });
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.status(201).json(tool);
   } catch (error) {
@@ -229,9 +237,9 @@ router.post('/composite', auth, async (req, res) => {
   }
 });
 
-router.get('/composite/:id', auth, async (req, res) => {
+router.get('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -258,9 +266,9 @@ router.get('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.put('/composite/:id', auth, async (req, res) => {
+router.put('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -282,10 +290,7 @@ router.put('/composite/:id', auth, async (req, res) => {
       steps: value.steps
     });
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json(tool);
   } catch (error) {
@@ -294,9 +299,9 @@ router.put('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.delete('/composite/:id', auth, async (req, res) => {
+router.delete('/composite/:id', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -308,10 +313,7 @@ router.delete('/composite/:id', auth, async (req, res) => {
 
     await tool.destroy();
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json({ success: true });
   } catch (error) {
@@ -320,9 +322,9 @@ router.delete('/composite/:id', auth, async (req, res) => {
   }
 });
 
-router.post('/composite/:id/test', auth, async (req, res) => {
+router.post('/composite/:id/test', authWithApiKey, async (req, res) => {
   try {
-    const tool = await Tool.findByPk(req.params.id);
+    const tool = await Tool.findOne({ where: { id: req.params.id, userId: req.user.id } });
     
     if (!tool) {
       return res.status(404).json({ error: 'Composite tool not found' });
@@ -346,7 +348,7 @@ router.post('/composite/:id/test', auth, async (req, res) => {
   }
 });
 
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', authWithApiKey, async (req, res) => {
   try {
     let integration;
     
@@ -385,14 +387,14 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-router.post('/', auth, async (req, res) => {
+router.post('/', authWithApiKey, async (req, res) => {
   try {
     const { error, value } = integrationSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { type, name, description, config, metadata } = value;
+    const { type, name, description, config, metadata, tags } = value;
 
     let finalConfig = config;
     if (config && config.auth && config.auth.credentials && config.auth.type !== 'none') {
@@ -415,7 +417,8 @@ router.post('/', auth, async (req, res) => {
       name,
       description,
       config: finalConfig,
-      metadata
+      metadata,
+      tags
     });
 
     await audit.log({
@@ -443,11 +446,9 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -457,12 +458,13 @@ router.put('/:id', auth, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    const { name, description, config, metadata, isActive, visibility } = req.body;
+    const { name, description, config, metadata, isActive, visibility, tags } = req.body;
 
     if (name !== undefined) integration.name = name;
     if (description !== undefined) integration.description = description;
     if (metadata !== undefined) integration.metadata = metadata;
     if (isActive !== undefined) integration.isActive = isActive;
+    if (tags !== undefined) integration.tags = tags;
     if (visibility !== undefined && ['private', 'shared'].includes(visibility)) {
       integration.visibility = visibility;
     }
@@ -483,6 +485,13 @@ router.put('/:id', auth, async (req, res) => {
       integration.config = config;
     }
 
+    if (req.body.allowSelfSignedCerts !== undefined) {
+      integration.config = {
+        ...integration.config,
+        allowSelfSignedCerts: req.body.allowSelfSignedCerts
+      };
+    }
+
     await integration.save();
 
     res.json({
@@ -500,7 +509,7 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin' 
       ? { id: req.params.id }
@@ -514,6 +523,10 @@ router.delete('/:id', auth, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    if (integration.metadata?.source === 'built-in') {
+      return res.status(403).json({ error: 'Built-in integrations cannot be deleted. Use the active toggle to disable instead.' });
+    }
+
     // Delete associated tool_calls first (they reference tools)
     await sequelize.query(`
       DELETE FROM tool_calls WHERE "toolId" IN (SELECT id FROM tools WHERE "integrationId" = '${req.params.id}')
@@ -525,10 +538,7 @@ router.delete('/:id', auth, async (req, res) => {
     // Delete the integration
     await integration.destroy();
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json({ message: 'Integration deleted' });
   } catch (error) {
@@ -537,11 +547,9 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
-router.post('/:id/test', auth, async (req, res) => {
+router.post('/:id/test', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -596,7 +604,7 @@ router.post('/:id/test', auth, async (req, res) => {
   }
 });
 
-router.get('/:id/tools', auth, async (req, res) => {
+router.get('/:id/tools', authWithApiKey, async (req, res) => {
   try {
     let integration;
     
@@ -635,11 +643,9 @@ router.get('/:id/tools', auth, async (req, res) => {
   }
 });
 
-router.post('/:id/tools', auth, async (req, res) => {
+router.post('/:id/tools', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -647,6 +653,10 @@ router.post('/:id/tools', auth, async (req, res) => {
 
     if (!integration) {
       return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    if (integration.metadata?.source === 'built-in') {
+      return res.status(403).json({ error: 'Tools cannot be added to built-in integrations. Create a new integration instead.' });
     }
 
     const { error, value } = toolSchema.validate(req.body);
@@ -678,13 +688,13 @@ router.post('/:id/tools', auth, async (req, res) => {
       description: value.description,
       endpoint: enrichedEndpoint,
       inputSchema: value.inputSchema,
-      outputSchema: value.outputSchema
+      outputSchema: value.outputSchema,
+      responseFields: value.responseFields,
+      responseTransformer: value.responseTransformer,
+      responseLineFilter: value.responseLineFilter
     });
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.status(201).json(tool);
   } catch (error) {
@@ -693,7 +703,7 @@ router.post('/:id/tools', auth, async (req, res) => {
   }
 });
 
-router.put('/:id/tools/:toolId', auth, async (req, res) => {
+router.put('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.toolId, integrationId: req.params.id }
@@ -707,7 +717,7 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
       return res.status(404).json({ error: 'Tool not found' });
     }
 
-    const { name, description, endpoint, isActive, enabled } = req.body;
+    const { name, description, endpoint, isActive, enabled, responseFields, responseTransformer, responseLineFilter } = req.body;
     const updates = {};
     
     if (name !== undefined) updates.name = name;
@@ -715,13 +725,13 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
     if (endpoint !== undefined) updates.endpoint = endpoint;
     if (isActive !== undefined) updates.isActive = isActive;
     if (enabled !== undefined) updates.isActive = enabled;
+    if (responseFields !== undefined) updates.responseFields = responseFields;
+    if (responseTransformer !== undefined) updates.responseTransformer = responseTransformer;
+    if (responseLineFilter !== undefined) updates.responseLineFilter = responseLineFilter;
 
     await tool.update(updates);
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json(tool);
   } catch (error) {
@@ -730,7 +740,7 @@ router.put('/:id/tools/:toolId', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id/tools/:toolId', auth, async (req, res) => {
+router.delete('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
   try {
     const whereClause = req.user.role === 'admin'
       ? { id: req.params.toolId, integrationId: req.params.id }
@@ -746,10 +756,7 @@ router.delete('/:id/tools/:toolId', auth, async (req, res) => {
 
     await tool.destroy();
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json({ message: 'Tool deleted' });
   } catch (error) {
@@ -757,7 +764,7 @@ router.delete('/:id/tools/:toolId', auth, async (req, res) => {
   }
 });
 
-router.patch('/:id/tools/bulk', auth, async (req, res) => {
+router.patch('/:id/tools/bulk', authWithApiKey, async (req, res) => {
   try {
     const { ids, action } = req.body;
     
@@ -786,10 +793,7 @@ router.patch('/:id/tools/bulk', auth, async (req, res) => {
       await Tool.update(updates, { where: { id: { [Op.in]: tools.map(t => t.id) } } });
     }
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
 
     res.json({ message: `${tools.length} tools ${action}d` });
   } catch (error) {
@@ -797,9 +801,9 @@ router.patch('/:id/tools/bulk', auth, async (req, res) => {
   }
 });
 
-router.post('/discover', auth, async (req, res) => {
+router.post('/discover', authWithApiKey, async (req, res) => {
   try {
-    const { baseUrl, openApiPath, auth: authConfig, specType, specUrl } = req.body;
+    const { baseUrl, openApiPath, auth: authConfig, specType, specUrl, filter } = req.body;
 
     if (!baseUrl) {
       return res.status(400).json({ error: 'baseUrl is required' });
@@ -825,7 +829,7 @@ router.post('/discover', auth, async (req, res) => {
 
     if (specTypeToTry === 'openapi' || specTypeToTry === 'auto') {
       try {
-        const parser = new OpenAPIParser(discoveryBaseUrl, discoveryAuth);
+        const parser = new OpenAPIParser(discoveryBaseUrl, discoveryAuth, filter);
         if (openApiPath) {
           result = await parser.discover(openApiPath);
         } else {
@@ -853,13 +857,11 @@ router.post('/discover', auth, async (req, res) => {
   }
 });
 
-router.post('/:id/import-tools', auth, async (req, res) => {
+router.post('/:id/import-tools', authWithApiKey, async (req, res) => {
   logger.debug({ id: req.params.id, endpointsCount: req.body.endpoints?.length }, 'Import tools request');
   
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({
       where: whereClause
@@ -1015,16 +1017,14 @@ router.post('/:id/import-tools', auth, async (req, res) => {
   }
 });
 
-router.post('/export', auth, async (req, res) => {
+router.post('/export', authWithApiKey, async (req, res) => {
   try {
     const { includeTools, integrationIds } = req.body;
     logger.debug({ userId: req.user.id, integrationIds }, 'Export request');
     
-    const where = req.user.role === 'admin' ? {} : { userId: req.user.id };
+    const where = { ...ownerWhere(req.user.id, req.user.role) };
     if (integrationIds && Array.isArray(integrationIds) && integrationIds.length > 0) {
       where.id = { [Op.in]: integrationIds };
-    } else if (req.user.role !== 'admin') {
-      where.userId = req.user.id;
     }
     
     const integrations = await Integration.findAll({ where });
@@ -1068,7 +1068,7 @@ router.post('/export', auth, async (req, res) => {
   }
 });
 
-router.post('/import', auth, async (req, res) => {
+router.post('/import', authWithApiKey, async (req, res) => {
   try {
     const { integrations, includeTools, mode } = req.body;
     
@@ -1152,21 +1152,16 @@ router.post('/import', auth, async (req, res) => {
       errors: errors.length > 0 ? errors : undefined
     });
 
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
+    refreshMcpTools()
   } catch (error) {
     logger.error({ err: error.message }, 'Import error');
     res.status(500).json({ error: error.message });
   }
 });
 
-router.patch('/:id/visibility', auth, async (req, res) => {
+router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
   try {
-    const whereClause = req.user.role === 'admin'
-      ? { id: req.params.id }
-      : { id: req.params.id, userId: req.user.id };
+    const whereClause = ownerWhereId(req.params.id, req.user);
     
     const integration = await Integration.findOne({ where: whereClause });
     if (!integration) {
@@ -1186,7 +1181,7 @@ router.patch('/:id/visibility', auth, async (req, res) => {
   }
 });
 
-router.patch('/:id/credentials', auth, async (req, res) => {
+router.patch('/:id/credentials', authWithApiKey, async (req, res) => {
   try {
     const integration = await Integration.findByPk(req.params.id);
     if (!integration) {
@@ -1230,7 +1225,7 @@ router.patch('/:id/credentials', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id/credentials', auth, async (req, res) => {
+router.delete('/:id/credentials', authWithApiKey, async (req, res) => {
   try {
     const integration = await Integration.findByPk(req.params.id);
     if (!integration) {
@@ -1258,7 +1253,7 @@ router.delete('/:id/credentials', auth, async (req, res) => {
   }
 });
 
-router.get('/:id/users', auth, async (req, res) => {
+router.get('/:id/users', authWithApiKey, async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Admin only' });
@@ -1309,196 +1304,8 @@ const compositeToolSchema = Joi.object({
   })).min(1).required()
 });
 
-router.get('/composite', auth, async (req, res) => {
-  try {
-    const { integrationId } = req.query;
-    
-    const where = { type: 'composite' };
-    if (integrationId) {
-      where.integrationId = integrationId;
-    }
-    
-    const tools = await Tool.findAll({ where });
-    
-    res.json(tools.map(t => ({ ...t.toJSON(), _id: t.id })));
-  } catch (error) {
-    logger.error({ err: error.message }, 'Get composite tools error');
-    res.status(500).json({ error: 'Failed to get composite tools' });
-  }
-});
-
-router.post('/composite', auth, async (req, res) => {
-  try {
-    const { error, value } = compositeToolSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    const { integrationId } = req.body;
-    if (!integrationId) {
-      return res.status(400).json({ error: 'integrationId is required' });
-    }
-
-    const integration = await Integration.findByPk(integrationId);
-    if (!integration) {
-      return res.status(404).json({ error: 'Integration not found' });
-    }
-
-    const simpleTools = await Tool.findAll({
-      where: { integrationId, type: 'simple' }
-    });
-    const toolIds = simpleTools.map(t => t.id);
-    
-    for (const step of value.steps) {
-      if (!toolIds.includes(step.toolId)) {
-        return res.status(400).json({ 
-          error: `Tool ${step.toolId} is not a valid simple tool in this integration` 
-        });
-      }
-    }
-
-    const tool = await Tool.create({
-      userId: req.user.id,
-      integrationId,
-      name: value.name,
-      description: value.description,
-      endpoint: { path: '/composite', method: 'POST' },
-      inputSchema: value.inputSchema,
-      type: 'composite',
-      steps: value.steps
-    });
-
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
-
-    res.status(201).json(tool);
-  } catch (error) {
-    logger.error({ err: error.message }, 'Create composite tool error');
-    res.status(500).json({ error: 'Failed to create composite tool' });
-  }
-});
-
-router.get('/composite/:id', auth, async (req, res) => {
-  try {
-    const tool = await Tool.findByPk(req.params.id);
-    
-    if (!tool) {
-      return res.status(404).json({ error: 'Composite tool not found' });
-    }
-
-    if (tool.type !== 'composite') {
-      return res.status(400).json({ error: 'Tool is not a composite tool' });
-    }
-
-    const integration = await Integration.findByPk(tool.integrationId);
-    
-    res.json({
-      ...tool.toJSON(),
-      _id: tool.id,
-      integration: integration ? {
-        id: integration.id,
-        name: integration.name,
-        type: integration.type
-      } : null
-    });
-  } catch (error) {
-    logger.error({ err: error.message }, 'Get composite tool error');
-    res.status(500).json({ error: 'Failed to get composite tool' });
-  }
-});
-
-router.put('/composite/:id', auth, async (req, res) => {
-  try {
-    const tool = await Tool.findByPk(req.params.id);
-    
-    if (!tool) {
-      return res.status(404).json({ error: 'Composite tool not found' });
-    }
-
-    if (tool.type !== 'composite') {
-      return res.status(400).json({ error: 'Tool is not a composite tool' });
-    }
-
-    const { error, value } = compositeToolSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({ error: error.details[0].message });
-    }
-
-    await tool.update({
-      name: value.name,
-      description: value.description,
-      inputSchema: value.inputSchema,
-      steps: value.steps
-    });
-
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
-
-    res.json(tool);
-  } catch (error) {
-    logger.error({ err: error.message }, 'Update composite tool error');
-    res.status(500).json({ error: 'Failed to update composite tool' });
-  }
-});
-
-router.delete('/composite/:id', auth, async (req, res) => {
-  try {
-    const tool = await Tool.findByPk(req.params.id);
-    
-    if (!tool) {
-      return res.status(404).json({ error: 'Composite tool not found' });
-    }
-
-    if (tool.type !== 'composite') {
-      return res.status(400).json({ error: 'Tool is not a composite tool' });
-    }
-
-    await tool.destroy();
-
-    if (process.env.MCP_ENABLED === 'true') {
-      const { refreshToolsIfEnabled } = require('../mcp/server');
-      refreshToolsIfEnabled();
-    }
-
-    res.json({ success: true });
-  } catch (error) {
-    logger.error({ err: error.message }, 'Delete composite tool error');
-    res.status(500).json({ error: 'Failed to delete composite tool' });
-  }
-});
-
-router.post('/composite/:id/test', auth, async (req, res) => {
-  try {
-    const tool = await Tool.findByPk(req.params.id);
-    
-    if (!tool) {
-      return res.status(404).json({ error: 'Composite tool not found' });
-    }
-
-    if (tool.type !== 'composite') {
-      return res.status(400).json({ error: 'Tool is not a composite tool' });
-    }
-
-    const { inputs } = req.body;
-    if (!inputs) {
-      return res.status(400).json({ error: 'inputs are required' });
-    }
-
-    const result = await executeComposite(tool, inputs, req.user.id);
-    
-    res.json(result);
-  } catch (error) {
-    logger.error({ err: error.message }, 'Test composite tool error');
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Postman Collection Import
-router.post('/postman-import', auth, async (req, res) => {
+router.post('/postman-import', authWithApiKey, async (req, res) => {
   try {
     const { name, baseUrl, auth, tools } = req.body;
     

@@ -1,22 +1,18 @@
 const express = require('express');
 const Joi = require('joi');
-const { Op } = require('sequelize');
 const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
+const { readableWhere } = require('../utils/queryHelpers');
 
 const router = express.Router();
 
 const DEFAULT_TTL_HOURS = 168; // 7 days
 
-function readableWhere(userId) {
-  return { [Op.or]: [{ createdBy: userId }, { isShared: true }, { createdBy: null }] };
-}
-
 router.get('/', auth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const contexts = await SessionContext.findAll({
-      where: readableWhere(req.user.id),
+      where: readableWhere(req.user.id, req.user.role),
       order: [['updatedAt', 'DESC']]
     });
     res.json(contexts.map(c => {
@@ -44,7 +40,7 @@ router.get('/:name', auth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({
-      where: { name: req.params.name, ...readableWhere(req.user.id) }
+      where: { name: req.params.name, ...readableWhere(req.user.id, req.user.role) }
     });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
     res.json(ctx);
@@ -61,6 +57,7 @@ const upsertSchema = Joi.object({
 });
 
 router.post('/', auth, async (req, res) => {
+  const ttlProvided = Object.prototype.hasOwnProperty.call(req.body, 'ttlHours');
   const { error, value } = upsertSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
 
@@ -68,7 +65,8 @@ router.post('/', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
 
-    const ttlHours = value.ttlHours === 0 ? null : value.ttlHours;
+    const rawNum = (value.ttlHours !== undefined && value.ttlHours !== null) ? Number(value.ttlHours) : value.ttlHours;
+    const ttlHours = rawNum === 0 ? null : rawNum;
 
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name: value.name },
@@ -83,10 +81,12 @@ router.post('/', auth, async (req, res) => {
     });
 
     if (!created) {
-      if (ctx.createdBy !== req.user.id) {
+      if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
         return res.status(403).json({ error: 'You do not own this context' });
       }
-      await ctx.update({ content: value.content, isShared: value.shared, ttlHours });
+      const updateData = { content: value.content, isShared: value.shared };
+      if (ttlProvided) updateData.ttlHours = ttlHours;
+      await ctx.update(updateData);
     }
 
     res.status(created ? 201 : 200).json(ctx);
@@ -100,7 +100,7 @@ router.patch('/:name/share', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id) {
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not own this context' });
     }
     const isShared = typeof req.body.shared === 'boolean' ? req.body.shared : !ctx.isShared;
@@ -111,12 +111,30 @@ router.patch('/:name/share', auth, async (req, res) => {
   }
 });
 
+router.patch('/:name', auth, async (req, res) => {
+  try {
+    const { SessionContext } = loadModels();
+    const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
+    if (!ctx) return res.status(404).json({ error: 'Context not found' });
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You do not own this context' });
+    }
+    const updates = {};
+    if (typeof req.body.shared === 'boolean') updates.isShared = req.body.shared;
+    if (typeof req.body.ttlHours === 'number') updates.ttlHours = req.body.ttlHours === 0 ? null : req.body.ttlHours;
+    await ctx.update(updates);
+    res.json(ctx);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete('/:name', auth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id) {
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You do not own this context' });
     }
     await ctx.destroy();

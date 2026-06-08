@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
-import { Zap } from 'lucide-react';
+import { JsonTree } from '../components/JsonTree';
+import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown, LayoutGrid, PanelLeft, List, Save, X } from 'lucide-react';
+import { ViewToggle } from '../components/ViewToggle';
 
 const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
 
@@ -12,6 +14,8 @@ function hasHardcodedCredential(text) {
   if (!text) return false;
   return CREDENTIAL_PATTERN.test(text);
 }
+
+const isBuiltIn = (integration) => integration?.metadata?.source === 'built-in';
 
 function Tools({ all: isAllTools }) {
   const params = useParams();
@@ -27,6 +31,31 @@ function Tools({ all: isAllTools }) {
   const [compositeTools, setCompositeTools] = useState([]);
   const [externalTools, setExternalTools] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
+  const [sortBy, setSortBy] = useState('name');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [viewMode, setViewMode] = useState(
+    () => localStorage.getItem('tools-view') ?? 'card'
+  );
+  const filterInputRef = useRef(null);
+  const filteredToolsData = allToolsData
+    .filter(({ integration, tools }) => {
+      if (filter === '') return true;
+      const lowerFilter = filter.toLowerCase();
+      if (integration.name.toLowerCase().includes(lowerFilter)) return true;
+      return tools.some(t => t.name.toLowerCase().includes(lowerFilter) || t.description?.toLowerCase().includes(lowerFilter));
+    })
+    .map(({ integration, tools }) => ({
+      integration,
+      tools: [...tools].sort((a, b) => {
+        let aVal = sortBy === 'name' ? a.name : a.createdAt || '';
+        let bVal = sortBy === 'name' ? b.name : b.createdAt || '';
+        if (sortOrder === 'asc') {
+          return String(aVal).localeCompare(String(bVal));
+        }
+        return String(bVal).localeCompare(String(aVal));
+      })
+    }));
   const [showModal, setShowModal] = useState(false);
   const [showExploreModal, setShowExploreModal] = useState(false);
   const [showTestModal, setShowTestModal] = useState(false);
@@ -45,6 +74,8 @@ function Tools({ all: isAllTools }) {
   const [testResult, setTestResult] = useState(null);
   const [testParams, setTestParams] = useState({});
   const [currentToolForTest, setCurrentToolForTest] = useState(null);
+  const [selectedResponseFields, setSelectedResponseFields] = useState(new Set());
+  const [savingFields, setSavingFields] = useState(false);
 
   const [exploring, setExploring] = useState(false);
   const [discoveredEndpoints, setDiscoveredEndpoints] = useState([]);
@@ -61,7 +92,10 @@ function Tools({ all: isAllTools }) {
     path: '',
     params: '{\n  "key": "value"\n}',
     headers: '{\n  "key": "value"\n}',
-    body: ''
+    body: '',
+    responseTransformer: '',
+    responseFields: '',
+    responseLineFilter: ''
   });
 
   const [collapsedIntegrations, setCollapsedIntegrations] = useState({});
@@ -97,6 +131,17 @@ function Tools({ all: isAllTools }) {
       fetchData();
     }
   }, [id, isAllTools]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        filterInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const fetchExternalTools = async () => {
     try {
@@ -201,7 +246,24 @@ function Tools({ all: isAllTools }) {
         body: parsedBody
       };
 
-      const payload = { name: form.name, description: form.description, endpoint };
+      let parsedResponseFields = null;
+      if (form.responseFields && form.responseFields.trim()) {
+        try {
+          parsedResponseFields = JSON.parse(form.responseFields);
+          if (!Array.isArray(parsedResponseFields)) throw new Error('Must be an array');
+        } catch (err) {
+          parsedResponseFields = form.responseFields.split(',').map(s => s.trim()).filter(Boolean);
+        }
+      }
+
+      const payload = {
+        name: form.name,
+        description: form.description,
+        endpoint,
+        responseTransformer: form.responseTransformer || null,
+        responseFields: parsedResponseFields,
+        responseLineFilter: form.responseLineFilter || null
+      };
 
       if (editingTool) {
         const integrationId = id || editingTool.integrationId;
@@ -228,7 +290,10 @@ function Tools({ all: isAllTools }) {
       path: tool.endpoint.path,
       params: JSON.stringify(tool.endpoint.params, null, 2),
       headers: JSON.stringify(tool.endpoint.headers, null, 2),
-      body: JSON.stringify(tool.endpoint.body, null, 2)
+      body: JSON.stringify(tool.endpoint.body, null, 2),
+      responseTransformer: tool.endpoint.responseTransformer || tool.responseTransformer || '',
+      responseFields: tool.responseFields ? JSON.stringify(tool.responseFields, null, 2) : '',
+      responseLineFilter: tool.responseLineFilter || ''
     });
     setShowModal(true);
   };
@@ -277,6 +342,7 @@ function Tools({ all: isAllTools }) {
     setCurrentToolForTest(tool);
     setTestParams(initialParams);
     setTestResult(null);
+    setSelectedResponseFields(new Set(tool.responseFields || []));
     setShowTestModal(true);
   };
 
@@ -320,6 +386,11 @@ function Tools({ all: isAllTools }) {
       }
     }
     
+    const existingFields = currentToolForTest.responseFields || [];
+    if (selectedResponseFields.size === 0) {
+      setSelectedResponseFields(new Set(existingFields));
+    }
+
     const fullUrl = (integration?.config?.baseUrl || '') + resolvedPath;
     
     const getAuthTypeLabel = (type) => {
@@ -345,7 +416,7 @@ function Tools({ all: isAllTools }) {
     
     setTestingTool(toolId);
     try {
-      const res = await api.post(`/consume/tools/${toolId}/execute`, { params: testParams });
+      const res = await api.post(`/consume/tools/${toolId}/execute`, { params: testParams }, { headers: { 'X-Caller': 'ui' } });
       setTestResult({ success: true, data: res.data, request: requestDetails });
       setShowTestModal(false);
     } catch (err) {
@@ -357,9 +428,29 @@ function Tools({ all: isAllTools }) {
     }
   };
 
+  const saveResponseFields = async () => {
+    if (!currentToolForTest) return;
+    const toolId = currentToolForTest.id || currentToolForTest._id;
+    const integrationId = id || currentToolForTest.integrationId;
+    setSavingFields(true);
+    try {
+      const fields = [...selectedResponseFields];
+      await api.put(`/integrations/${integrationId}/tools/${toolId}`, { responseFields: fields });
+      if (currentToolForTest.responseFields) {
+        currentToolForTest.responseFields = fields;
+      } else {
+        currentToolForTest.responseFields = fields;
+      }
+    } catch (err) {
+      alert('Failed to save response fields: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSavingFields(false);
+    }
+  };
+
   const resetForm = () => {
     setEditingTool(null);
-    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '' });
+    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '', responseFields: '', responseLineFilter: '' });
   };
 
   const handleExplore = async (e) => {
@@ -470,8 +561,6 @@ function Tools({ all: isAllTools }) {
     }
   };
 
-  if (loading) return <div className="loading-overlay"><div className="spinner"></div></div>;
-
   if (isAllTools) {
     return (
       <div>
@@ -481,28 +570,154 @@ function Tools({ all: isAllTools }) {
               <h1>All Tools</h1>
               <p style={{ color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Browse tools grouped by integration</p>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className="btn btn-primary" onClick={() => setShowPromptLibrary(true)}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <ViewToggle value={viewMode} onChange={(m) => {
+                setViewMode(m);
+                localStorage.setItem('tools-view', m);
+              }} />
+              <div style={{ width: '1px', height: '24px', background: 'var(--border)', margin: '0 0.25rem' }}></div>
+              <button className="btn btn-primary" disabled={loading} onClick={() => setShowPromptLibrary(true)}>
                 Prompt Library
               </button>
-              <button className="btn btn-secondary" onClick={() => setShowExternalToolsModal(true)}>
+              <button className="btn btn-secondary" disabled={loading} onClick={() => setShowExternalToolsModal(true)}>
                 External MCP {externalTools.length > 0 && `(${externalTools.length})`}
               </button>
-              <button className="btn btn-secondary" onClick={expandAll}>Expand All</button>
-              <button className="btn btn-secondary" onClick={collapseAll}>Collapse All</button>
+              <button className="btn btn-secondary" disabled={loading} onClick={expandAll}>Expand All</button>
+              <button className="btn btn-secondary" disabled={loading} onClick={collapseAll}>Collapse All</button>
             </div>
           </div>
           
-          {allToolsData.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">-</div>
+          <div style={{ marginBottom: '1rem' }}>
+            <div className="search-input-wrap" style={{ maxWidth: '400px' }}>
+              <Search size={14} className="search-icon" style={{ color: 'var(--text-dim)', position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                ref={filterInputRef}
+                className="search-input"
+                placeholder="Filter tools... (⌘K)"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+                disabled={loading}
+                style={{ paddingLeft: '36px' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', alignSelf: 'center', marginRight: '0.5rem' }}>Sort by:</span>
+              <button
+                className={`btn btn-small ${sortBy === 'name' ? 'btn-primary' : ''}`}
+                onClick={() => { setSortBy('name'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}
+                disabled={loading}
+                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+              >
+                Name {sortBy === 'name' ? (sortOrder === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : <ArrowUpDown size={12} />}
+              </button>
+            </div>
+          </div>
+
+          {loading ? (
+            viewMode === 'compact' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="skeleton-card" style={{ padding: '0.75rem' }}>
+                    <div className="skeleton skeleton-title" style={{ width: '60%' }}></div>
+                    <div className="skeleton skeleton-text short"></div>
+                  </div>
+                ))}
+              </div>
+            ) : viewMode === 'list' ? (
+              <div>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '1rem', padding: '0.75rem 0', borderBottom: i < 4 ? '1px solid var(--border)' : 'none' }}>
+                    <div className="skeleton" style={{ width: '20px', height: '20px', borderRadius: '4px' }}></div>
+                    <div className="skeleton" style={{ flex: 2, height: '14px' }}></div>
+                    <div className="skeleton" style={{ flex: 1, height: '14px' }}></div>
+                    <div className="skeleton" style={{ flex: 1, height: '14px' }}></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
+                    <div className="skeleton skeleton-title"></div>
+                    <div className="skeleton skeleton-text"></div>
+                    <div className="skeleton skeleton-text short"></div>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : allToolsData.length === 0 ? (
+            <div className="empty-state-dashed">
+              <div className="empty-icon" style={{ fontSize: '48px' }}>-</div>
               <h3>No tools yet</h3>
               <p>Create tools in your integrations to get started</p>
               <Link to="/integrations" className="btn btn-primary">Go to Integrations</Link>
             </div>
+          ) : filteredToolsData.length === 0 ? (
+            <div className="empty-state-dashed">
+              <div className="empty-icon" style={{ fontSize: '48px' }}>🔍</div>
+              <h3>No tools match your filter</h3>
+              <p>Try adjusting your search query</p>
+            </div>
+          ) : viewMode === 'list' ? (
+            <div style={{ border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 100px 1fr 80px', gap: '0.75rem', padding: '0.6rem 0.75rem', background: 'var(--surface-hover)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-dim)', borderBottom: '1px solid var(--border)' }}>
+                <span>Name</span>
+                <span>Integration</span>
+                <span>Method</span>
+                <span>Path</span>
+                <span></span>
+              </div>
+              {filteredToolsData.flatMap(({ integration, tools }) =>
+                tools.map(tool => (
+                  <div key={tool._id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 100px 1fr 80px', gap: '0.75rem', padding: '0.5rem 0.75rem', alignItems: 'center', borderTop: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                    <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tool.name}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                      <span style={{ flexShrink: 0 }}>{getIntegrationIcon(integration.type)}</span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{integration.name}</span>
+                    </span>
+                    <span className={`tool-method ${tool.endpoint?.method?.toLowerCase()}`} style={{ fontSize: '0.75rem', justifySelf: 'start' }}>{tool.endpoint?.method}</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tool.endpoint?.path}</span>
+                    <Link to={`/integrations/${integration._id}/tools?highlighted=${tool._id}`} className="btn btn-icon" style={{ justifySelf: 'end', padding: '4px 8px', fontSize: '0.75rem' }}>View</Link>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : viewMode === 'compact' ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '0.75rem' }}>
+              {filteredToolsData.map(({ integration, tools }) => (
+                <div key={integration._id} className="card" style={{ marginBottom: 0 }}>
+                  <div className="card-header" style={{ padding: '0.6rem 0.75rem', cursor: 'pointer' }} onClick={() => toggleIntegration(integration._id)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontSize: '1rem', transform: collapsedIntegrations[integration._id] ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>▼</span>
+                      <span style={{ display: 'flex', alignItems: 'center' }}>{getIntegrationIcon(integration.type)}</span>
+                      <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{integration.name}</span>
+                      <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>{tools.length}</span>
+                    </div>
+                  </div>
+                  {!collapsedIntegrations[integration._id] && (
+                    <div style={{ padding: '0 0.75rem 0.75rem' }}>
+                      {tools.slice(0, 5).map(tool => (
+                        <div key={tool._id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.85rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
+                            <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tool.name}</span>
+                            <span className={`tool-method ${tool.endpoint?.method?.toLowerCase()}`} style={{ fontSize: '0.65rem', flexShrink: 0 }}>{tool.endpoint?.method}</span>
+                          </div>
+                          <Link to={`/integrations/${integration._id}/tools?highlighted=${tool._id}`} className="btn btn-icon" style={{ padding: '2px 6px', fontSize: '0.75rem', flexShrink: 0 }}>View</Link>
+                        </div>
+                      ))}
+                      {tools.length > 5 && (
+                        <div style={{ textAlign: 'center', padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-dim)' }}>
+                          +{tools.length - 5} more tools
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           ) : (
             <div>
-              {allToolsData.map(({ integration, tools }) => (
+              {filteredToolsData.map(({ integration, tools }) => (
                 <div key={integration._id} className="card" style={{ marginBottom: '1rem' }}>
                   <div 
                     className="card-header" 
@@ -588,6 +803,46 @@ function Tools({ all: isAllTools }) {
     );
   }
 
+  if (loading) {
+    return (
+      <div>
+        <div className="container">
+          <div className="page-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: '0.5rem' }}>
+              <Link to="/integrations" style={{ color: 'var(--primary)' }}>Integrations</Link>
+              <span>/</span>
+              <span>...</span>
+              <span>/</span>
+              <span style={{ color: 'var(--text)' }}>Tools</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <p>Loading integration...</p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <button className="btn btn-secondary" disabled>Explore API</button>
+                <button className="btn btn-primary" disabled>Prompt Library</button>
+                <button className="btn btn-primary" disabled>+ Add Tool</button>
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} style={{ padding: '1rem', borderBottom: i < 2 ? '1px solid var(--border)' : 'none' }}>
+                <div className="skeleton skeleton-title"></div>
+                <div className="skeleton skeleton-text" style={{ marginTop: '0.5rem' }}></div>
+              </div>
+            ))}
+          </div>
+          <div className="card" style={{ marginTop: '1.5rem' }}>
+            <div className="skeleton skeleton-title"></div>
+            <div className="skeleton skeleton-text" style={{ marginTop: '0.5rem' }}></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!integration) {
     return (
       <div>
@@ -602,33 +857,56 @@ function Tools({ all: isAllTools }) {
     <div>
       <div className="container">
         <div className="page-header">
-          <div className="breadcrumb">
-            <Link to="/integrations">Integrations</Link>
-            <span className="breadcrumb-separator">/</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: '0.5rem' }}>
+            <Link to="/integrations" style={{ color: 'var(--primary)' }}>Integrations</Link>
+            <span>/</span>
             <span>{integration?.name}</span>
+            <span>/</span>
+            <span style={{ color: 'var(--text)' }}>Tools</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
-              <h1>{integration?.name} - Tools</h1>
               <p>{integration?.description}</p>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button className="btn btn-secondary" onClick={() => setShowExploreModal(true)}>
                 Explore API
               </button>
               <button className="btn btn-primary" onClick={() => setShowPromptLibrary(true)}>
                 Prompt Library
               </button>
-              <button className="btn btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
-                + Add Tool
-              </button>
+              {isBuiltIn(integration) ? (
+                <span
+                  className="btn btn-primary"
+                  title="Built-in tools are managed by MCP Depot and cannot be edited"
+                  style={{ opacity: 0.5, cursor: 'not-allowed', pointerEvents: 'none' }}
+                >
+                  + Add Tool
+                </span>
+              ) : (
+                <button className="btn btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
+                  + Add Tool
+                </button>
+              )}
             </div>
           </div>
         </div>
 
+        {isBuiltIn(integration) && (
+          <div className="card" style={{ marginBottom: '1rem', background: 'var(--surface-hover)', border: '1px solid var(--border-light)' }}>
+            <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
+              Built-in tools are managed by MCP Depot and cannot be edited.
+              To add your own tools,{' '}
+              <Link to="/integrations" style={{ color: 'var(--primary)', fontWeight: 500 }}>
+                Create a new integration →
+              </Link>
+            </p>
+          </div>
+        )}
+
         {tools.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">-</div>
+          <div className="empty-state-dashed">
+            <div className="empty-icon" style={{ fontSize: '48px' }}>-</div>
             <h3>No tools yet</h3>
             <p>Create tools to define API endpoints for this integration</p>
           </div>
@@ -786,10 +1064,52 @@ function Tools({ all: isAllTools }) {
             )}
             {testResult.success ? (
               <div style={{ marginTop: '1rem' }}>
-                <strong>Response:</strong>
-                <pre style={{ marginTop: '0.5rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', overflow: 'auto', maxHeight: '300px', fontSize: '0.85rem' }}>
-                  {JSON.stringify(testResult.data, null, 2)}
-                </pre>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <strong>Response:</strong>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                    (click leaf values to add to response fields)
+                  </span>
+                </div>
+                <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)', overflow: 'auto', maxHeight: '350px', fontSize: '0.85rem' }}>
+                  <JsonTree
+                    data={testResult.data?.result?.data ?? testResult.data?.data ?? testResult.data}
+                    selectedFields={selectedResponseFields}
+                    onFieldSelect={(path) => setSelectedResponseFields(prev => new Set([...prev, path]))}
+                    onFieldDeselect={(path) => {
+                      const next = new Set(selectedResponseFields);
+                      next.delete(path);
+                      setSelectedResponseFields(next);
+                    }}
+                  />
+                </div>
+                {selectedResponseFields.size > 0 && (
+                  <div className="response-fields-area">
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.75rem' }}>
+                      {[...selectedResponseFields].sort().map(field => (
+                        <span key={field} className="response-field-chip">
+                          {field}
+                          <button
+                            className="remove-field"
+                            onClick={() => {
+                              const next = new Set(selectedResponseFields);
+                              next.delete(field);
+                              setSelectedResponseFields(next);
+                            }}
+                          >&times;</button>
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button className="btn btn-primary btn-small" onClick={saveResponseFields} disabled={savingFields}>
+                        <Save size={14} style={{ marginRight: '0.3rem' }} />
+                        {savingFields ? 'Saving...' : 'Save Response Fields'}
+                      </button>
+                      <button className="btn btn-ghost btn-small" onClick={() => setSelectedResponseFields(new Set())}>
+                        Clear All
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="error-message" style={{ marginTop: '0.5rem' }}>{testResult.error}</div>
@@ -902,6 +1222,53 @@ function Tools({ all: isAllTools }) {
                       )}
                     </div>
                   )}
+                  <div className="form-group">
+                    <label>Response Transformer
+                      <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
+                        Post-processing applied after field filtering
+                      </span>
+                    </label>
+                    <StyledSelect
+                      options={[
+                        { value: '', label: 'None' },
+                        { value: 'stripNulls', label: 'stripNulls — Remove all null/undefined values' },
+                        { value: 'flattenSingle', label: 'flattenSingle — Unwrap single-key objects' },
+                        { value: 'snakeToTitle', label: 'snakeToTitle — Convert keys to Title Case' },
+                        { value: 'truncateStrings', label: 'truncateStrings — Truncate long strings (500 chars)' },
+                        { value: 'addTimestamp', label: 'addTimestamp — Prepend _fetchedAt to response' }
+                      ]}
+                      value={{ value: form.responseTransformer || '', label: form.responseTransformer ? form.responseTransformer : 'None' }}
+                      onChange={(opt) => setForm({ ...form, responseTransformer: opt?.value || '' })}
+                      isSearchable={false}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Response Fields
+                      <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
+                        JSON array of dot-notation paths or comma-separated (e.g. issues.fields.summary)
+                      </span>
+                    </label>
+                    <textarea
+                      value={form.responseFields}
+                      onChange={e => setForm({ ...form, responseFields: e.target.value })}
+                      placeholder='["issues.fields.summary", "meta.total"]'
+                      style={{ minHeight: '60px' }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Line filter (regex)
+                      <span className="help-text" style={{fontWeight: 'normal', fontSize: '0.85em', marginLeft: 8, color: '#666'}}>
+                        Only lines matching this pattern are returned from text responses
+                      </span>
+                    </label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="e.g. \[ERROR\] or BUILD|WARN"
+                      value={form.responseLineFilter || ''}
+                      onChange={e => setForm({ ...form, responseLineFilter: e.target.value })}
+                    />
+                  </div>
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>

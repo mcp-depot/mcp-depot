@@ -1,19 +1,36 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
+import TagInput from '../components/TagInput';
+import { getApiError } from '../utils/apiError';
+
+function stripMarkdown(text = '', maxLength = 120) {
+  if (!text) return '';
+  return text
+    .replace(/```[\s\S]*?```/g, '[code]')
+    .replace(/`[^`]+`/g, '')
+    .replace(/#{1,6}\s/g, '')
+    .replace(/[*_~]/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\n+/g, ' ')
+    .trim()
+    .slice(0, maxLength) + (text.length > maxLength ? '\u2026' : '');
+}
 
 function Skills() {
   const { user } = useAuth();
   const [customSkills, setCustomSkills] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editingSkill, setEditingSkill] = useState(null);
-  const [form, setForm] = useState({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false });
+  const [form, setForm] = useState({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false, tags: [] });
   const [formInputs, setFormInputs] = useState([{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
   const [selectedSkill, setSelectedSkill] = useState(null);
   const [inputValues, setInputValues] = useState({});
   const [testingSkill, setTestingSkill] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [selectedTag, setSelectedTag] = useState(null);
 
   useEffect(() => {
     fetchCustomSkills();
@@ -37,7 +54,8 @@ function Skills() {
         inputs: formInputs.filter(i => i.name),
         prompt: form.prompt,
         outputFormat: form.outputFormat,
-        isShared: form.isShared
+        isShared: form.isShared,
+        tags: form.tags
       };
       
       if (editingSkill) {
@@ -51,12 +69,12 @@ function Skills() {
       resetForm();
       fetchCustomSkills();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save skill');
+      alert(getApiError(err));
     }
   };
 
   const resetForm = () => {
-    setForm({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false });
+    setForm({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false, tags: [] });
     setFormInputs([{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
   };
 
@@ -67,7 +85,8 @@ function Skills() {
       description: skill.description || '', 
       prompt: skill.prompt || '',
       outputFormat: skill.outputFormat || 'text',
-      isShared: skill.isShared || false
+      isShared: skill.isShared || false,
+      tags: skill.tags || []
     });
     setFormInputs(skill.inputs?.length ? skill.inputs : [{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
     setShowModal(true);
@@ -112,28 +131,52 @@ function Skills() {
       const res = await api.post(`/skills/${skillId}/invoke`, { inputs: values });
       setTestResult({ success: true, data: res.data });
     } catch (err) {
-      setTestResult({ success: false, error: err.response?.data?.error || 'Failed to invoke skill' });
+      setTestResult({ success: false, error: `Failed to invoke skill: ${getApiError(err)}` });
     } finally {
       setTestingSkill(false);
     }
   };
 
   const allSkills = customSkills.map(s => ({ ...s, isCustom: true }));
+  const allTags = [...new Set(customSkills.flatMap(s => s.tags || []).filter(Boolean))].sort();
+  const filteredSkills = selectedTag ? allSkills.filter(s => s.tags && s.tags.includes(selectedTag)) : allSkills;
 
   return (
     <div>
       <div className="container">
         <div className="page-header">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h1>Skills</h1>
-              <p>Create parameterized skills that AI assistants can invoke directly</p>
-            </div>
-            <button className="btn btn-primary" onClick={() => { resetForm(); setEditingSkill(null); setShowModal(true); }}>
-              + Create Skill
-            </button>
+          <div>
+            <h1>Skills</h1>
+            <p>Create parameterized skills that AI assistants can invoke directly</p>
           </div>
+          <button className="btn btn-primary" onClick={() => { resetForm(); setEditingSkill(null); setShowModal(true); }}>
+            + Create Skill
+          </button>
         </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>Filter by tag:</span>
+          {allTags.length > 0 ? allTags.map(tag => (
+            <button
+              key={tag}
+              onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+              style={{
+                background: selectedTag === tag ? 'var(--primary)' : 'var(--bg-tertiary)',
+                color: selectedTag === tag ? 'white' : 'var(--text)',
+                border: 'none',
+                padding: '0.2rem 0.5rem',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+                cursor: 'pointer'
+              }}
+            >
+              {tag}
+              </button>
+            )) : (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>No tags yet</span>
+            )}
+            {selectedTag && <button onClick={() => setSelectedTag(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-light)', cursor: 'pointer', fontSize: '0.75rem' }}>Clear</button>}
+          </div>
 
         {selectedSkill ? (
           <div className="card">
@@ -175,12 +218,8 @@ function Skills() {
 
             <div>
               <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>Rendered Prompt:</label>
-              <div style={{ position: 'relative' }}>
-                <textarea 
-                  readOnly
-                  value={generatePrompt(selectedSkill.id, inputValues)}
-                  style={{ width: '100%', minHeight: '200px', padding: '1rem', fontSize: '0.85rem', fontFamily: 'monospace', borderRadius: '8px', border: '1px solid var(--border-light)', background: 'var(--background)', color: 'var(--text)' }}
-                />
+              <div style={{ position: 'relative', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '1rem', background: 'var(--surface-hover)' }}>
+                <MarkdownRenderer content={generatePrompt(selectedSkill.id, inputValues)} />
                 <button 
                   className="btn btn-primary btn-small"
                   style={{ position: 'absolute', top: '0.5rem', right: '0.5rem' }}
@@ -230,18 +269,31 @@ function Skills() {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-            {allSkills.map((skill, idx) => (
+            {filteredSkills.map((skill, idx) => (
               <div key={idx} className="card" style={{ cursor: 'pointer' }} onClick={() => { setSelectedSkill(skill); setInputValues({}); setTestResult(null); }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <h3 style={{ margin: 0 }}>{skill.name}</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>{skill.description}</p>
+                    {skill.prompt && (
+                      <p style={{ color: 'var(--text-dim)', fontSize: '0.75rem', marginTop: '0.25rem', lineClamp: 2, WebkitLineClamp: 2, overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical' }}>
+                        {stripMarkdown(skill.prompt, 100)}
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
                   <span className="badge">{skill.outputFormat || 'text'}</span>
                   {skill.isShared && <span className="badge" style={{ background: 'var(--success)', color: 'white' }}>Shared</span>}
                   <span className="badge">{skill.inputs?.length || 0} inputs</span>
+                  {skill.tags?.length > 0 && (
+                    <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                      {skill.tags.slice(0, 3).map(tag => (
+                        <span key={tag} style={{ background: 'var(--primary)', color: 'white', padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.7rem' }}>{tag}</span>
+                      ))}
+                      {skill.tags.length > 3 && <span style={{ fontSize: '0.7rem', color: 'var(--text-light)' }}>+{skill.tags.length - 3}</span>}
+                    </div>
+                  )}
                 </div>
                 {skill.isCustom && (
                   <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.75rem' }}>
@@ -281,6 +333,10 @@ function Skills() {
                 <div className="form-group">
                   <label>Description</label>
                   <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="What does this skill do?" />
+                </div>
+                <div className="form-group">
+                  <label>Tags</label>
+                  <TagInput tags={form.tags} onChange={(tags) => setForm({ ...form, tags })} placeholder="Add tag..." />
                 </div>
                 <div className="form-group">
                   <label>Inputs</label>

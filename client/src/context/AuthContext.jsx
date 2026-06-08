@@ -8,17 +8,27 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [needsPasswordReset, setNeedsPasswordReset] = useState(false);
+  const [appConfig, setAppConfig] = useState({ enabledFeatures: null });
+  const [setupComplete, setSetupComplete] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (token) {
-      api.get('/auth/me')
-        .then(res => {
-          setUser(res.data);
+      Promise.all([
+        api.get('/auth/me'),
+        api.get('/auth/config').catch(() => ({ data: {} }))
+      ])
+        .then(([userRes, configRes]) => {
+          setUser(userRes.data);
           setIsAuthenticated(true);
-          if (res.data.mustResetPassword) {
+          setAppConfig(configRes.data);
+          if (userRes.data.mustResetPassword) {
             setNeedsPasswordReset(true);
           }
+          return api.get('/system/setup-status').catch(() => ({ data: { setupComplete: true } }));
+        })
+        .then(setupRes => {
+          setSetupComplete(setupRes.data.setupComplete);
         })
         .catch(() => {
           localStorage.removeItem('accessToken');
@@ -26,6 +36,7 @@ export function AuthProvider({ children }) {
         })
         .finally(() => setLoading(false));
     } else {
+      api.get('/auth/config').then(res => setAppConfig(res.data)).catch(() => {});
       setLoading(false);
     }
   }, []);
@@ -50,6 +61,13 @@ export function AuthProvider({ children }) {
       }
       throw err;
     }
+  };
+
+  const loginWithToken = (accessToken, refreshToken, userData) => {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    setUser(userData);
+    setIsAuthenticated(true);
   };
 
   const register = async (email, password, name) => {
@@ -83,7 +101,12 @@ export function AuthProvider({ children }) {
       loading, 
       isAuthenticated, 
       needsPasswordReset,
+      appConfig,
+      setAppConfig,
+      setupComplete,
+      setSetupComplete,
       login, 
+      loginWithToken,
       register, 
       changePassword,
       logout 

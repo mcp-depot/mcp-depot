@@ -101,11 +101,16 @@ router.delete('/credentials/:integrationId', auth, async (req, res) => {
 
 router.get('/shared', auth, async (req, res) => {
   try {
-    const { Integration, UserIntegrationCredentials } = loadModels();
+    const { Integration, UserIntegrationCredentials, Sequelize } = loadModels();
     const userId = req.user.id;
+    const { Op } = Sequelize;
+
+    const where = req.user.role === 'admin'
+      ? { isActive: true }
+      : { isActive: true, [Op.or]: [{ userId }, { visibility: 'shared' }] };
 
     const integrations = await Integration.findAll({
-      where: { isActive: true },
+      where,
       attributes: ['id', 'type', 'name', 'description'],
       order: [['name', 'ASC']],
       raw: true

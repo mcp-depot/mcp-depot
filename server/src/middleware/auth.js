@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const config = require('../config/env');
 const User = require('../models/User');
+
+function hashApiKey(apiKey) {
+  return crypto.createHash('sha256').update(apiKey).digest('hex');
+}
 
 const auth = async (req, res, next) => {
   try {
@@ -21,7 +26,7 @@ const auth = async (req, res, next) => {
     req.user = user;
     req.token = token;
     
-    if (user.mustResetPassword && req.path !== '/api/v1/auth/change-password' && req.path !== '/api/auth/change-password') {
+    if (user.mustResetPassword && !req.path.endsWith('/change-password')) {
       return res.status(403).json({
         error: 'PASSWORD_RESET_REQUIRED',
         message: 'You must change your password before continuing'
@@ -59,7 +64,8 @@ const authWithApiKey = async (req, res, next) => {
     }
     
     if (!authenticated && apiKeyHeader) {
-      user = await User.findOne({ where: { apiKey: apiKeyHeader } });
+      const hashedKey = hashApiKey(apiKeyHeader);
+      user = await User.findOne({ where: { apiKey: hashedKey } });
       if (user) {
         authenticated = true;
       }
@@ -69,7 +75,7 @@ const authWithApiKey = async (req, res, next) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (user.mustResetPassword && req.path !== '/api/v1/auth/change-password' && req.path !== '/api/auth/change-password') {
+    if (user.mustResetPassword && !req.path.endsWith('/change-password')) {
       return res.status(403).json({
         error: 'PASSWORD_RESET_REQUIRED',
         message: 'You must change your password before continuing'
@@ -113,11 +119,50 @@ const optionalApiKey = async (req, res, next) => {
   }
 
   try {
-    const user = await User.findOne({ where: { apiKey } });
+    const hashedKey = hashApiKey(apiKey);
+    const user = await User.findOne({ where: { apiKey: hashedKey } });
     if (user) {
       req.user = user;
       req.apiKeyAuth = true;
     }
+    next();
+  } catch (error) {
+    next();
+  }
+};
+
+const optionalAuthWithApiKey = async (req, res, next) => {
+  try {
+    const authHeader = req.header('Authorization');
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '');
+      try {
+        const decoded = jwt.verify(token, config.jwtSecret);
+        const user = await User.findByPk(decoded.userId);
+        if (user) {
+          req.user = user;
+          req.token = token;
+        }
+      } catch (e) {
+      }
+    }
+    
+    if (!req.user) {
+      const apiKey = req.header('X-API-Key');
+      if (apiKey) {
+        try {
+          const hashedKey = hashApiKey(apiKey);
+          const user = await User.findOne({ where: { apiKey: hashedKey } });
+          if (user) {
+            req.user = user;
+            req.apiKeyAuth = true;
+          }
+        } catch (e) {
+        }
+      }
+    }
+    
     next();
   } catch (error) {
     next();
@@ -134,4 +179,4 @@ const requireAdmin = async (req, res, next) => {
   next();
 };
 
-module.exports = { auth, optionalAuth, optionalApiKey, authWithApiKey, requireAdmin };
+module.exports = { auth, optionalAuth, optionalApiKey, optionalAuthWithApiKey, authWithApiKey, requireAdmin };

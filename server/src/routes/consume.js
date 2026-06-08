@@ -1,6 +1,6 @@
 const express = require('express');
 const Joi = require('joi');
-const { optionalApiKey } = require('../middleware/auth');
+const { optionalAuthWithApiKey } = require('../middleware/auth');
 const Integration = require('../models/Integration');
 const Tool = require('../models/Tool');
 const AdapterFactory = require('../adapters');
@@ -48,7 +48,7 @@ const getUserCredentials = async (userId, integrationId) => {
   return null;
 };
 
-router.get('/integrations', optionalApiKey, async (req, res) => {
+router.get('/integrations', optionalAuthWithApiKey, async (req, res) => {
   try {
     const query = req.user ? { userId: req.user.id } : {};
     
@@ -71,12 +71,16 @@ router.get('/integrations', optionalApiKey, async (req, res) => {
   }
 });
 
-router.get('/integrations/:id', optionalApiKey, async (req, res) => {
+router.get('/integrations/:id', optionalAuthWithApiKey, async (req, res) => {
   try {
     const integration = await Integration.findByPk(req.params.id);
     
     if (!integration) {
       return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     res.json({
@@ -92,7 +96,7 @@ router.get('/integrations/:id', optionalApiKey, async (req, res) => {
   }
 });
 
-router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
+router.post('/tools/:toolId/execute', optionalAuthWithApiKey, async (req, res) => {
   try {
     const { error, value } = executeToolSchema.validate(req.body);
     if (error) {
@@ -115,6 +119,10 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       return res.status(400).json({ error: 'Integration is not active' });
     }
 
+    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     if (tool.type === 'composite') {
       const userId = req.user?.id || (req.apiKey?.userId) || null;
       const result = await executeCompositeTool(tool, req.body.params || {}, userId);
@@ -124,7 +132,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
     // Check if credentials are required
     const authType = integration.config?.auth?.type || 'none';
     const requiresCredentials = authType !== 'none';
-    const hasIntegrationCredentials = !!integration.config?.auth?.credentials;
+    const hasIntegrationCredentials = !!(integration.config?.auth?.credentials || integration.config?.auth?.key);
     
     // Get user credentials if authenticated
     const userId = req.user?.id || (req.apiKey?.userId) || null;
@@ -191,7 +199,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       }
     }
     
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {
@@ -206,7 +214,11 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       integrationId: integration.id
     }, { userId: req.user?.id });
     
-    const { params, headers, body } = req.body;
+    let { params, headers, body } = req.body;
+    params = params || {};
+    const runtimeFilter = params._lineFilter || body?._lineFilter;
+    if (params) delete params._lineFilter;
+    if (body && typeof body === 'object') delete body._lineFilter;
     const mergedParams = { ...tool.endpoint.params, ...params };
     const mergedHeaders = { ...tool.endpoint.headers, ...headers };
 
@@ -305,7 +317,13 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       
       const userId = req.user?.id || (req.apiKey?.userId) || null;
       const callerId = req.apiKey?.keyId || req.headers['x-mcp-client'] || req.ip;
-      const callerType = req.apiKey ? 'api_key' : (req.headers['x-mcp-client'] ? 'mcp' : 'rest');
+      const callerType = req.apiKey
+      ? 'api_key'
+      : req.headers['x-mcp-client']
+        ? 'mcp'
+        : req.headers['x-caller'] === 'ui'
+          ? 'ui'
+          : 'rest';
       
       if (userId) {
         await logToolCall({
@@ -345,6 +363,15 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
       });
     }
 
+    if (runtimeFilter || tool.responseLineFilter) {
+      const { filterLines } = require('../utils/lineFilter');
+      const activeFilter = runtimeFilter || tool.responseLineFilter;
+      const data = result?.data;
+      if (typeof data === 'string') {
+        result = { ...result, data: filterLines(data, activeFilter) };
+      }
+    }
+
     res.json(result);
   } catch (error) {
     if (req.user) {
@@ -360,7 +387,7 @@ router.post('/tools/:toolId/execute', optionalApiKey, async (req, res) => {
   }
 });
 
-router.post('/trigger', optionalApiKey, async (req, res) => {
+router.post('/trigger', optionalAuthWithApiKey, async (req, res) => {
   try {
     const { integrationId, method, path, data, params, headers } = req.body;
 
@@ -378,8 +405,12 @@ router.post('/trigger', optionalApiKey, async (req, res) => {
       return res.status(400).json({ error: 'Integration is not active' });
     }
 
+    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     let config = { ...integration.config };
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {

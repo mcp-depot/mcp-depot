@@ -2,8 +2,9 @@ const express = require('express');
 const Joi = require('joi');
 const { spawn } = require('child_process');
 const axios = require('axios');
+const crypto = require('crypto');
 const { sequelize, connectDB, loadModels } = require('../config/database');
-const { optionalApiKey, authWithApiKey, optionalAuth } = require('../middleware/auth');
+const { auth, optionalApiKey, authWithApiKey, optionalAuth } = require('../middleware/auth');
 const { checkMcpAuth } = require('../middleware/mcpAuth');
 const Tool = require('../models/Tool');
 const Integration = require('../models/Integration');
@@ -13,9 +14,21 @@ const { logToolCall } = require('../services/tool-logger');
 const { pruneNulls } = require('../services/body-utils');
 const encryption = require('../services/encryption');
 const config = require('../config/env');
+const INTERNAL_SECRET = config.internalSecret;
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
 const { checkRateLimit } = require('../services/rate-limiter');
 const logger = require('../services/logger');
+const pool = require('../services/mcp-connection-pool');
+
+function getCallerId(req) {
+  if (
+    req.headers['x-internal-secret'] === config.internalSecret &&
+    req.headers['x-internal-user-id']
+  ) {
+    return req.headers['x-internal-user-id'];
+  }
+  return req.user?.id ?? null;
+}
 
 const router = express.Router();
 
@@ -24,7 +37,8 @@ const executeToolSchema = Joi.object({
   toolName: Joi.string(),
   params: Joi.object().default({}),
   headers: Joi.object().default({}),
-  body: Joi.any()
+  body: Joi.any(),
+  sessionId: Joi.string().optional()
 }).or('toolId', 'toolName');
 
 function safeJsonParse(value, defaultValue) {
@@ -44,11 +58,18 @@ function coerceParam(value, paramDefs, key) {
   return value;
 }
 
+function sanitizeName(name) {
+  return name.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').substring(0, 32);
+}
+
 function substituteBodyTemplate(obj, params, paramDefs = {}) {
   if (typeof obj === 'string') {
     const sole = obj.match(/^\{(\w+)\}$/);
-    if (sole && params[sole[1]] !== undefined) {
-      return coerceParam(params[sole[1]], paramDefs, sole[1]);
+    if (sole) {
+      if (params[sole[1]] !== undefined) {
+        return coerceParam(params[sole[1]], paramDefs, sole[1]);
+      }
+      return null;
     }
     return obj.replace(/\{(\w+)\}/g, (match, key) =>
       params[key] !== undefined ? coerceParam(params[key], paramDefs, key) : match
@@ -70,30 +91,24 @@ function substituteBodyTemplate(obj, params, paramDefs = {}) {
 const TOOLS_CACHE_ENABLED = process.env.TOOLS_CACHE_ENABLED === 'true';
 const TOOLS_CACHE_TTL = parseInt(process.env.TOOLS_CACHE_TTL) || 300000;
 
-const toolsCache = {
-  data: null,
-  timestamp: 0,
-  ttl: TOOLS_CACHE_TTL
-};
+const toolsCache = new Map();
 
-function getCachedTools() {
+function getCachedTools(userId) {
   if (!TOOLS_CACHE_ENABLED) return null;
-  const now = Date.now();
-  if (toolsCache.data && (now - toolsCache.timestamp) < toolsCache.ttl) {
-    return toolsCache.data;
+  const entry = toolsCache.get(userId || 'anon');
+  if (entry && (Date.now() - entry.timestamp) < TOOLS_CACHE_TTL) {
+    return entry.data;
   }
   return null;
 }
 
-function setCachedTools(tools) {
+function setCachedTools(userId, tools) {
   if (!TOOLS_CACHE_ENABLED) return;
-  toolsCache.data = tools;
-  toolsCache.timestamp = Date.now();
+  toolsCache.set(userId || 'anon', { data: tools, timestamp: Date.now() });
 }
 
 function clearToolsCache() {
-  toolsCache.data = null;
-  toolsCache.timestamp = 0;
+  toolsCache.clear();
 }
 
 async function setupAssociations() {
@@ -115,14 +130,18 @@ router.get('/hello', async (req, res) => {
 // Session Context internal routes - exposed via DB seed tools
 const DEFAULT_TTL_HOURS = 168; // 7 days
 
-router.post('/session-contexts/store', async (req, res) => {
+router.post('/session-contexts/store', optionalAuth, async (req, res) => {
   try {
-    const { name, content, shared = false, ttlHours: rawTtl = DEFAULT_TTL_HOURS } = req.body;
+    const { name, content, shared = false } = req.body;
     if (!name || !content) return res.status(400).json({ error: 'name and content are required' });
     const { SessionContext } = loadModels();
     const { randomUUID } = require('crypto');
-    const callerId = req.user?.id ?? null;
-    const ttlHours = rawTtl === 0 ? null : rawTtl; // 0 = pin forever
+    const callerId = getCallerId(req);
+    const MAX_TTL_HOURS = 8760;
+    const ttlProvided = Object.prototype.hasOwnProperty.call(req.body, 'ttlHours');
+    const rawTtl = ttlProvided ? req.body.ttlHours : undefined;
+    const rawNum = (rawTtl !== undefined && rawTtl !== null) ? Number(rawTtl) : DEFAULT_TTL_HOURS;
+    const ttlHours = rawNum === 0 ? null : Math.min(rawNum, MAX_TTL_HOURS);
 
     const [ctx, created] = await SessionContext.findOrCreate({
       where: { name },
@@ -132,24 +151,32 @@ router.post('/session-contexts/store', async (req, res) => {
       if (ctx.createdBy !== null && ctx.createdBy !== callerId) {
         return res.status(403).json({ error: 'You do not own this context' });
       }
-      await ctx.update({ content, isShared: shared, ttlHours });
+      const updateFields = { content, isShared: shared };
+      if (ttlProvided) updateFields.ttlHours = ttlHours;
+      await ctx.update(updateFields);
     }
-    res.json({ success: true, name, chars: content.length, shared, ttlHours, created });
+    const expiresAt = ttlHours != null
+      ? new Date(Date.now() + ttlHours * 3600000).toISOString()
+      : 'never';
+    res.json({ success: true, name, chars: content.length, shared, ttlHours, expiresAt, created });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/session-contexts/get', async (req, res) => {
+router.get('/session-contexts/get', optionalAuth, async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
     const { SessionContext } = loadModels();
-    const callerId = req.user?.id ?? null;
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
     const ctx = await SessionContext.findOne({
       where: callerId
-        ? { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
-        : { name, [require('sequelize').Op.or]: [{ isShared: true }, { createdBy: null }] }
+        ? callerRole === 'admin'
+          ? { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
+          : { name, [require('sequelize').Op.or]: [{ createdBy: callerId }, { isShared: true }] }
+        : { name, isShared: true }
     });
     if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
     res.json({ name: ctx.name, content: ctx.content, updatedAt: ctx.updatedAt, isShared: ctx.isShared });
@@ -158,15 +185,18 @@ router.get('/session-contexts/get', async (req, res) => {
   }
 });
 
-router.get('/session-contexts/list', async (req, res) => {
+router.get('/session-contexts/list', optionalAuth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
     const { Op } = require('sequelize');
-    const callerId = req.user?.id ?? null;
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
 
     const where = callerId
-      ? { [Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
-      : { [Op.or]: [{ isShared: true }, { createdBy: null }] };
+      ? callerRole === 'admin'
+        ? { [Op.or]: [{ createdBy: callerId }, { isShared: true }, { createdBy: null }] }
+        : { [Op.or]: [{ createdBy: callerId }, { isShared: true }] }
+      : { isShared: true };
 
     const all = await SessionContext.findAll({ where, order: [['updatedAt', 'DESC']] });
     res.json(all.map(c => {
@@ -187,12 +217,12 @@ router.get('/session-contexts/list', async (req, res) => {
   }
 });
 
-router.delete('/session-contexts/delete', async (req, res) => {
+router.delete('/session-contexts/delete', optionalAuth, async (req, res) => {
   try {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name is required' });
     const { SessionContext } = loadModels();
-    const callerId = req.user?.id ?? null;
+    const callerId = getCallerId(req);
     const ctx = await SessionContext.findOne({ where: { name } });
     if (!ctx) return res.status(404).json({ error: `No context found with name '${name}'` });
     if (callerId !== null && ctx.createdBy !== callerId) {
@@ -206,25 +236,34 @@ router.delete('/session-contexts/delete', async (req, res) => {
 });
 
 // Session Channel internal routes
-router.post('/session-channels', async (req, res) => {
+router.post('/session-channels', optionalAuth, async (req, res) => {
   try {
     const { channel, message } = req.body;
     if (!channel || !message) return res.status(400).json({ error: 'channel and message are required' });
     const { SessionChannel } = loadModels();
-    const callerId = req.user?.id ?? null;
-    await SessionChannel.create({
+    const callerId = getCallerId(req);
+    const entry = await SessionChannel.create({
       id: require('crypto').randomUUID(),
       channel,
       message,
       createdBy: callerId
     });
+    const channelEmitter = require('../services/channel-events');
+    channelEmitter.emit(channel, entry.toJSON());
+    const mcpServer = require('../mcp/server');
+    if (mcpServer._pushChannelNotification) {
+      mcpServer._pushChannelNotification(channel, entry);
+    }
+    if (mcpServer._pushResourceUpdate) {
+      mcpServer._pushResourceUpdate(channel);
+    }
     res.json({ success: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/session-channels/read', async (req, res) => {
+router.get('/session-channels/read', optionalAuth, async (req, res) => {
   try {
     const { channel } = req.query;
     if (!channel) return res.status(400).json({ error: 'channel is required' });
@@ -246,7 +285,7 @@ router.get('/session-channels/read', async (req, res) => {
 });
 
 // Legacy path-param route for direct access
-router.get('/session-channels/:channel', async (req, res) => {
+router.get('/session-channels/:channel', optionalAuth, async (req, res) => {
   try {
     const { channel } = req.params;
     const { since } = req.query;
@@ -276,7 +315,7 @@ router.get('/session-channels/:channel', async (req, res) => {
   }
 });
 
-router.get('/session-channels', async (req, res) => {
+router.get('/session-channels', optionalAuth, async (req, res) => {
   try {
     const { SessionChannel } = loadModels();
     const all = await SessionChannel.findAll({ order: [['createdAt', 'DESC']] });
@@ -297,7 +336,7 @@ router.get('/session-channels', async (req, res) => {
   }
 });
 
-router.delete('/session-channels/clear', async (req, res) => {
+router.delete('/session-channels/clear', optionalAuth, async (req, res) => {
   try {
     const { channel } = req.query;
     if (!channel) return res.status(400).json({ error: 'channel is required' });
@@ -310,12 +349,101 @@ router.delete('/session-channels/clear', async (req, res) => {
 });
 
 // Legacy path-param route for direct access
-router.delete('/session-channels/:channel', async (req, res) => {
+router.delete('/session-channels/:channel', optionalAuth, async (req, res) => {
   try {
     const { channel } = req.params;
     const { SessionChannel } = loadModels();
     const deleted = await SessionChannel.destroy({ where: { channel } });
     res.json({ success: true, channel, deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /session-channels/:channel/watch — long-poll for CLI proxy watch_channel tool
+router.get('/session-channels/:channel/watch', optionalAuth, async (req, res) => {
+  try {
+    const channel = req.params.channel;
+    const channelEmitter = require('../services/channel-events');
+    const timeoutMs = Math.min(parseInt(req.query.timeout) || 25, 25) * 1000;
+
+    const msg = await new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        channelEmitter.off(channel, handler);
+        resolve(null);
+      }, timeoutMs);
+
+      const handler = (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      };
+
+      channelEmitter.once(channel, handler);
+    });
+
+    if (msg) {
+      res.json({ message: msg.message, postedAt: msg.createdAt, channel: msg.channel, timedOut: false });
+    } else {
+      res.json({ timedOut: true, channel });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /session-channels/:channel/subscribe — subscribe to push notifications
+router.post('/session-channels/:channel/subscribe', checkMcpAuth, async (req, res) => {
+  try {
+    const channel = req.params.channel;
+    const mcpServer = require('../mcp/server');
+
+    let sessionId = req.headers['x-session-id'];
+
+    if (!sessionId && mcpServer._sessionClientMap) {
+      for (const [id, entry] of mcpServer._sessionClientMap) {
+        if (entry.userId && (entry.userId === req.user?.id || entry.apiKey === req.user?.apiKey)) {
+          sessionId = id;
+          break;
+        }
+      }
+    }
+
+    if (!sessionId) return res.status(400).json({ error: 'No active session found for this user' });
+
+    if (!mcpServer._channelSubscriptions.has(channel)) {
+      mcpServer._channelSubscriptions.set(channel, new Set());
+    }
+    mcpServer._channelSubscriptions.get(channel).add(sessionId);
+    res.json({ subscribed: true, channel, sessionId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /session-channels/:channel/subscribe — unsubscribe from push notifications
+router.delete('/session-channels/:channel/subscribe', checkMcpAuth, async (req, res) => {
+  try {
+    const channel = req.params.channel;
+    const mcpServer = require('../mcp/server');
+
+    let sessionId = req.headers['x-session-id'];
+
+    if (!sessionId && mcpServer._sessionClientMap) {
+      for (const [id, entry] of mcpServer._sessionClientMap) {
+        if (entry.userId && (entry.userId === req.user?.id || entry.apiKey === req.user?.apiKey)) {
+          sessionId = id;
+          break;
+        }
+      }
+    }
+
+    if (sessionId && mcpServer._channelSubscriptions.has(channel)) {
+      mcpServer._channelSubscriptions.get(channel).delete(sessionId);
+      if (mcpServer._channelSubscriptions.get(channel).size === 0) {
+        mcpServer._channelSubscriptions.delete(channel);
+      }
+    }
+    res.json({ unsubscribed: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -387,111 +515,85 @@ router.get('/fetch-url', optionalAuth, async (req, res) => {
 
 const fetchExternalMcpTools = async (userId, role) => {
   try {
-    const { ExternalMcpServer } = loadModels();
-    
+    const { ExternalMcpServer, ExternalMcpTool } = loadModels();
+
     const servers = await ExternalMcpServer.findAll({ where: { isActive: true } });
-    
+
     if (servers.length === 0) return [];
-    
-    const fetchTimeout = 10000;
-    
-    // Fetch all servers in parallel
-    async function fetchOneServer(server) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
-      
+
+    // Fetch all servers in parallel using the connection pool
+    const results = await Promise.allSettled(servers.map(async (server) => {
       try {
-        let tools = [];
-        
-        if (server.transportType === 'stdio') {
-          tools = await getStdioMcpTools(server.command, server.args, server.env, server.runtime, controller.signal);
-          clearTimeout(timeoutId);
-          const toolsList = tools?.tools || [];
-          return { server, tools: toolsList, error: null };
-        }
-        
-        const headers = {};
-        if (server.authType === 'bearer' && server.authToken) {
-          const encryption = require('../services/encryption');
-          const token = encryption.decrypt(server.authToken);
-          if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
-          }
-        } else if (server.authType === 'apiKey' && server.authToken) {
-          const encryption = require('../services/encryption');
-          const token = encryption.decrypt(server.authToken);
-          if (token) {
-            const headerName = server.authHeader || 'X-API-Key';
-            headers[headerName] = token;
+        const tools = await pool.listTools(server);
+
+        // Hash-based change detection
+        const toolsHash = crypto.createHash('sha256')
+          .update(JSON.stringify(tools.map(t => ({ name: t.name, description: t.description })).sort((a, b) => a.name.localeCompare(b.name))))
+          .digest('hex');
+
+        // Compare with stored hash - if unchanged, skip DB update
+        const hashChanged = server.toolsHash !== toolsHash;
+
+        // Upsert discovered tools into ExternalMcpTool only when hash changed
+        if (hashChanged) {
+          const serverName = sanitizeName(server.name);
+          for (const tool of tools) {
+            await ExternalMcpTool.upsert({
+              externalMcpServerId: server.id,
+              toolName: tool.name,
+              namespacedName: `${serverName}__${tool.name}`,
+              description: tool.description || null,
+              inputSchema: tool.inputSchema || tool.input_schema || {},
+              lastSeenAt: new Date()
+            }, {
+              conflictFields: ['externalMcpServerId', 'toolName']
+            });
           }
         }
-        
-        let toolsUrl = server.url;
-        if (!toolsUrl.includes('/tools')) {
-          toolsUrl = toolsUrl.replace(/\/mcp$/, '') + '/tools';
-        }
-        
-        const response = await fetch(toolsUrl, { headers, signal: controller.signal });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        
-        const data = await response.json();
-        tools = data.tools || [];
-        
-        return { server, tools, error: null };
-      } catch (err) {
-        const msg = err.name === 'AbortError' ? 'Timeout' : err.message;
-        return { server, tools: [], error: msg };
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    }
-    
-    // Fetch all servers in parallel - total time = slowest single server
-    const results = await Promise.allSettled(servers.map(fetchOneServer));
-    
-    // Process results and collect tools
-    const allExternalTools = [];
-    const serverStatusUpdates = [];
-    
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        const { server, tools, error } = result.value;
-        
-        // Store update for later (outside the fetch loop)
-        serverStatusUpdates.push({ server, error });
-        
-        // Add tools to result
-        for (const tool of tools) {
-          allExternalTools.push({
-            ...tool,
-            input_schema: tool.input_schema || tool.inputSchema || null,
-            inputSchema: tool.inputSchema || tool.input_schema || null,
-            _id: `external-${server.id}-${tool.id || tool.name}`,
-            source: 'external',
-            externalServerId: server.id,
-            externalServerName: server.name,
-            externalServerUrl: server.transportType === 'stdio' ? 'stdio' : server.url
-          });
-        }
-      }
-    }
-    
-    // Update all servers after fetching (parallel to each other, not blocking fetches)
-    await Promise.allSettled(serverStatusUpdates.map(async ({ server, error }) => {
-      try {
+
+        // Store update for server
         await server.update({
           lastFetchedAt: new Date(),
-          lastFetchError: error
+          lastFetchError: null,
+          ...(hashChanged ? { toolsHash } : {})
         });
-      } catch (updateErr) {
-        logger.error({ err: updateErr.message }, 'Failed to update external MCP server status');
+
+        // Fetch only active tools from ExternalMcpTool for this server
+        const activeTools = await ExternalMcpTool.findAll({
+          where: { externalMcpServerId: server.id, isActive: true }
+        });
+
+        // Map to the format expected by the tools endpoint
+        const externalTools = activeTools.map(t => ({
+          ...t.inputSchema,
+          input_schema: t.inputSchema,
+          name: t.namespacedName,
+          _originalName: t.toolName,
+          _id: `external-${server.id}-${t.toolName}`,
+          source: 'external',
+          externalServerId: server.id,
+          externalServerName: server.name,
+          externalServerUrl: server.transportType === 'stdio' ? 'stdio' : server.url
+        }));
+
+        return { server, tools: externalTools, error: null };
+      } catch (err) {
+        await server.update({
+          lastFetchedAt: new Date(),
+          lastFetchError: err.message
+        }).catch(() => {});
+        return { server, tools: [], error: err.message };
       }
     }));
-    
+
+    // Collect all external tools
+    const allExternalTools = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.tools) {
+        allExternalTools.push(...result.value.tools);
+      }
+    }
+
     return allExternalTools;
   } catch (error) {
     logger.error({ err: error.message }, 'Failed to fetch external MCP tools');
@@ -499,196 +601,34 @@ const fetchExternalMcpTools = async (userId, role) => {
   }
 };
 
-async function getStdioMcpTools(command, args, envVars, runtime = 'node', signal = null) {
-  return new Promise((resolve, reject) => {
-    const argsArray = safeJsonParse(args, []);
-    const envVarsObj = safeJsonParse(envVars, {});
-    
-    const fullEnv = { ...process.env, ...envVarsObj };
-    
-    let cmd = command;
-    let cmdArgs = argsArray;
-    
-    if (runtime === 'python') {
-      cmd = 'python3';
-      cmdArgs = ['-m', 'mcp', ...argsArray];
-    }
-    
-    const proc = spawn(cmd, cmdArgs, {
-      env: fullEnv,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to spawn process: ${err.message}`));
-    });
-    
-    proc.on('close', (code) => {
-      if (code !== 0 && stderr) {
-        reject(new Error(`Process exited with code ${code}: ${stderr}`));
-      }
-    });
-    
-    const request = {
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method: 'tools/list',
-      params: {}
-    };
-    
-    proc.stdin.write(JSON.stringify(request) + '\n');
-    
-    // Internal timeout as backstop - reduced from 30s to 10s
-    const internalTimeout = setTimeout(() => {
-      try { proc.kill(); } catch (e) {}
-      reject(new Error('Stdio timeout'));
-    }, 10000);
-    
-    // Listen for external abort signal
-    if (signal) {
-      signal.addEventListener('abort', () => {
-        clearTimeout(internalTimeout);
-        try { proc.kill(); } catch (e) {}
-        reject(new Error('Timeout'));
-      }, { once: true });
-    }
-    
-    // Check for response once stdout has data
-    const checkInterval = setInterval(() => {
-      const lines = stdout.trim().split('\n');
-      if (lines.length > 0) {
-        clearInterval(checkInterval);
-        clearTimeout(internalTimeout);
-        try {
-          const lastLine = lines[lines.length - 1];
-          const response = JSON.parse(lastLine);
-          
-          if (response.error) {
-            reject(new Error(response.error.message || response.error));
-          } else {
-            resolve(response.result);
-          }
-        } catch (e) {
-          reject(new Error(`Failed to parse response: ${e.message}. Output: ${stdout}`));
-        }
-      }
-    }, 100);
-    
-    // Clean up on resolve/reject
-    const cleanup = () => clearInterval(checkInterval);
-    resolve.then(cleanup).catch(cleanup);
-    reject.then(cleanup).catch(cleanup);
-  });
-}
-
-async function executeStdioMcpTool(command, args, envVars, toolName, params, runtime = 'node') {
-  return new Promise((resolve, reject) => {
-    const argsArray = safeJsonParse(args, []);
-    const envVarsObj = safeJsonParse(envVars, {});
-    
-    const fullEnv = { ...process.env, ...envVarsObj };
-    
-    let cmd = command;
-    let cmdArgs = argsArray;
-    
-    if (runtime === 'python') {
-      cmd = 'python3';
-      cmdArgs = ['-m', 'mcp', ...argsArray];
-    }
-    
-    const proc = spawn(cmd, cmdArgs, {
-      env: fullEnv,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-    
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to spawn process: ${err.message}`));
-    });
-    
-    proc.on('close', (code) => {
-      if (code !== 0 && stderr) {
-        reject(new Error(`Process exited with code ${code}: ${stderr}`));
-      }
-    });
-    
-    const request = {
-      jsonrpc: '2.0',
-      id: Date.now(),
-      method: 'tools/call',
-      params: {
-        name: toolName,
-        arguments: arguments_ || {}
-      }
-    };
-    
-    proc.stdin.write(JSON.stringify(request) + '\n');
-    
-    setTimeout(() => {
-      try {
-        proc.kill();
-      } catch (e) {}
-      
-      try {
-        const lines = stdout.trim().split('\n');
-        const lastLine = lines[lines.length - 1];
-        const response = JSON.parse(lastLine);
-        
-        if (response.error) {
-          reject(new Error(response.error.message || response.error));
-        } else {
-          resolve(response.result);
-        }
-      } catch (e) {
-        reject(new Error(`Failed to parse response: ${e.message}. Output: ${stdout}`));
-      }
-    }, 30000);
-  });
-}
-
 router.get('/tools', checkMcpAuth, async (req, res) => {
-  const cached = getCachedTools();
+  const userId = req.user?.id || null;
+  const role = req.user?.role || 'user';
+
+  const cached = getCachedTools(userId);
   if (cached) {
     return res.json(cached);
   }
   
   try {
-    const userId = req.user?.id || null;
-    const role = req.user?.role || 'user';
-    
     const tools = await Tool.findAll({
       where: { isActive: true },
       include: [{
         model: Integration,
         as: 'integration',
         where: { isActive: true },
-        attributes: []
+        attributes: ['userId', 'visibility']
       }],
       attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type']
     });
 
-    const localTools = tools.map(t => {
+    const visibleTools = tools.filter(t => {
+      if (!t.integration) return false;
+      if (role === 'admin') return true;
+      return t.integration.visibility === 'shared' || t.integration.userId === userId;
+    });
+
+    const localTools = visibleTools.map(t => {
       if (t.type === 'composite') {
         const inputSchema = t.inputSchema || {};
         const mcpInputSchema = {
@@ -704,10 +644,6 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
           endpoint: t.endpoint,
           params: [],
           input_schema: mcpInputSchema,
-          inputSchema: mcpInputSchema,
-          schema: mcpInputSchema,
-          schema_: mcpInputSchema,
-          parameters: mcpInputSchema,
           source: 'local',
           toolType: 'composite'
         };
@@ -730,15 +666,13 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
 
       const queryParams = t.endpoint.params || {};
       Object.entries(queryParams).forEach(([key, val]) => {
-        if (val.required) {
-          params.push({
-            name: key,
-            in: 'query',
-            required: true,
-            type: 'string',
-            description: val.description || `Query parameter: ${key}`
-          });
-        }
+        params.push({
+          name: key,
+          in: 'query',
+          required: val.required === true,
+          type: 'string',
+          description: val.description || `Query parameter: ${key}`
+        });
       });
 
       let inputSchema = t.inputSchema || {};
@@ -821,10 +755,6 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
         endpoint: t.endpoint,
         params,
         input_schema: mcpInputSchema,
-        inputSchema: mcpInputSchema,
-        schema: mcpInputSchema,
-        schema_: mcpInputSchema,
-        parameters: mcpInputSchema,
         source: 'local',
         toolType: 'simple'
       };
@@ -833,7 +763,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
     const externalTools = await fetchExternalMcpTools(userId, role);
     
     const result = { tools: [...localTools, ...externalTools] };
-    setCachedTools(result);
+    setCachedTools(userId, result);
     
     res.json(result);
   } catch (error) {
@@ -932,6 +862,119 @@ router.post('/skills/invoke/:id', async (req, res) => {
   }
 });
 
+// Meta-tool HTTP routes — mirrors MCP Depot - AI Tools
+router.get('/list-integrations', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_list_integrations');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler({});
+    res.json({ result: result.content?.[0]?.text || JSON.stringify(result) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/describe-tool', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_describe_tool');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler({ name: req.query.name });
+    res.json({ result: result.content?.[0]?.text || JSON.stringify(result) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/register-integration', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_register_integration');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler(req.body);
+    const text = result.content?.[0]?.text || JSON.stringify(result);
+    res.status(result.isError ? 400 : 201).json({ result: text });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/register-tool', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_register_tool');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler(req.body);
+    const text = result.content?.[0]?.text || JSON.stringify(result);
+    res.status(result.isError ? 400 : 201).json({ result: text });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/remove-tool', checkMcpAuth, async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const entry = mcpServer.toolsMap?.get('mcp_remove_tool');
+    if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
+    const result = await entry.handler(req.body);
+    const text = result.content?.[0]?.text || JSON.stringify(result);
+    res.status(result.isError ? 400 : 200).json({ result: text });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Create/Update skill via MCP
+router.post('/skills', authWithApiKey, async (req, res) => {
+  try {
+    const { PromptLibrary, User } = loadModels();
+    const { name, description, prompt, inputs, outputFormat, isShared, tags } = req.body;
+    if (!name || !prompt) {
+      return res.status(400).json({ error: 'name and prompt are required' });
+    }
+    const existing = await PromptLibrary.findOne({ where: { name } });
+    if (existing) {
+      await existing.update({
+        description, prompt,
+        ...(inputs !== undefined ? { inputs } : {}),
+        outputFormat: outputFormat || 'text',
+        isShared: isShared || false,
+        ...(tags !== undefined ? { tags } : {})
+      });
+      return res.json({ created: false, skill: { id: existing.id, name: existing.name, description: existing.description } });
+    }
+    const admin = await User.findOne({ where: { role: 'admin' } });
+    const skill = await PromptLibrary.create({
+      userId: admin?.id,
+      name, description, prompt,
+      ...(inputs !== undefined ? { inputs } : {}),
+      outputFormat: outputFormat || 'text',
+      isShared: isShared || false,
+      isDefault: false,
+      ...(tags !== undefined ? { tags } : {})
+    });
+    const mcpServer = require('../mcp/server');
+    if (mcpServer.refreshTools) await mcpServer.refreshTools();
+    res.status(201).json({ created: true, skill: { id: skill.id, name: skill.name, description: skill.description } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/skills/:name', authWithApiKey, async (req, res) => {
+  try {
+    const { PromptLibrary } = loadModels();
+    const skill = await PromptLibrary.findOne({ where: { name: req.params.name } });
+    if (!skill) return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
+    const { description, prompt, inputs, outputFormat, isShared, tags } = req.body;
+    await skill.update({
+      description:  description  !== undefined ? description  : skill.description,
+      prompt:       prompt       !== undefined ? prompt       : skill.prompt,
+      inputs:       inputs       !== undefined ? inputs       : skill.inputs,
+      outputFormat: outputFormat !== undefined ? outputFormat : skill.outputFormat,
+      isShared:     isShared     !== undefined ? isShared     : skill.isShared,
+      tags:         tags         !== undefined ? tags         : skill.tags
+    });
+    const mcpServer = require('../mcp/server');
+    if (mcpServer.refreshTools) await mcpServer.refreshTools();
+    res.json({ updated: true, skill: { id: skill.id, name: skill.name, description: skill.description } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 function renderSkillPrompt(prompt, inputValues) {
   let rendered = prompt || '';
   
@@ -1007,12 +1050,42 @@ router.get('/endpoints', checkMcpAuth, async (req, res) => {
 
 router.post('/execute', checkMcpAuth, async (req, res) => {
   try {
+    const mcpServer = require('../mcp/server');
+
     const { error, value } = executeToolSchema.validate(req.body);
     if (error) {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { toolId, toolName, params, headers, body } = value;
+    const { toolId, toolName, headers, body, sessionId: cliSessionId } = value;
+    let params = value.params || {};
+    const runtimeFilter = params._lineFilter || body?._lineFilter;
+    if (params) delete params._lineFilter;
+    if (body && typeof body === 'object') delete body._lineFilter;
+
+    if (cliSessionId && mcpServer._sessionClientMap?.has(cliSessionId)) {
+      const cliSession = mcpServer._sessionClientMap.get(cliSessionId);
+      if (!cliSession.userName && req.user) {
+        cliSession.userName = req.user.name || req.user.email || null;
+        cliSession.userId = req.user.id;
+        mcpServer._broadcastSessions?.();
+      }
+    }
+
+    let callerType = req.apiKey ? 'api' : 'rest';
+    if (cliSessionId && mcpServer._sessionClientMap?.has(cliSessionId)) {
+      const cliSession = mcpServer._sessionClientMap.get(cliSessionId);
+      if (cliSession.clientName) {
+        callerType = cliSession.clientName;
+      }
+    }
+
+    for (const [key, sess] of mcpServer._sessionClientMap?.entries() || []) {
+      if (key !== 'stdio' && !key.startsWith('user-')) {
+        sess.lastCallAt = new Date().toISOString();
+      }
+    }
+
     const { Tool, Integration, UserIntegrationCredentials, ExternalMcpServer } = loadModels();
     
     let tool;
@@ -1034,52 +1107,21 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       if (!server || !server.isActive) {
         return res.status(404).json({ error: 'External MCP server not found or inactive' });
       }
-      
-      if (server.transportType === 'stdio') {
-        const result = await executeStdioMcpTool(server.command, server.args, server.env, externalToolName, params || body || {}, server.runtime);
+
+      // Strip namespace prefix to get original tool name for the server
+      const originalToolName = externalToolName;
+
+      try {
+        const result = await pool.callTool(server, originalToolName, params || body || {});
         return res.json({
           success: true,
-          tool: externalToolName,
+          tool: originalToolName,
           source: 'external',
           result
         });
+      } catch (err) {
+        return res.status(500).json({ error: `External MCP error: ${err.message}` });
       }
-      
-      const extHeaders = {
-        'Content-Type': 'application/json'
-      };
-      
-      if (server.authType === 'bearer' && server.authToken) {
-        const token = encryption.decrypt(server.authToken);
-        if (token) {
-          extHeaders['Authorization'] = `Bearer ${token}`;
-        }
-      } else if (server.authType === 'apiKey' && server.authToken) {
-        const token = encryption.decrypt(server.authToken);
-        if (token) {
-          const headerName = server.authHeader || 'X-API-Key';
-          extHeaders[headerName] = token;
-        }
-      }
-      
-      const extResponse = await fetch(`${server.url}/execute`, {
-        method: 'POST',
-        headers: extHeaders,
-        body: JSON.stringify({ toolName: externalToolName, params, body })
-      });
-      
-      if (!extResponse.ok) {
-        const errorText = await extResponse.text();
-        return res.status(extResponse.status).json({ error: `External MCP error: ${errorText}` });
-      }
-      
-      const extResult = await extResponse.json();
-      return res.json({
-        success: true,
-        tool: externalToolName,
-        source: 'external',
-        result: extResult
-      });
     }
     
     if (toolId) {
@@ -1108,28 +1150,58 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         return res.status(500).json({ error: error.message });
       }
     }
-    
-    const userId = req.user?.id || req.apiKey?.userId;
-    if (tool.rateLimit && tool.rateLimit > 0 && userId) {
-      const rateCheck = checkRateLimit(tool.id, userId, tool.rateLimit);
-      if (!rateCheck.allowed) {
-        return res.status(429).json({
-          error: 'Rate limit exceeded',
-          limit: tool.rateLimit,
-          remaining: 0,
-          retryAfter: rateCheck.resetIn
+
+    if (tool.type === 'meta') {
+      const mcpServer = require('../mcp/server');
+      try {
+        const entry = mcpServer.toolsMap.get(tool.name);
+        if (!entry) {
+          return res.status(404).json({ error: `Meta-tool "${tool.name}" handler not found. Enable the "MCP Depot - AI Tools" integration.` });
+        }
+        const result = await entry.handler(params || body || {});
+        const text = result.content?.[0]?.text || JSON.stringify(result);
+        return res.json({
+          success: true,
+          tool: tool.name,
+          toolId: tool.id,
+          source: 'local',
+          result: text
         });
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
       }
     }
     
+    const userId = req.user?.id || req.apiKey?.userId;
     const integration = await Integration.findByPk(tool.integrationId);
     if (!integration || !integration.isActive) {
       return res.status(400).json({ error: 'Integration is not active' });
     }
+
+    if (userId) {
+      const toolLimit = tool.rateLimit || 0;
+      const intLimit = integration.rateLimit || {};
+      const integrationLimitRpm = intLimit.requestsPerMinute || 0;
+      const integrationLimitRph = intLimit.requestsPerHour || 0;
+      const rateCheck = checkRateLimit(tool.id, userId, toolLimit, integrationLimitRpm, integrationLimitRph);
+      if (!rateCheck.allowed) {
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          level: rateCheck.level,
+          limit: rateCheck.limit,
+          remaining: 0,
+          retryAfter: rateCheck.resetInSeconds
+        });
+      }
+
+      res.set('X-RateLimit-Tool-Remaining', String(rateCheck.remaining !== Infinity ? rateCheck.remaining : ''));
+      res.set('X-RateLimit-Integration-Remaining', String(rateCheck.integrationRemaining !== Infinity ? rateCheck.integrationRemaining : ''));
+      res.set('X-RateLimit-Reset', String(rateCheck.resetInSeconds));
+    }
     
     const authType = integration.config?.auth?.type || 'none';
     const requiresCredentials = authType !== 'none';
-    const hasIntegrationCredentials = !!integration.config?.auth?.credentials;
+    const hasIntegrationCredentials = !!(integration.config?.auth?.credentials || integration.config?.auth?.key);
     
     const isSharedForUser = integration.visibility === 'shared' && 
                            integration.userId !== userId && 
@@ -1177,7 +1249,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       config.auth = { ...integration.config.auth, credentials: userCreds };
     }
     
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions') {
+    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {
@@ -1221,7 +1293,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
             'Accept': 'text/html,application/json,application/xml,text/plain,*/*'
           },
           validateStatus: () => true,
-          ...(isHttps ? { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: !config.allowSelfSignedCerts }) } : {})
+          ...(isHttps ? { httpsAgent: new (require('https').Agent)({ rejectUnauthorized: !(config.allowSelfSignedCerts || require('../config/env').allowSelfSignedCerts) }) } : {})
         });
         
         const contentType = response.headers['content-type'] || '';
@@ -1301,7 +1373,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
           }
           current[target[target.length - 1]] = value;
         } else if (!hasBodyTemplate && key !== 'workspace' && key !== 'repo_slug') {
-          bodyParams[key] = value;
+          bodyParams[key] = coerceParam(value, paramDefs, key);
         }
       } else {
         queryParams[key] = value;
@@ -1315,6 +1387,16 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
     if (typeof bodyParams === 'object' && bodyParams !== null) {
       bodyParams = substituteBodyTemplate(bodyParams, mergedParams, tool.endpoint.params || {});
       bodyParams = pruneNulls(bodyParams);
+    }
+
+    if (req.body?.sessionId && req.body.sessionId !== 'undefined') {
+      mergedHeaders['X-Session-Id'] = req.body.sessionId;
+    }
+
+    const internalUserId = req.user?.id || req.apiKey?.userId;
+    if (internalUserId) {
+      mergedHeaders['X-Internal-Secret'] = INTERNAL_SECRET;
+      mergedHeaders['X-Internal-User-Id'] = String(internalUserId);
     }
 
     let result;
@@ -1340,6 +1422,31 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
           return res.status(400).json({ error: 'Unsupported method' });
       }
       
+      const responseFields = tool.responseFields || tool.endpoint?.responseFields;
+      if (responseFields?.length) {
+        const { filterFields } = require('../utils/fieldFilter');
+        const data = result.data ?? result;
+        if (data !== undefined) {
+          const filtered = Array.isArray(data)
+            ? data.map(item => filterFields(item, responseFields))
+            : filterFields(data, responseFields);
+          if (result.data !== undefined) {
+            result.data = filtered;
+          } else {
+            result = filtered;
+          }
+        }
+      }
+
+      const activeFilter = runtimeFilter || tool.responseLineFilter;
+      if (activeFilter) {
+        const { filterLines } = require('../utils/lineFilter');
+        const data = result?.data;
+        if (typeof data === 'string') {
+          result = { ...result, data: filterLines(data, activeFilter) };
+        }
+      }
+
       res.json({
         success: true,
         tool: tool.name,
@@ -1348,6 +1455,10 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         result
       });
 
+      if (cliSessionId) {
+        mcpServer._updateSession?.(cliSessionId, tool.name, true);
+      }
+
       const userId = req.user?.id || req.apiKey?.userId;
       const fullUrl = `${integration.config.baseUrl}${path}${Object.keys(queryParams).length > 0 ? '?' + new URLSearchParams(queryParams).toString() : ''}`;
       await logToolCall({
@@ -1355,7 +1466,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         userId,
         integrationId: integration.id,
         callerId: req.apiKey?.id || null,
-        callerType: req.apiKey ? 'api' : 'rest',
+        callerType,
         method: tool.endpoint.method,
         path: tool.endpoint.path,
         fullUrl,
@@ -1374,12 +1485,16 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       const fullUrl = `${integration.config.baseUrl}${path}${Object.keys(queryParams).length > 0 ? '?' + new URLSearchParams(queryParams).toString() : ''}`;
       res.status(500).json({ error: errorDetail });
 
+      if (cliSessionId) {
+        mcpServer._updateSession?.(cliSessionId, tool?.name, false);
+      }
+
       await logToolCall({
         toolId: tool.id,
         userId,
         integrationId: integration.id,
         callerId: req.apiKey?.id || null,
-        callerType: req.apiKey ? 'api' : 'rest',
+        callerType,
         method: tool.endpoint.method,
         path: tool.endpoint.path,
         fullUrl,
@@ -1398,6 +1513,365 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       ? JSON.stringify(error.response.data)
       : (error?.message || String(error));
     res.status(500).json({ error: errorDetail });
+  }
+});
+
+function fmtDuration(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+router.post('/sessions/register', checkMcpAuth, (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const { sessionId, clientName, clientVersion } = req.body;
+    const existing = sessionId && mcpServer._sessionClientMap?.get(sessionId);
+    let id;
+    if (existing) {
+      existing.lastCallAt = new Date().toISOString();
+      if (clientName) existing.clientName = clientName;
+      if (clientVersion) existing.clientVersion = clientVersion;
+      if (!existing.userId && req.user?.id) existing.userId = req.user.id;
+      id = existing.sessionId;
+    } else {
+      id = sessionId || `cli-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      mcpServer._sessionClientMap = mcpServer._sessionClientMap || new Map();
+      mcpServer._sessionClientMap.set(id, {
+        sessionId: id,
+        clientName: clientName || 'mcp-depot-cli',
+        clientVersion: clientVersion || '0.0.0',
+        userId: req.user?.id || null,
+        userName: req.user?.username || null,
+        connectedAt: new Date().toISOString(),
+        lastCallAt: new Date().toISOString(),
+        lastTool: null,
+        callCount: 0
+      });
+    }
+    if (mcpServer._broadcastSessions) mcpServer._broadcastSessions();
+    res.json({ sessionId: id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/sessions/deregister', (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const { sessionId } = req.body;
+    if (sessionId && mcpServer._sessionClientMap) {
+      mcpServer._removeSessionSubscriptions(sessionId);
+      mcpServer._sessionClientMap.delete(sessionId);
+    }
+    if (mcpServer._broadcastSessions) mcpServer._broadcastSessions();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /sessions/:sessionId/notifications — SSE stream for CLI proxy push notifications
+router.get('/sessions/:sessionId/notifications', async (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    const { sessionId } = req.params;
+    const entry = mcpServer._sessionClientMap.get(sessionId);
+    if (!entry) return res.status(404).json({ error: 'Session not found' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    entry.notificationRes = res;
+
+    const keepalive = setInterval(() => { try { res.write(': keepalive\n\n'); } catch {} }, 30_000);
+
+    req.on('close', () => {
+      clearInterval(keepalive);
+      if (entry.notificationRes === res) entry.notificationRes = null;
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/sessions', auth, (req, res) => {
+  try {
+    const mcpServer = require('../mcp/server');
+    let sessions = mcpServer.getActiveSessions ? mcpServer.getActiveSessions() : [];
+    if (req.user.role !== 'admin') {
+      sessions = sessions.filter(s => s.userId === req.user.id);
+    }
+    res.json(sessions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/sessions/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const mcpServer = require('../mcp/server');
+  if (mcpServer.addSseClient) {
+    mcpServer.addSseClient(res);
+  } else {
+    res.write(`event: sessions\ndata: ${JSON.stringify([])}\n\n`);
+  }
+});
+
+// Resource listing
+router.get('/resources', checkMcpAuth, async (req, res) => {
+  try {
+    const { SessionChannel } = require('../config/database').loadModels();
+    const rows = await SessionChannel.findAll({ attributes: ['channel'], group: ['channel'], raw: true });
+    res.json({
+      resources: rows.map(r => ({
+        uri: `channel://${r.channel}`,
+        name: r.channel,
+        description: `Session channel: ${r.channel}`,
+        mimeType: 'text/plain'
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resource read
+router.get('/resources/read', checkMcpAuth, async (req, res) => {
+  try {
+    const uri = req.query.uri;
+    if (!uri) return res.status(400).json({ error: 'uri required' });
+    const channelName = uri.replace('channel://', '');
+    const { SessionChannel } = require('../config/database').loadModels();
+    const messages = await SessionChannel.findAll({
+      where: { channel: channelName },
+      order: [['createdAt', 'ASC']],
+      limit: 100
+    });
+    const text = messages.length
+      ? messages.map(m => `[${new Date(m.createdAt).toISOString()}] ${m.message}`).join('\n')
+      : '(empty channel)';
+    res.json({ contents: [{ uri, mimeType: 'text/plain', text }] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resource subscribe (for CLI proxy sessions)
+router.post('/resources/subscribe', checkMcpAuth, async (req, res) => {
+  try {
+    const { uri, sessionId } = req.body;
+    if (!uri || !sessionId) return res.status(400).json({ error: 'uri and sessionId required' });
+    const mcpServer = require('../mcp/server');
+    if (!mcpServer._resourceSubscriptions.has(uri)) {
+      mcpServer._resourceSubscriptions.set(uri, new Set());
+    }
+    mcpServer._resourceSubscriptions.get(uri).add(sessionId);
+    res.json({ subscribed: true, uri, sessionId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resource unsubscribe (for CLI proxy sessions)
+router.post('/resources/unsubscribe', checkMcpAuth, async (req, res) => {
+  try {
+    const { uri, sessionId } = req.body;
+    const mcpServer = require('../mcp/server');
+    if (mcpServer._resourceSubscriptions.has(uri)) {
+      mcpServer._resourceSubscriptions.get(uri).delete(sessionId);
+      if (mcpServer._resourceSubscriptions.get(uri).size === 0) {
+        mcpServer._resourceSubscriptions.delete(uri);
+      }
+    }
+    res.json({ unsubscribed: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Agent internal routes
+const { Op } = require('sequelize');
+
+function normalizeTools(tools) {
+  if (!tools || tools === '[]') return [];
+  if (Array.isArray(tools)) return tools;
+  if (typeof tools === 'string') {
+    try {
+      const parsed = JSON.parse(tools);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+    return tools.split(',').map(t => t.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function serializeTools(tools) {
+  if (!tools || tools === '[]') return '';
+  if (Array.isArray(tools)) return tools.join(', ');
+  return tools;
+}
+
+function generateInstallConfig(agent, clientType, tools) {
+  const toolsList = normalizeTools(tools);
+  const toolsStr = toolsList.length ? toolsList.join(', ') : 'read, grep, bash';
+
+  if (clientType === 'claude-code') {
+    return {
+      clientType: 'claude-code',
+      installPath: `.claude/agents/${agent.name}/AGENT.md`,
+      content: `---
+description: ${agent.description || `${agent.role} agent`}
+tools: [${toolsStr}]
+model: ${agent.model || ''}
+---
+${agent.systemPrompt}`
+    };
+  }
+
+  if (clientType === 'opencode') {
+    return {
+      clientType: 'opencode',
+      installPath: `.opencode/agents/${agent.name}.md`,
+      content: `# ${agent.name}\n\n${agent.systemPrompt}`
+    };
+  }
+
+  return { clientType: 'generic', agent: { ...agent.toJSON(), tools: toolsList } };
+}
+
+router.get('/agents', optionalAuth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
+    const where = callerId
+      ? callerRole === 'admin'
+        ? {}
+        : { [Op.or]: [{ createdBy: callerId }, { isShared: true }] }
+      : { isShared: true };
+    const agents = await Agent.findAll({ where, order: [['name', 'ASC']] });
+    res.json(agents);
+  } catch (error) {
+    logger.error({ error: error.message }, 'List agents error');
+    res.status(500).json({ error: 'Failed to list agents' });
+  }
+});
+
+router.get('/agents/:name', optionalAuth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
+    const where = { name: req.params.name };
+    if (callerId && callerRole !== 'admin') {
+      where[Op.or] = [{ createdBy: callerId }, { isShared: true }];
+    } else if (!callerId) {
+      where.isShared = true;
+    }
+    const agent = await Agent.findOne({ where });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    const response = agent.toJSON();
+    response.tools = normalizeTools(agent.tools);
+    const clientType = req.query.clientType;
+    if (clientType) {
+      response.installConfig = generateInstallConfig(agent, clientType.toLowerCase(), response.tools);
+    }
+    res.json(response);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Get agent error');
+    res.status(500).json({ error: 'Failed to get agent' });
+  }
+});
+
+router.post('/agents', optionalAuth, async (req, res) => {
+  try {
+    const { name, role, systemPrompt, description, isShared, tools, model } = req.body;
+    if (!name || !role || !systemPrompt) {
+      return res.status(400).json({ error: 'name, role, and systemPrompt are required' });
+    }
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const [agent, created] = await Agent.findOrCreate({
+      where: { name },
+      defaults: {
+        name, role, systemPrompt,
+        description: description || '',
+        isShared: isShared || false,
+        tools: serializeTools(tools),
+        model: model || null,
+        createdBy: callerId
+      }
+    });
+    if (!created) {
+      return res.status(409).json({ error: `Agent "${name}" already exists. Use PUT to update.` });
+    }
+    res.status(201).json(agent);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Create agent error');
+    res.status(500).json({ error: 'Failed to create agent' });
+  }
+});
+
+router.put('/agents/:name', optionalAuth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
+    const where = { name: req.params.name };
+    if (callerRole !== 'admin') {
+      where.createdBy = callerId;
+    }
+    const agent = await Agent.findOne({ where });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found or you do not own it' });
+    }
+    const { role, systemPrompt, description, isShared, tools, model } = req.body;
+    const updates = {};
+    if (role !== undefined) updates.role = role;
+    if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;
+    if (description !== undefined) updates.description = description;
+    if (isShared !== undefined) updates.isShared = isShared;
+    if (tools !== undefined) updates.tools = serializeTools(tools);
+    if (model !== undefined) updates.model = model;
+    await agent.update(updates);
+    res.json(agent);
+  } catch (error) {
+    logger.error({ error: error.message }, 'Update agent error');
+    res.status(500).json({ error: 'Failed to update agent' });
+  }
+});
+
+router.delete('/agents/:name', optionalAuth, async (req, res) => {
+  try {
+    const { Agent } = loadModels();
+    const callerId = getCallerId(req);
+    const callerRole = req.user?.role ?? 'user';
+    const where = { name: req.params.name };
+    if (callerRole !== 'admin') {
+      where.createdBy = callerId;
+    }
+    const agent = await Agent.findOne({ where });
+    if (!agent) {
+      return res.status(404).json({ error: 'Agent not found or you do not own it' });
+    }
+    await agent.destroy();
+    res.json({ success: true });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Delete agent error');
+    res.status(500).json({ error: 'Failed to delete agent' });
   }
 });
 

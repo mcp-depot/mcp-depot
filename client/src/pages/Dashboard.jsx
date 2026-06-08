@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings, Layers, MessagesSquare } from 'lucide-react';
+import { Plug, Wrench, Server, FileText, Plus, ChevronRight, Settings, Layers, MessagesSquare, Monitor, Zap, Clock } from 'lucide-react';
+import { Skeleton } from '../components/Skeleton';
+import { EmptyState } from '../components/EmptyState';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -14,6 +16,7 @@ function Dashboard() {
     prompts: { total: 0 },
     sessions: { contexts: 0, shared: 0, channels: 0 }
   });
+  const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,7 +56,6 @@ function Dashboard() {
         const promptsRes = await api.get('/skills').catch(() => ({ data: [] }));
         const prompts = promptsRes.data || [];
 
-        // Fetch session data
         const ctxRes = await api.get('/session-contexts').catch(() => ({ data: [] }));
         const contexts = ctxRes.data || [];
         const sharedContexts = contexts.filter(c => c.isShared).length;
@@ -101,6 +103,46 @@ function Dashboard() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    let eventSource;
+    let retryTimer;
+
+    const connectSSE = () => {
+      eventSource = new EventSource('/api/mcp/sessions/stream');
+
+      eventSource.addEventListener('sessions', (event) => {
+        const all = JSON.parse(event.data);
+        setClients(user?.role === 'admin' ? all : all.filter(s => s.userId === user?.id));
+      });
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        retryTimer = setTimeout(connectSSE, 5000);
+      };
+    };
+
+    api.get('/mcp/sessions').then(res => {
+      const all = res.data || [];
+      setClients(user?.role === 'admin' ? all : all.filter(s => s.userId === user?.id));
+    }).catch(() => {});
+    connectSSE();
+
+    return () => {
+      eventSource?.close();
+      clearTimeout(retryTimer);
+    };
+  }, []);
+
+  const fmtTime = (iso) => {
+    if (!iso) return '\u2014';
+    const d = new Date(iso);
+    const now = new Date();
+    const diffSec = Math.floor((now - d) / 1000);
+    if (diffSec < 60) return `${diffSec}s ago`;
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    return `${Math.floor(diffSec / 3600)}h ago`;
+  };
+
   return (
     <div>
       <div className="container">
@@ -110,10 +152,18 @@ function Dashboard() {
         </div>
 
         {loading ? (
-          <div className="loading-overlay"><div className="spinner"></div></div>
+          <div className="grid-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="stat-card">
+                <Skeleton style={{ height: '20px', width: '40px', marginBottom: '0.5rem' }} />
+                <Skeleton style={{ height: '14px', width: '80px' }} />
+                <Skeleton style={{ height: '12px', width: '120px', marginTop: '0.5rem' }} />
+              </div>
+            ))}
+          </div>
         ) : (
-          <>
-            <div className="grid-4" style={{ marginBottom: '2rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <div className="grid-4">
               <div className="stat-card">
                 <div className="stat-card-icon"><Plug size={20} /></div>
                 <div className="stat-card-value">{stats.integrations.total}</div>
@@ -229,7 +279,47 @@ function Dashboard() {
                 </div>
               </div>
             </div>
-          </>
+
+            <div className="card">
+              <div className="card-header">
+                <h3 className="card-title"><Monitor size={16} style={{ marginRight: '0.5rem' }} />Connected Clients</h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>{clients.length} active</span>
+              </div>
+              {clients.length === 0 ? (
+                <EmptyState title="No clients connected yet" description="Connect an MCP client to see it here" />
+              ) : (
+                <table className="data-table" style={{ tableLayout: 'fixed' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: '18%' }}>Client</th>
+                      <th style={{ width: '14%' }}>User</th>
+                      <th style={{ width: '10%' }}>Session</th>
+                      <th style={{ width: '13%' }}>Connected</th>
+                      <th style={{ width: '13%' }}>Last Call</th>
+                      <th style={{ width: '7%' }}>Calls</th>
+                      <th style={{ width: '25%' }}>Last Tool</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clients.map(s => (
+                      <tr key={s.sessionId}>
+                        <td>
+                          <strong>{s.clientName || 'Unknown'}</strong>
+                          {s.clientVersion && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-light)' }}>v{s.clientVersion}</span>}
+                        </td>
+                        <td style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>{s.userName || '\u2014'}</td>
+                        <td><code style={{ fontSize: '0.75rem' }} title={s.sessionId}>{s.sessionId.slice(0, 8)}\u2026</code></td>
+                        <td><span title={s.connectedAt}>{fmtTime(s.connectedAt)}</span></td>
+                        <td><span title={s.lastCallAt}>{s.lastCallAt ? fmtTime(s.lastCallAt) : '\u2014'}</span></td>
+                        <td>{s.callCount}</td>
+                        <td>{s.lastTool || '\u2014'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>

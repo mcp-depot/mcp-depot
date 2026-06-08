@@ -15,16 +15,22 @@ import {
   ChevronDown,
   User,
   Layers,
-  MessagesSquare
+  MessagesSquare,
+  Users,
+  HeartPulse,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useState } from 'react';
 
 function Sidebar() {
-  const { user, logout } = useAuth();
+  const { user, logout, appConfig } = useAuth();
   const { themeName, setThemeName } = useTheme();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const enabledFeatures = appConfig?.enabledFeatures;
 
   const isActive = (path) => location.pathname === path ? 'active' : '';
 
@@ -38,24 +44,35 @@ function Sidebar() {
     setThemeName(newTheme);
   };
 
+  const LOCKED_FEATURES = ['integrations', 'tools'];
+
+  const filterItems = (items) => items.filter(item =>
+    !item.feature ||
+    LOCKED_FEATURES.includes(item.feature) ||
+    !enabledFeatures ||
+    enabledFeatures.includes(item.feature)
+  );
+
   const navItems = [
-    { section: 'Common', items: [
+    { section: 'Common', items: filterItems([
       { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-      { path: '/integrations', icon: Plug, label: 'Integrations' },
-    ]},
-    { section: 'Tools', items: [
-      { path: '/tools', icon: Wrench, label: 'Tools' },
-      // { path: '/workflows', icon: FileText, label: 'Workflows' },
-      { path: '/skills', icon: FileText, label: 'Skills' },
-    ]},
-    { section: 'Sessions', items: [
-      { path: '/session-contexts', icon: Layers, label: 'Contexts' },
-      { path: '/session-channels', icon: MessagesSquare, label: 'Channels' },
-    ]},
-    { section: 'Operations', items: [
-      { path: '/monitoring', icon: Activity, label: 'Monitoring' },
-    ]},
+      { path: '/integrations', icon: Plug, label: 'Integrations', feature: 'integrations' },
+    ])},
+    { section: 'Tools', items: filterItems([
+      { path: '/tools', icon: Wrench, label: 'Tools', feature: 'tools' },
+      { path: '/skills', icon: FileText, label: 'Skills', feature: 'skills' },
+      { path: '/agents', icon: User, label: 'Agents', feature: 'agents' },
+    ])},
+    { section: 'Sessions', items: filterItems([
+      { path: '/session-contexts', icon: Layers, label: 'Contexts', feature: 'sessions' },
+      { path: '/session-channels', icon: MessagesSquare, label: 'Channels', feature: 'channels' },
+    ])},
+    { section: 'Operations', items: filterItems([
+      { path: '/monitoring', icon: Activity, label: 'Monitoring', feature: 'monitoring' },
+      { path: '/health', icon: HeartPulse, label: 'Health', feature: 'health' },
+    ])},
     { section: 'System', items: [
+      ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users', feature: 'users' }] : []),
       { path: '/settings', icon: Settings, label: 'Settings' },
     ]},
   ];
@@ -64,7 +81,7 @@ function Sidebar() {
     <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header">
         <Link to="/" className="sidebar-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Zap size={24} className="sidebar-logo" />
+          <img src="/logo-mark.svg" width="28" height="28" alt="MCP Depot" style={{ borderRadius: '7px', flexShrink: 0 }} />
           {!collapsed && <span className="sidebar-brand-text">MCP Depot</span>}
         </Link>
         <button 
@@ -77,7 +94,7 @@ function Sidebar() {
       </div>
 
       <nav className="sidebar-nav">
-        {navItems.map((section, idx) => (
+        {navItems.filter(section => section.items.length > 0).map((section, idx) => (
           <div key={section.section} className="sidebar-section">
             {!collapsed && <div className="sidebar-section-title">{section.section}</div>}
             {section.items.map((item) => (
@@ -96,14 +113,27 @@ function Sidebar() {
       </nav>
 
       <div className="sidebar-footer" style={{ flexDirection: collapsed ? 'column' : 'row', alignItems: 'center' }}>
-        <label 
-          className="sidebar-theme-toggle" 
-          title={themeName === 'dark' ? 'Switch to light' : 'Switch to dark'}
-          style={{ flexShrink: 0 }}
+        <button
+          onClick={toggleTheme}
+          title={themeName === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{
+            background: 'none',
+            border: '1px solid var(--border)',
+            borderRadius: '6px',
+            padding: '5px 7px',
+            cursor: 'pointer',
+            color: 'var(--text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            transition: 'all 0.12s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'var(--border-light)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
         >
-          <input type="checkbox" checked={themeName === 'dark'} onChange={toggleTheme} />
-          <span className="toggle-slider"></span>
-        </label>
+          {themeName === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+        </button>
         
         <div style={{ position: 'relative', width: '100%' }}>
           <div 

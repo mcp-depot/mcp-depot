@@ -1,18 +1,22 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const Joi = require('joi');
 const User = require('../models/User');
+const SystemSetting = require('../models/SystemSetting');
 const config = require('../config/env');
 const logger = require('../services/logger');
 const { auth, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/config', (req, res) => {
-  res.json({
-    allowRegistration: process.env.ALLOW_REGISTRATION === 'true',
-    version: '1.0.0'
-  });
+const rateLimit = require('express-rate-limit');
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many login attempts, please try again later' },
+  skipSuccessfulRequests: true
 });
 
 const registerSchema = Joi.object({
@@ -47,7 +51,7 @@ function generateTokens(userId) {
   return { accessToken, refreshToken };
 }
 
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   try {
     if (process.env.ALLOW_REGISTRATION !== 'true') {
       return res.status(403).json({ error: 'Registration is disabled. Contact your administrator.' });
@@ -80,7 +84,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { error, value } = loginSchema.validate(req.body);
     if (error) {
@@ -121,7 +125,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/change-password', async (req, res) => {
+router.post('/change-password', auth, async (req, res) => {
   try {
     const { error, value } = changePasswordSchema.validate(req.body);
     if (error) {
@@ -129,34 +133,18 @@ router.post('/change-password', async (req, res) => {
     }
 
     const { currentPassword, newPassword } = value;
-    const authHeader = req.header('Authorization');
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
 
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const isMatch = await user.comparePassword(currentPassword);
+    const isMatch = await req.user.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
-    user.password = newPassword;
-    user.mustResetPassword = false;
-    await user.save();
+    req.user.password = newPassword;
+    req.user.mustResetPassword = false;
+    await req.user.save();
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
-    }
     res.status(500).json({ error: 'Failed to change password' });
   }
 });
@@ -211,45 +199,19 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
-router.get('/me', async (req, res) => {
+router.get('/me', auth, async (req, res) => {
   try {
-    const authHeader = req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(user.toJSON());
+    res.json(req.user.toJSON());
   } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(500).json({ error: 'Failed to get user' });
   }
 });
 
-router.post('/api-key/generate', async (req, res) => {
+router.post('/api-key/generate', auth, async (req, res) => {
   try {
-    const authHeader = req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const apiKey = user.generateApiKey();
-    user.apiKeyEnabled = true;
-    await user.save();
+    const apiKey = req.user.generateApiKey();
+    req.user.apiKeyEnabled = true;
+    await req.user.save();
 
     res.json({ apiKey, message: 'API key generated. Store it securely - it will not be shown again.' });
   } catch (error) {
@@ -257,24 +219,11 @@ router.post('/api-key/generate', async (req, res) => {
   }
 });
 
-router.post('/api-key/regenerate', async (req, res) => {
+router.post('/api-key/regenerate', auth, async (req, res) => {
   try {
-    const authHeader = req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const apiKey = user.generateApiKey();
-    user.apiKeyEnabled = true;
-    await user.save();
+    const apiKey = req.user.generateApiKey();
+    req.user.apiKeyEnabled = true;
+    await req.user.save();
 
     res.json({ apiKey, message: 'API key regenerated. Old key is now invalid.' });
   } catch (error) {
@@ -282,29 +231,288 @@ router.post('/api-key/regenerate', async (req, res) => {
   }
 });
 
-router.post('/api-key/disable', async (req, res) => {
+router.post('/api-key/disable', auth, async (req, res) => {
   try {
-    const authHeader = req.header('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const decoded = jwt.verify(token, config.jwtSecret);
-    
-    const user = await User.findByPk(decoded.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    user.apiKey = null;
-    user.apiKeyEnabled = false;
-    await user.save();
+    req.user.apiKey = null;
+    req.user.apiKeyEnabled = false;
+    await req.user.save();
 
     res.json({ message: 'API key disabled and removed' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to disable API key' });
   }
+});
+
+const OAUTH_CONFIGS = {
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    scope: 'openid email profile'
+  },
+  github: {
+    clientId: process.env.GITHUB_CLIENT_ID,
+    clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    authUrl: 'https://github.com/login/oauth/authorize',
+    tokenUrl: 'https://github.com/login/oauth/access_token',
+    scope: 'read:user user:email'
+  },
+  oidc: {
+    clientId: process.env.OIDC_CLIENT_ID,
+    clientSecret: process.env.OIDC_CLIENT_SECRET,
+    issuerUrl: process.env.OIDC_ISSUER_URL,
+    issuerPublicUrl: process.env.OIDC_ISSUER_PUBLIC_URL || process.env.OIDC_ISSUER_URL,
+    scope: 'openid email profile'
+  }
+};
+
+const oauthStateStore = new Map();
+
+function generateOAuthState(provider) {
+  const state = crypto.randomBytes(16).toString('hex');
+  oauthStateStore.set(state, { provider, createdAt: Date.now() });
+  setTimeout(() => oauthStateStore.delete(state), 10 * 60 * 1000);
+  return state;
+}
+
+const oidcDiscoveryCache = {};
+
+async function getOidcEndpoints(issuerUrl) {
+  if (oidcDiscoveryCache[issuerUrl]) return oidcDiscoveryCache[issuerUrl];
+  
+  const res = await fetch(`${issuerUrl}/.well-known/openid-configuration`);
+  if (!res.ok) throw new Error(`Failed to fetch OIDC discovery document from ${issuerUrl}`);
+  
+  const config = await res.json();
+  const endpoints = {
+    authorizationEndpoint: config.authorization_endpoint,
+    tokenEndpoint: config.token_endpoint,
+    userinfoEndpoint: config.userinfo_endpoint
+  };
+  
+  oidcDiscoveryCache[issuerUrl] = endpoints;
+  return endpoints;
+}
+
+router.get('/oauth-url/:provider', async (req, res) => {
+  const { provider } = req.params;
+  const config = OAUTH_CONFIGS[provider];
+  
+  if (!config || !config.clientId) {
+    return res.status(400).json({ error: `OAuth provider ${provider} is not configured` });
+  }
+
+  let authUrl = config.authUrl;
+  
+  if (provider === 'oidc' && config.issuerUrl) {
+    try {
+      const endpoints = await getOidcEndpoints(config.issuerUrl);
+      const publicBase = config.issuerPublicUrl || config.issuerUrl;
+      authUrl = endpoints.authorizationEndpoint.replace(config.issuerUrl, publicBase);
+    } catch (err) {
+      logger.error({ err: err.message }, 'Failed to fetch OIDC discovery document');
+      return res.status(500).json({ error: 'Failed to fetch OIDC provider configuration' });
+    }
+  }
+
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  const redirectUri = `${clientUrl}/login`;
+  const state = generateOAuthState(provider);
+
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: config.scope,
+    state
+  });
+
+  res.json({ url: `${authUrl}?${params.toString()}`, state });
+});
+
+router.post('/oauth/:provider', async (req, res) => {
+  const { provider } = req.params;
+  const { code, redirectUri, state } = req.body;
+  const config = OAUTH_CONFIGS[provider];
+
+  if (!config || !config.clientId) {
+    return res.status(400).json({ error: `OAuth provider ${provider} is not configured` });
+  }
+
+  if (!code) {
+    return res.status(400).json({ error: 'Authorization code is required' });
+  }
+
+  if (!state || !oauthStateStore.has(state)) {
+    return res.status(400).json({ error: 'Invalid or expired OAuth state parameter' });
+  }
+
+  const storedState = oauthStateStore.get(state);
+  oauthStateStore.delete(state);
+
+  if (storedState.provider !== provider) {
+    return res.status(400).json({ error: 'OAuth state mismatch' });
+  }
+
+  try {
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const tokenData = await exchangeOAuthCode(provider, code, redirectUri || `${clientUrl}/login`);
+    const profile = await fetchOAuthProfile(provider, tokenData.access_token, tokenData);
+
+    if (!profile.email) {
+      return res.status(400).json({ error: 'OAuth provider did not return an email address' });
+    }
+
+    let user = await User.findOne({ where: { email: profile.email } });
+
+    if (!user) {
+      const crypto = require('crypto');
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      user = await User.create({
+        email: profile.email,
+        name: profile.name || profile.email.split('@')[0],
+        password: randomPassword,
+        role: 'user',
+        mustResetPassword: false
+      });
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user.id);
+
+    res.json({
+      accessToken,
+      refreshToken,
+      user: user.toJSON()
+    });
+  } catch (err) {
+    logger.error({ err: err.message, provider }, 'OAuth login error');
+    res.status(500).json({ error: 'OAuth login failed' });
+  }
+});
+
+async function exchangeOAuthCode(provider, code, redirectUri) {
+  const config = OAUTH_CONFIGS[provider];
+  
+  let tokenUrl = config.tokenUrl;
+  if (provider === 'oidc' && config.issuerUrl) {
+    const endpoints = await getOidcEndpoints(config.issuerUrl);
+    tokenUrl = endpoints.tokenEndpoint;
+  }
+  
+  const body = {
+    code,
+    redirect_uri: redirectUri,
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    grant_type: 'authorization_code'
+  };
+
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': provider === 'github' ? 'application/json' : 'application/x-www-form-urlencoded',
+      'Accept': 'application/json'
+    },
+    body: provider === 'github' ? JSON.stringify(body) : new URLSearchParams(body).toString()
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Token exchange failed: ${res.status} ${errorText}`);
+  }
+
+  return res.json();
+}
+
+async function fetchOAuthProfile(provider, accessToken, tokenData = {}) {
+  if (provider === 'google') {
+    const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) throw new Error('Failed to fetch Google profile');
+    const data = await res.json();
+    return { email: data.email, name: data.name };
+  }
+
+  if (provider === 'github') {
+    const res = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'mcp-depot' }
+    });
+    if (!res.ok) throw new Error('Failed to fetch GitHub profile');
+    const data = await res.json();
+
+    let email = data.email;
+    if (!email) {
+      const emailsRes = await fetch('https://api.github.com/user/emails', {
+        headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'mcp-depot' }
+      });
+      if (emailsRes.ok) {
+        const emails = await emailsRes.json();
+        const primary = emails.find(e => e.primary && e.verified);
+        email = primary?.email;
+      }
+    }
+
+    return { email, name: data.name || data.login };
+  }
+
+  if (provider === 'oidc') {
+    if (tokenData.id_token) {
+      const decoded = jwt.decode(tokenData.id_token);
+      if (decoded && decoded.email) {
+        return {
+          email: decoded.email,
+          name: decoded.name || decoded.preferred_username || decoded.email
+        };
+      }
+    }
+    const config = OAUTH_CONFIGS.oidc;
+    const endpoints = await getOidcEndpoints(config.issuerUrl);
+    const res = await fetch(endpoints.userinfoEndpoint, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Failed to fetch OIDC userinfo: ${res.status} ${body}`);
+    }
+    const data = await res.json();
+    return {
+      email: data.email,
+      name: data.name || data.preferred_username || data.email
+    };
+  }
+
+  throw new Error(`Unsupported OAuth provider: ${provider}`);
+}
+
+router.get('/config', async (req, res) => {
+  const defaultFeatures = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'agents', 'users', 'monitoring', 'health'];
+  const enabledFeaturesEnv = process.env.ENABLED_FEATURES;
+  
+  let enabledFeatures;
+  try {
+    const dbSetting = await SystemSetting.findByPk('enabled_features');
+    enabledFeatures = dbSetting?.value?.features || 
+      (enabledFeaturesEnv ? enabledFeaturesEnv.split(',').map(f => f.trim()).filter(f => defaultFeatures.includes(f)) : 
+      defaultFeatures);
+  } catch (e) {
+    enabledFeatures = enabledFeaturesEnv 
+      ? enabledFeaturesEnv.split(',').map(f => f.trim()).filter(f => defaultFeatures.includes(f))
+      : defaultFeatures;
+  }
+  
+  res.json({
+    allowRegistration: process.env.ALLOW_REGISTRATION === 'true',
+    googleEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    githubEnabled: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
+    oidcEnabled: !!(process.env.OIDC_ENABLED === 'true' && process.env.OIDC_ISSUER_URL && process.env.OIDC_CLIENT_ID),
+    oidcDisplayName: process.env.OIDC_DISPLAY_NAME || 'Login with SSO',
+    enabledFeatures,
+    serveClient: process.env.SERVE_CLIENT !== 'false',
+    apiOnly: process.env.API_ONLY === 'true',
+    version: '1.0.0'
+  });
 });
 
 module.exports = router;

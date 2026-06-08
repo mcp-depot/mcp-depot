@@ -4,6 +4,7 @@ const fs = require('fs');
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const logger = require('../services/logger');
+const { runMigrations } = require('../migrations/runner');
 
 let sequelize;
 
@@ -45,10 +46,12 @@ const loadModels = () => {
   const ToolCall = require('../models/ToolCall');
   const UserIntegrationCredentials = require('../models/UserIntegrationCredentials');
   const ExternalMcpServer = require('../models/ExternalMcpServer');
+  const ExternalMcpTool = require('../models/ExternalMcpTool');
   const PromptLibrary = require('../models/PromptLibrary')(sequelize);
   const SystemSetting = require('../models/SystemSetting');
   const SessionContext = require('../models/SessionContext')(sequelize);
   const SessionChannel = require('../models/SessionChannel')(sequelize);
+  const Agent = require('../models/Agent')(sequelize);
   
   if (!associationsDefined) {
     User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
@@ -69,10 +72,12 @@ const loadModels = () => {
     
     SessionContext.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
     
+    Agent.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+    
     associationsDefined = true;
   }
   
-  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel };
+  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent };
 };
 
 const generatePassword = () => {
@@ -146,6 +151,7 @@ const createDefaultTool = async () => {
       userId: adminUser.id,
       type: 'custom',
       name: 'MCP Depot',
+      visibility: 'shared',
       description: 'Built-in MCP Depot API',
       config: {
         baseUrl: `http://localhost:${process.env.PORT || 3000}`,
@@ -238,6 +244,7 @@ const createDefaultTool = async () => {
         userId: adminUser.id,
         type: 'custom',
         name: 'MCP Depot Sessions',
+        visibility: 'shared',
         description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
         config: {
           baseUrl: `http://localhost:${process.env.PORT || 3000}`,
@@ -252,7 +259,17 @@ const createDefaultTool = async () => {
       {
         name: 'store-session-context',
         description: 'Save a named context to MCP Depot. Private by default — set shared=true to make it readable by any MCP Depot user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
-        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any MCP Depot user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Default 168. Pass 0 to pin.' } }, headers: {} }
+        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any MCP Depot user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Default 168. Pass 0 to pin.' } }, headers: {} },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name:     { type: 'string',  description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
+            content:  { type: 'string',  description: 'The context to store — markdown, JSON, bullet list, anything' },
+            shared:   { type: 'boolean', description: 'If true, any MCP Depot user can read this context. Default false.' },
+            ttlHours: { type: 'number',  description: 'Hours until expiry. Default 168 (7 days). Pass 0 to pin permanently with no expiry.' }
+          },
+          required: ['name', 'content']
+        }
       },
       {
         name: 'get-session-context',
@@ -288,6 +305,21 @@ const createDefaultTool = async () => {
         name: 'clear-channel',
         description: 'Delete all messages in a session channel.',
         endpoint: { path: '/api/mcp/session-channels/clear', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      },
+      {
+        name: 'watch_channel',
+        description: 'Long-poll a session channel until a new message arrives. Returns the message and metadata. Useful for waiting for a collaborator reply.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/watch', method: 'GET', params: { channel: { type: 'string', required: true, description: 'Channel name' }, timeout: { type: 'number', required: false, description: 'Max wait time in seconds' } }, headers: {} }
+      },
+      {
+        name: 'subscribe_channel',
+        description: 'Subscribe to push notifications for a channel. After subscribing, new messages arrive as MCP notifications/message events — no polling needed.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      },
+      {
+        name: 'unsubscribe_channel',
+        description: 'Unsubscribe from push notifications for a channel.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
       }
     ];
 
@@ -299,6 +331,64 @@ const createDefaultTool = async () => {
     }
 
     logger.info('MCP Depot Sessions tools created!\n');
+
+    // Create MCP Depot Agents integration
+    let agentsIntegration = await Integration.findOne({
+      where: { name: 'MCP Depot Agents' }
+    });
+
+    if (!agentsIntegration) {
+      agentsIntegration = await Integration.create({
+        userId: adminUser.id,
+        type: 'custom',
+        name: 'MCP Depot Agents',
+        visibility: 'shared',
+        description: 'Agent registry — create, manage and install AI agents across clients. Disable this integration to hide agent tools from Claude.',
+        config: {
+          baseUrl: `http://localhost:${process.env.PORT || 3000}`,
+          auth: { type: 'none' }
+        },
+        isActive: true
+      });
+    }
+
+    // Seed agent tools under MCP Depot Agents
+    const agentTools = [
+      {
+        name: 'list-agents',
+        description: 'List all agents available to the current user (own + shared).',
+        endpoint: { path: '/api/mcp/agents', method: 'GET', params: {}, headers: {} }
+      },
+      {
+        name: 'get-agent',
+        description: 'Get a specific agent by name, optionally including an install config snippet for a given AI client format (claude-code, opencode, generic).',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' }, clientType: { type: 'string', required: false, description: 'AI client format: claude-code, opencode, or generic' } }, headers: {} }
+      },
+      {
+        name: 'create-agent',
+        description: 'Create a new agent with a name, description, role (short label), system prompt, optional tool constraints, optional model preference, and sharing flag.',
+        endpoint: { path: '/api/mcp/agents', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique agent name (slug-style, e.g. security-reviewer)' }, description: { type: 'string', required: false, description: 'Short description' }, role: { type: 'string', required: true, description: 'Short display label, e.g. Security Reviewer' }, systemPrompt: { type: 'string', required: true, description: 'The system prompt / personality for this agent' }, tools: { type: 'string', required: false, description: 'Comma-separated allowed tool names, e.g. read, grep, bash' }, model: { type: 'string', required: false, description: 'Preferred model ID, e.g. claude-opus-4-7' }, isShared: { type: 'boolean', required: false, description: 'Make this agent visible to all users' } }, headers: { 'Content-Type': 'application/json' } }
+      },
+      {
+        name: 'update-agent',
+        description: 'Update an existing agent by name. Only provided fields are changed.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'PUT', params: { name: { type: 'string', required: true, description: 'Agent name to update' }, description: { type: 'string', required: false, description: 'Updated description' }, role: { type: 'string', required: false, description: 'Updated display label' }, systemPrompt: { type: 'string', required: false, description: 'Updated system prompt' }, tools: { type: 'string', required: false, description: 'Updated tool constraints' }, model: { type: 'string', required: false, description: 'Updated model preference' }, isShared: { type: 'boolean', required: false, description: 'Updated sharing flag' } }, headers: { 'Content-Type': 'application/json' } }
+      },
+      {
+        name: 'delete-agent',
+        description: 'Delete an agent by name. Only the owner or an admin can delete an agent.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'DELETE', params: { name: { type: 'string', required: true, description: 'Agent name to delete' } }, headers: {} }
+      }
+    ];
+
+    for (const toolDef of agentTools) {
+      await Tool.findOrCreate({
+        where: { name: toolDef.name },
+        defaults: { userId: adminUser.id, integrationId: agentsIntegration.id, ...toolDef, isActive: true }
+      });
+    }
+
+    logger.info('MCP Depot Agents tools created!\n');
   } else {
     userId = mcpDepotIntegration.userId;
     
@@ -306,6 +396,11 @@ const createDefaultTool = async () => {
       { name: 'list-skills', description: 'List all available skills that AI assistants can invoke' },
       { where: { name: 'list-prompts' } }
     );
+
+    // Ensure built-in integrations are visible to all users
+    if (mcpDepotIntegration.visibility !== 'shared') {
+      await mcpDepotIntegration.update({ visibility: 'shared' });
+    }
 
     // Find or create MCP Depot Sessions integration
     let sessionsIntegration = await Integration.findOne({
@@ -317,10 +412,13 @@ const createDefaultTool = async () => {
         userId,
         type: 'custom',
         name: 'MCP Depot Sessions',
+        visibility: 'shared',
         description: 'Session persistence tools — Contexts and Channels. Disable this integration to hide these tools from Claude.',
         config: { baseUrl: `http://localhost:${process.env.PORT || 3000}`, auth: { type: 'none' } },
         isActive: true
       });
+    } else if (sessionsIntegration.visibility !== 'shared') {
+      await sessionsIntegration.update({ visibility: 'shared' });
     }
 
     // Migration: update baseUrl for MCP Depot integration if port has changed
@@ -345,11 +443,22 @@ const createDefaultTool = async () => {
       'store-session-context', 'get-session-context',
       'list-session-contexts', 'delete-session-context',
       'append-to-channel', 'read-channel',
-      'list-channels', 'clear-channel'
+      'list-channels', 'clear-channel', 'watch_channel',
+      'subscribe_channel', 'unsubscribe_channel'
     ];
     await Tool.update(
       { integrationId: sessionsIntegration.id },
       { where: { name: sessionToolNames, integrationId: mcpDepotIntegration.id } }
+    );
+
+    // Migration: update subscribe/unsubscribe channel tool endpoints to include channel param
+    await Tool.update(
+      { endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} } },
+      { where: { name: 'subscribe_channel' } }
+    );
+    await Tool.update(
+      { endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} } },
+      { where: { name: 'unsubscribe_channel' } }
     );
 
     // Seed session tools under MCP Depot Sessions
@@ -357,7 +466,17 @@ const createDefaultTool = async () => {
       {
         name: 'store-session-context',
         description: 'Save a named context to MCP Depot. Private by default — set shared=true to make it readable by any MCP Depot user. Pass ttlHours=0 to pin permanently. Default 168 hours (7 days).',
-        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Pass 0 to pin.' } }, headers: {} }
+        endpoint: { path: '/api/mcp/session-contexts/store', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique human-readable key' }, content: { type: 'string', required: true, description: 'The context to store' }, shared: { type: 'boolean', required: false, description: 'If true, any user can read' }, ttlHours: { type: 'number', required: false, description: 'Hours until expiry. Pass 0 to pin.' } }, headers: {} },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name:     { type: 'string',  description: 'Unique human-readable key, e.g. "bitbucket-debug"' },
+            content:  { type: 'string',  description: 'The context to store — markdown, JSON, bullet list, anything' },
+            shared:   { type: 'boolean', description: 'If true, any MCP Depot user can read this context. Default false.' },
+            ttlHours: { type: 'number',  description: 'Hours until expiry. Default 168 (7 days). Pass 0 to pin permanently with no expiry.' }
+          },
+          required: ['name', 'content']
+        }
       },
       {
         name: 'get-session-context',
@@ -393,6 +512,21 @@ const createDefaultTool = async () => {
         name: 'clear-channel',
         description: 'Delete all messages in a session channel.',
         endpoint: { path: '/api/mcp/session-channels/clear', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      },
+      {
+        name: 'watch_channel',
+        description: 'Long-poll a session channel until a new message arrives. Returns the message and metadata. Useful for waiting for a collaborator reply.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/watch', method: 'GET', params: { channel: { type: 'string', required: true, description: 'Channel name' }, timeout: { type: 'number', required: false, description: 'Max wait time in seconds' } }, headers: {} }
+      },
+      {
+        name: 'subscribe_channel',
+        description: 'Subscribe to push notifications for a channel. After subscribing, new messages arrive as MCP notifications/message events — no polling needed.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'POST', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
+      },
+      {
+        name: 'unsubscribe_channel',
+        description: 'Unsubscribe from push notifications for a channel.',
+        endpoint: { path: '/api/mcp/session-channels/{channel}/subscribe', method: 'DELETE', params: { channel: { type: 'string', required: true, description: 'Channel name' } }, headers: {} }
       }
     ];
 
@@ -401,6 +535,15 @@ const createDefaultTool = async () => {
         where: { name: toolDef.name },
         defaults: { userId, integrationId: sessionsIntegration.id, ...toolDef, isActive: true }
       });
+    }
+
+    for (const toolDef of sessionToolsToCreate) {
+      if (toolDef.inputSchema) {
+        await Tool.update(
+          { inputSchema: toolDef.inputSchema, description: toolDef.description },
+          { where: { name: toolDef.name } }
+        );
+      }
     }
 
     const toolsToCreate = [
@@ -465,6 +608,172 @@ const createDefaultTool = async () => {
     }
 
     logger.info('Additional MCP Depot tools added!\n');
+
+    // Find or create MCP Depot Agents integration
+    let agentsIntegration = await Integration.findOne({
+      where: { name: 'MCP Depot Agents' }
+    });
+
+    if (!agentsIntegration) {
+      agentsIntegration = await Integration.create({
+        userId,
+        type: 'custom',
+        name: 'MCP Depot Agents',
+        visibility: 'shared',
+        description: 'Agent registry — create, manage and install AI agents across clients. Disable this integration to hide agent tools from Claude.',
+        config: { baseUrl: actualBaseUrl, auth: { type: 'none' } },
+        isActive: true
+      });
+    } else if (agentsIntegration.config?.baseUrl !== actualBaseUrl) {
+      await agentsIntegration.update({
+        config: { ...agentsIntegration.config, baseUrl: actualBaseUrl }
+      });
+    }
+
+    // Seed agent tools under MCP Depot Agents
+    const agentTools = [
+      {
+        name: 'list-agents',
+        description: 'List all agents available to the current user (own + shared).',
+        endpoint: { path: '/api/mcp/agents', method: 'GET', params: {}, headers: {} }
+      },
+      {
+        name: 'get-agent',
+        description: 'Get a specific agent by name, optionally including an install config snippet for a given AI client format (claude-code, opencode, generic).',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' }, clientType: { type: 'string', required: false, description: 'AI client format: claude-code, opencode, or generic' } }, headers: {} }
+      },
+      {
+        name: 'create-agent',
+        description: 'Create a new agent with a name, description, role (short label), system prompt, optional tool constraints, optional model preference, and sharing flag.',
+        endpoint: { path: '/api/mcp/agents', method: 'POST', params: { name: { type: 'string', required: true, description: 'Unique agent name (slug-style, e.g. security-reviewer)' }, description: { type: 'string', required: false, description: 'Short description' }, role: { type: 'string', required: true, description: 'Short display label, e.g. Security Reviewer' }, systemPrompt: { type: 'string', required: true, description: 'The system prompt / personality for this agent' }, tools: { type: 'string', required: false, description: 'Comma-separated allowed tool names, e.g. read, grep, bash' }, model: { type: 'string', required: false, description: 'Preferred model ID, e.g. claude-opus-4-7' }, isShared: { type: 'boolean', required: false, description: 'Make this agent visible to all users' } }, headers: { 'Content-Type': 'application/json' } }
+      },
+      {
+        name: 'update-agent',
+        description: 'Update an existing agent by name. Only provided fields are changed.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'PUT', params: { name: { type: 'string', required: true, description: 'Agent name to update' }, description: { type: 'string', required: false, description: 'Updated description' }, role: { type: 'string', required: false, description: 'Updated display label' }, systemPrompt: { type: 'string', required: false, description: 'Updated system prompt' }, tools: { type: 'string', required: false, description: 'Updated tool constraints' }, model: { type: 'string', required: false, description: 'Updated model preference' }, isShared: { type: 'boolean', required: false, description: 'Updated sharing flag' } }, headers: { 'Content-Type': 'application/json' } }
+      },
+      {
+        name: 'delete-agent',
+        description: 'Delete an agent by name. Only the owner or an admin can delete an agent.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'DELETE', params: { name: { type: 'string', required: true, description: 'Agent name to delete' } }, headers: {} }
+      }
+    ];
+
+    for (const toolDef of agentTools) {
+      const [tool, created] = await Tool.findOrCreate({
+        where: { name: toolDef.name },
+        defaults: { userId, integrationId: agentsIntegration.id, ...toolDef, isActive: true }
+      });
+      if (!created) {
+        await tool.update({ description: toolDef.description, endpoint: toolDef.endpoint });
+      }
+    }
+
+    logger.info('MCP Depot Agents tools seeded!\n');
+  }
+
+  // Create MCP Depot - AI Tools integration (meta-tools for AI-driven integration builder)
+  let aiToolsIntegration = await Integration.findOne({
+    where: { name: 'MCP Depot - AI Tools' }
+  });
+  const actualBaseUrl = `http://localhost:${process.env.PORT || 3000}`;
+  if (!aiToolsIntegration) {
+    aiToolsIntegration = await Integration.create({
+      userId,
+      type: 'custom',
+      name: 'MCP Depot - AI Tools',
+      description: 'AI-driven integration builder — meta-tools for creating and managing integrations from chat. Disable to hide meta-tools.',
+      config: { baseUrl: actualBaseUrl, auth: { type: 'none' } },
+      isActive: true,
+      metadata: { source: 'built-in' }
+    });
+    logger.info('MCP Depot - AI Tools integration created (enable/disable via the UI card to toggle meta-tools)');
+  } else if (aiToolsIntegration.config?.auth?.type === 'apikey') {
+    await aiToolsIntegration.update({
+      config: { baseUrl: actualBaseUrl, auth: { type: 'none' } }
+    });
+    logger.info('MCP Depot - AI Tools integration migrated to auth: none');
+  } else if (aiToolsIntegration.config?.baseUrl !== actualBaseUrl) {
+    await aiToolsIntegration.update({
+      config: { ...aiToolsIntegration.config, baseUrl: actualBaseUrl }
+    });
+  }
+
+  // Seed meta-tool records so they appear in the UI (actual handlers are on McpServer, not HTTP endpoints)
+  const metaToolDefs = [
+    {
+      name: 'mcp_list_integrations',
+      description: 'List all registered integrations with their tool counts and metadata.',
+      endpoint: { path: '/api/mcp/list-integrations', method: 'GET', params: {}, headers: {} }
+    },
+    {
+      name: 'mcp_register_integration',
+      description: 'Create a new integration by name, base URL, and type. Credentials must be configured in the UI.',
+      endpoint: { path: '/api/mcp/register-integration', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: '{name}', baseUrl: '{baseUrl}', type: '{type}', description: '{description}', shared: '{shared}' } },
+      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Integration name' }, baseUrl: { type: 'string', description: 'Base URL of the API' }, type: { type: 'string', description: 'Integration type (default: custom)' }, description: { type: 'string', description: 'Description' }, shared: { type: 'boolean', description: 'Whether shared with all users' } }, required: ['name', 'baseUrl'] }
+    },
+    {
+      name: 'mcp_register_tool',
+      description: 'Add a tool to an existing integration, mapping an HTTP endpoint to a named MCP tool.',
+      endpoint: { path: '/api/mcp/register-tool', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { integration: '{integration}', name: '{name}', description: '{description}', path: '{path}', method: '{method}', params: '{params}', responseFields: '{responseFields}' } },
+      inputSchema: { type: 'object', properties: { integration: { type: 'string', description: 'Integration name to add tool to' }, name: { type: 'string', description: 'Tool name' }, description: { type: 'string', description: 'Tool description' }, path: { type: 'string', description: 'HTTP path (e.g. /get)' }, method: { type: 'string', description: 'HTTP method (default: GET)' }, params: { type: 'string', description: 'JSON-encoded params object' }, responseFields: { type: 'string', description: 'JSON-encoded response fields' } }, required: ['integration', 'name', 'description', 'path'] }
+    },
+    {
+      name: 'mcp_describe_tool',
+      description: 'Get the full schema and details for a named tool.',
+      endpoint: { path: '/api/mcp/describe-tool', method: 'GET', params: { name: { type: 'string', required: true, description: 'Tool name' } }, headers: {} }
+    },
+    {
+      name: 'mcp_remove_tool',
+      description: 'Remove a tool from an integration. Requires confirm: true.',
+      endpoint: { path: '/api/mcp/remove-tool', method: 'DELETE', params: {}, headers: { 'Content-Type': 'application/json' }, body: { integration: '{integration}', name: '{name}', confirm: '{confirm}' } },
+      inputSchema: { type: 'object', properties: { integration: { type: 'string', description: 'Integration name' }, name: { type: 'string', description: 'Tool name to remove' }, confirm: { type: 'boolean', description: 'Must be true to confirm deletion' } }, required: ['integration', 'name', 'confirm'] }
+    }
+  ];
+
+  for (const mt of metaToolDefs) {
+    const [tool, created] = await Tool.findOrCreate({
+      where: { name: mt.name },
+      defaults: {
+        userId,
+        integrationId: aiToolsIntegration.id,
+        type: 'meta',
+        name: mt.name,
+        description: mt.description,
+        endpoint: mt.endpoint,
+        inputSchema: mt.inputSchema || {},
+        isActive: true
+      }
+    });
+    if (!created) {
+      await tool.update({ endpoint: mt.endpoint, inputSchema: mt.inputSchema || {} });
+    }
+  }
+
+  // Seed create-skill and update-skill tools
+  const skillToolDefs = [
+    {
+      name: 'create-skill',
+      description: 'Create or update a skill in MCP Depot by name. If a skill with the given name already exists it will be updated.',
+      endpoint: { path: '/api/mcp/skills', method: 'POST', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: '{name}', prompt: '{prompt}', description: '{description}', inputs: '{inputs}', outputFormat: '{outputFormat}', isShared: '{isShared}', tags: '{tags}' } },
+      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Unique skill key, e.g. "code-reviewer"' }, prompt: { type: 'string', description: 'Full skill prompt (supports {{variable}} placeholders)' }, description: { type: 'string', description: 'Short description' }, inputs: { type: 'array', description: 'Input variable definitions' }, outputFormat: { type: 'string', description: 'text, json, or markdown (default: text)' }, isShared: { type: 'boolean', description: 'Visible to all team members' }, tags: { type: 'array', description: 'Tags for categorization' } }, required: ['name', 'prompt'] }
+    },
+    {
+      name: 'update-skill',
+      description: 'Update specific fields of an existing skill in MCP Depot by name.',
+      endpoint: { path: '/api/mcp/skills/{name}', method: 'PUT', params: {}, headers: { 'Content-Type': 'application/json' }, body: { name: '{name}', prompt: '{prompt}', description: '{description}', inputs: '{inputs}', outputFormat: '{outputFormat}', isShared: '{isShared}', tags: '{tags}' } },
+      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Name of the skill to update (used in URL path)' }, prompt: { type: 'string', description: 'Updated skill prompt' }, description: { type: 'string', description: 'Updated description' }, inputs: { type: 'array', description: 'Updated input definitions' }, outputFormat: { type: 'string', description: 'text, json, or markdown' }, isShared: { type: 'boolean', description: 'Visibility setting' }, tags: { type: 'array', description: 'Updated tags' } }, required: ['name'] }
+    }
+  ];
+
+  for (const toolDef of skillToolDefs) {
+    const [tool, created] = await Tool.findOrCreate({
+      where: { name: toolDef.name },
+      defaults: { userId, integrationId: mcpDepotIntegration.id, name: toolDef.name, description: toolDef.description, endpoint: toolDef.endpoint, inputSchema: toolDef.inputSchema, isActive: true }
+    });
+    if (!created) {
+      await tool.update({ inputSchema: toolDef.inputSchema, endpoint: toolDef.endpoint });
+    }
   }
 };
 
@@ -484,20 +793,29 @@ const connectDB = async (retries = 5, delay = 3000) => {
         logger.warn('Production mode: running sequelize.sync({ force: false }) to create missing tables');
         await sequelize.sync({ force: false });
         logger.info('Database synchronized');
-
-        // Migration: add ttlHours column to existing SessionContext table
+        
+        const isPostgres = sequelize.getDialect() === 'postgres';
+        const tagsColType = isPostgres ? 'JSON' : 'TEXT';
+        
         try {
-          await sequelize.query(`
-            ALTER TABLE "SessionContext" ADD COLUMN IF NOT EXISTS "ttlHours" INTEGER NULL
-          `);
-          logger.info('Migration: added ttlHours column to SessionContext');
+          await sequelize.query(`ALTER TABLE integrations ADD COLUMN tags ${tagsColType} DEFAULT '[]'`, { type: sequelize.QueryTypes.RAW });
+          logger.info('Migration: added tags column to integrations');
         } catch (e) {
-          if (e.message.includes('ttlHours')) {
-            logger.info('Migration: ttlHours column already exists');
-          } else {
-            logger.warn({ err: e.message }, 'Migration: could not add ttlHours column');
+          if (!e.message.includes('already exists') && !e.message.includes('duplicate column name')) {
+            logger.warn({ err: e.message }, 'Migration: tags column on integrations');
           }
         }
+        
+        try {
+          await sequelize.query(`ALTER TABLE prompt_library ADD COLUMN tags ${tagsColType} DEFAULT '[]'`, { type: sequelize.QueryTypes.RAW });
+          logger.info('Migration: added tags column to prompt_library');
+        } catch (e) {
+          if (!e.message.includes('already exists') && !e.message.includes('duplicate column name')) {
+            logger.warn({ err: e.message }, 'Migration: tags column on prompt_library');
+          }
+        }
+        
+        await runMigrations(sequelize);
       }
       
       break;
@@ -516,7 +834,7 @@ const connectDB = async (retries = 5, delay = 3000) => {
     try {
       await sequelize.query(`
         CREATE TABLE IF NOT EXISTS tool_calls (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          id TEXT PRIMARY KEY,
           "toolId" UUID NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
           "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           "integrationId" UUID NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
@@ -524,18 +842,18 @@ const connectDB = async (retries = 5, delay = 3000) => {
           "callerType" VARCHAR(20) DEFAULT 'unknown',
           method VARCHAR(10) NOT NULL,
           path VARCHAR(1000) NOT NULL,
-          "requestHeaders" JSONB DEFAULT '{}',
-          "requestBody" JSONB DEFAULT '{}',
-          "queryParams" JSONB DEFAULT '{}',
+          "requestHeaders" TEXT DEFAULT '{}',
+          "requestBody" TEXT DEFAULT '{}',
+          "queryParams" TEXT DEFAULT '{}',
           "responseStatus" INTEGER,
-          "responseBody" JSONB DEFAULT '{}',
+          "responseBody" TEXT DEFAULT '{}',
           "responseTime" INTEGER,
           "errorMessage" TEXT,
           success BOOLEAN DEFAULT true,
           "ipAddress" VARCHAR(45),
           "userAgent" VARCHAR(500),
-          "createdAt" TIMESTAMP DEFAULT NOW(),
-          "updatedAt" TIMESTAMP DEFAULT NOW()
+          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS "idx_tool_calls_toolId" ON tool_calls("toolId");
         CREATE INDEX IF NOT EXISTS "idx_tool_calls_userId" ON tool_calls("userId");
@@ -555,13 +873,13 @@ const connectDB = async (retries = 5, delay = 3000) => {
     try {
       await sequelize.query(`
         CREATE TABLE IF NOT EXISTS user_integration_credentials (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          id TEXT PRIMARY KEY,
           "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           "integrationId" UUID NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
-          credentials JSONB NOT NULL,
+          credentials TEXT NOT NULL,
           "isActive" BOOLEAN DEFAULT true,
-          "createdAt" TIMESTAMP DEFAULT NOW(),
-          "updatedAt" TIMESTAMP DEFAULT NOW(),
+          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE("userId", "integrationId")
         );
         CREATE INDEX IF NOT EXISTS "idx_uic_userId" ON user_integration_credentials("userId");
@@ -575,7 +893,7 @@ const connectDB = async (retries = 5, delay = 3000) => {
     try {
       await sequelize.query(`
         CREATE TABLE IF NOT EXISTS external_mcp_servers (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          id TEXT PRIMARY KEY,
           "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           name VARCHAR(255) NOT NULL,
           runtime VARCHAR(20) DEFAULT 'node',
@@ -590,9 +908,9 @@ const connectDB = async (retries = 5, delay = 3000) => {
           "isActive" BOOLEAN DEFAULT true,
           "lastFetchedAt" TIMESTAMP,
           "lastFetchError" VARCHAR(500),
-          metadata JSONB DEFAULT '{}',
-          "createdAt" TIMESTAMP DEFAULT NOW(),
-          "updatedAt" TIMESTAMP DEFAULT NOW()
+          metadata TEXT DEFAULT '{}',
+          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS "idx_ems_userId" ON external_mcp_servers("userId");
         CREATE INDEX IF NOT EXISTS "idx_ems_isActive" ON external_mcp_servers("isActive");
@@ -607,15 +925,15 @@ const connectDB = async (retries = 5, delay = 3000) => {
     try {
       await sequelize.query(`
         CREATE TABLE IF NOT EXISTS prompt_library (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          id TEXT PRIMARY KEY,
           "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           name VARCHAR(255) NOT NULL,
           description TEXT,
-          inputs JSONB DEFAULT '[]',
+          inputs TEXT DEFAULT '[]',
           prompt TEXT NOT NULL,
           "isDefault" BOOLEAN DEFAULT false,
-          "createdAt" TIMESTAMP DEFAULT NOW(),
-          "updatedAt" TIMESTAMP DEFAULT NOW()
+          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS "idx_pl_userId" ON prompt_library("userId");
       `);
@@ -629,7 +947,7 @@ const connectDB = async (retries = 5, delay = 3000) => {
       await sequelize.query(`
         CREATE TABLE IF NOT EXISTS system_settings (
           key VARCHAR(100) PRIMARY KEY,
-          value JSONB DEFAULT '{}',
+          value TEXT DEFAULT '{}',
           description VARCHAR(500)
         );
       `);
@@ -640,11 +958,20 @@ const connectDB = async (retries = 5, delay = 3000) => {
 
     // Migration: remap auth.type from 'infisical' to 'bearer' for existing integrations
     try {
-      await sequelize.query(`
-        UPDATE integrations
-        SET config = jsonb_set(config, '{auth,type}', '"bearer"')
-        WHERE config->'auth'->>'type' = 'infisical'
-      `);
+      const isPostgres = sequelize.getDialect() === 'postgres';
+      if (isPostgres) {
+        await sequelize.query(`
+          UPDATE integrations
+          SET config = jsonb_set(config, '{auth,type}', '"bearer"')
+          WHERE config->'auth'->>'type' = 'infisical'
+        `);
+      } else {
+        await sequelize.query(`
+          UPDATE integrations
+          SET config = JSON_SET(config, '$.auth.type', 'bearer')
+          WHERE JSON_EXTRACT(config, '$.auth.type') = 'infisical'
+        `);
+      }
       logger.info('Migration: remapped infisical auth type to bearer');
     } catch (e) {
       logger.warn('Migration may have already run:', e.message);

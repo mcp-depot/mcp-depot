@@ -18,7 +18,7 @@ function Navbar() {
   return (
     <div className="navbar">
       <Link to="/" className="navbar-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <img src="/logo.png" alt="MCP Depot Logo" width="32" height="32" style={{ borderRadius: '6px', filter: themeName === 'dark' ? 'brightness(0.9)' : 'none' }} />
+        <img src="/logo-mark.svg" alt="MCP Depot" width="32" height="32" style={{ borderRadius: '7px' }} />
         MCP Depot
       </Link>
       <div className="navbar-menu">

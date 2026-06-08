@@ -2,6 +2,7 @@ const express = require('express');
 const Joi = require('joi');
 const { auth, requireAdmin } = require('../middleware/auth');
 const SystemSetting = require('../models/SystemSetting');
+const logger = require('../services/logger');
 
 const router = express.Router();
 
@@ -14,7 +15,8 @@ const importDataSchema = Joi.object({
   externalMcp: Joi.array().items(Joi.object()).default([]),
   integrations: Joi.array().items(Joi.object()).default([]),
   tools: Joi.array().items(Joi.object()).default([]),
-  workflows: Joi.array().items(Joi.object()).default([]),
+  skills: Joi.array().items(Joi.object()).default([]),
+  sessionContexts: Joi.array().items(Joi.object()).default([]),
   externalMcpServers: Joi.array().items(Joi.object()).default([])
 });
 
@@ -35,6 +37,70 @@ router.get('/mcp', auth, async (req, res) => {
   try {
     const setting = await SystemSetting.findByPk('mcp');
     res.json(setting?.value || { authMode: 'none' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+const DEFAULT_FEATURES = ['integrations', 'tools', 'skills', 'sessions', 'channels', 'agents', 'users', 'monitoring', 'health'];
+
+router.get('/features', auth, async (req, res) => {
+  try {
+    const setting = await SystemSetting.findByPk('enabled_features');
+    res.json({ enabledFeatures: setting?.value?.features || DEFAULT_FEATURES });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/features', auth, requireAdmin, async (req, res) => {
+  try {
+    const { features } = req.body;
+    if (!Array.isArray(features)) {
+      return res.status(400).json({ error: 'features must be an array' });
+    }
+    const LOCKED_FEATURES = ['integrations', 'tools'];
+    const merged = [...new Set([...LOCKED_FEATURES, ...features])];
+    await SystemSetting.upsert({ 
+      key: 'enabled_features', 
+      value: { features: merged },
+      description: 'Enabled UI feature sections'
+    });
+    res.json({ enabledFeatures: merged });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/setup-status', auth, async (req, res) => {
+  try {
+    const setting = await SystemSetting.findByPk('setup_complete');
+    res.json({ setupComplete: setting?.value?.complete === true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/setup-complete', auth, requireAdmin, async (req, res) => {
+  try {
+    const { mode, enabledFeatures } = req.body;
+    await SystemSetting.upsert({ 
+      key: 'setup_complete', 
+      value: { complete: true, mode, completedAt: new Date().toISOString() }
+    });
+    if (enabledFeatures) {
+      await SystemSetting.upsert({ key: 'enabled_features', value: { features: enabledFeatures } });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/setup-complete', auth, requireAdmin, async (req, res) => {
+  try {
+    await SystemSetting.destroy({ where: { key: 'setup_complete' } });
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -75,8 +141,8 @@ router.put('/:key', auth, requireAdmin, async (req, res) => {
 });
 
 router.post('/export', auth, async (req, res) => {
-  try {
-    const { externalMcp, integrations, tools, workflows } = req.body;
+    try {
+    const { externalMcp, integrations, tools, skills, sessionContexts } = req.body;
     const { loadModels } = require('../config/database');
     const exportData = { exportedAt: new Date().toISOString(), version: '1.0' };
     
@@ -114,13 +180,42 @@ router.post('/export', auth, async (req, res) => {
     
     if (tools) {
       const Tool = require('../models/Tool');
-      const userTools = await Tool.findAll({ where: { userId: req.user.id } });
+      const Integration = require('../models/Integration');
+      const userTools = await Tool.findAll({ 
+        where: { userId: req.user.id },
+        include: [{ model: Integration, as: 'integration', attributes: ['name'] }]
+      });
       exportData.tools = userTools.map(t => ({
         name: t.name,
         description: t.description,
         endpoint: t.endpoint,
         inputSchema: t.inputSchema,
-        integrationId: t.integrationId
+        integrationName: t.integration?.name || null
+      }));
+    }
+    
+    if (skills) {
+      const { PromptLibrary } = loadModels();
+      const items = await PromptLibrary.findAll({ where: { userId: req.user.id } });
+      exportData.skills = items.map(s => ({
+        name: s.name,
+        description: s.description,
+        inputs: s.inputs,
+        prompt: s.prompt,
+        isDefault: s.isDefault
+      }));
+    }
+
+    if (sessionContexts) {
+      const { SessionContext } = loadModels();
+      const items = await SessionContext.findAll({ 
+        where: { userId: req.user.id, ttlHours: 0 }
+      });
+      exportData.sessionContexts = items.map(c => ({
+        name: c.name,
+        content: c.content,
+        isShared: c.isShared,
+        ttlHours: 0
       }));
     }
     
@@ -140,24 +235,28 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
     }
 
     const { loadModels } = require('../config/database');
-    const result = { externalMcp: 0, integrations: 0, tools: 0, workflows: 0 };
-    const integrationIdMap = new Map();
+    const result = { externalMcp: 0, integrations: 0, tools: 0, skills: 0, sessionContexts: 0 };
     
     if (value.integrations) {
       const { Integration } = loadModels();
       for (let i = 0; i < value.integrations.length; i++) {
         const int = value.integrations[i];
-        const created = await Integration.create({
-          name: int.name,
-          type: int.type,
-          config: int.config,
-          userId: req.user.id,
-          credentials: null
+        const [created] = await Integration.findOrCreate({
+          where: { name: int.name, userId: req.user.id },
+          defaults: {
+            type: int.type,
+            config: int.config ?? {},
+            credentials: null
+          }
         });
-        integrationIdMap.set(i, created.id);
         result.integrations++;
       }
     }
+
+    // Build a complete name→id map from ALL of the user's integrations (imported + pre-existing)
+    const { Integration } = loadModels();
+    const allIntegrations = await Integration.findAll({ where: { userId: req.user.id } });
+    const integrationNameToId = new Map(allIntegrations.map(i => [i.name, i.id]));
     
     if (value.externalMcpServers) {
       const { ExternalMcpServer } = loadModels();
@@ -181,11 +280,53 @@ router.post('/import', auth, requireAdmin, async (req, res) => {
           inputSchema: tool.inputSchema,
           userId: req.user.id
         };
-        if (tool.integrationId != null && integrationIdMap.has(tool.integrationId)) {
-          toolData.integrationId = integrationIdMap.get(tool.integrationId);
+        if (tool.integrationName && integrationNameToId.has(tool.integrationName)) {
+          toolData.integrationId = integrationNameToId.get(tool.integrationName);
         }
-        await Tool.create(toolData);
+        if (!toolData.integrationId) {
+          logger.warn({ toolName: tool.name }, 'Skipping tool — no linked integration found');
+          continue;
+        }
+        await Tool.findOrCreate({
+          where: { name: tool.name, userId: req.user.id },
+          defaults: toolData
+        });
         result.tools++;
+      }
+    }
+    
+    if (value.skills) {
+      const { PromptLibrary } = loadModels();
+      for (const skill of value.skills) {
+        await PromptLibrary.findOrCreate({
+          where: { name: skill.name, userId: req.user.id },
+          defaults: {
+            name: skill.name,
+            description: skill.description,
+            inputs: skill.inputs,
+            prompt: skill.prompt,
+            isDefault: skill.isDefault,
+            userId: req.user.id
+          }
+        });
+        result.skills++;
+      }
+    }
+
+    if (value.sessionContexts) {
+      const { SessionContext } = loadModels();
+      for (const ctx of value.sessionContexts) {
+        await SessionContext.findOrCreate({
+          where: { name: ctx.name, userId: req.user.id },
+          defaults: {
+            name: ctx.name,
+            content: ctx.content,
+            isShared: ctx.isShared,
+            ttlHours: 0,
+            createdBy: req.user.id
+          }
+        });
+        result.sessionContexts++;
       }
     }
     
@@ -223,7 +364,8 @@ router.post('/import-preview', auth, async (req, res) => {
     if (req.body.integrations) {
       preview.integrations = req.body.integrations.map(i => ({
         name: i.name,
-        type: i.type
+        type: i.type,
+        config: i.config ?? {}
       }));
     }
     
@@ -232,18 +374,14 @@ router.post('/import-preview', auth, async (req, res) => {
         name: t.name,
         description: t.description || '',
         endpoint: t.endpoint,
+        inputSchema: t.inputSchema,
+        integrationName: t.integrationName || null,
         integrationId: t.integrationId,
-        integrationRef: t.integrationId != null ? `Integration #${t.integrationId}` : null
+        integrationRef: t.integrationName
+          || (t.integrationId != null ? `Integration #${t.integrationId}` : null)
       }));
     }
-    
-    if (req.body.workflows) {
-      preview.workflows = req.body.workflows.map(w => ({
-        name: w.name,
-        description: w.description || ''
-      }));
-    }
-    
+
     res.json(preview);
   } catch (error) {
     res.status(500).json({ error: error.message });
