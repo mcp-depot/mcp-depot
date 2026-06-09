@@ -137,7 +137,7 @@ function startMcpProxy() {
   const banner = `
 ┌────────────────────────────────┐
 │           mcp-depot            │
-│    connect · sync · control   │
+│    connect · sync · control    │
 └────────────────────────────────┘
 `;
 
@@ -154,34 +154,13 @@ function startMcpProxy() {
   const AUTH_TOKEN = profile.apiKey || '';
   console.error(`[MCP Depot] Using profile: ${profileName}`);
 
-  let tools = [];
-  let toolsLoaded = false;
-  let toolsLoading = null;
+  // Derive native MCP endpoint from REST profile URL
+  // Profile URL: http://host/api/mcp  →  native MCP: http://host/mcp
+  const MCP_NATIVE_URL = MCP_DEPOT_URL.replace(/\/api\/mcp\/?$/, '/mcp');
+
   let registeredSessionId = null;
   let actualClientName = 'mcp-depot-cli';
   let actualClientVersion = '1.0.0';
-
-  async function ensureToolsLoaded() {
-    if (toolsLoaded) return tools;
-    if (toolsLoading) return toolsLoading;
-    toolsLoading = (async () => {
-      const headers = { 'Content-Type': 'application/json' };
-      if (AUTH_TOKEN) headers['x-api-key'] = AUTH_TOKEN;
-      try {
-        const response = await fetch(`${MCP_DEPOT_URL}/tools`, { headers });
-        if (!response.ok) throw new Error(`Failed to fetch tools: ${response.status}`);
-        const data = await response.json();
-        tools = data.tools || [];
-        toolsLoaded = true;
-        console.error(`[MCP Depot] Loaded ${tools.length} tools from ${MCP_DEPOT_URL}`);
-        return tools;
-      } catch (error) {
-        console.error('[MCP Depot] Error loading tools:', error.message);
-        throw error;
-      }
-    })();
-    return toolsLoading;
-  }
 
   async function main() {
     const needsAuth = true;
@@ -201,13 +180,28 @@ function startMcpProxy() {
       path.dirname(require.resolve('@modelcontextprotocol/sdk/server')),
       '..', 'types.js'
     ));
+    const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+    const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 
-    const server = new Server(
+    // Connect to the upstream MCP server as a native MCP client
+    const upstreamHeaders = { 'Content-Type': 'application/json' };
+    if (AUTH_TOKEN) upstreamHeaders['x-api-key'] = AUTH_TOKEN;
+
+    const upstreamTransport = new StreamableHTTPClientTransport(
+      new URL(MCP_NATIVE_URL),
+      { requestInit: { headers: upstreamHeaders } }
+    );
+    const upstreamClient = new Client(
+      { name: 'mcp-depot-cli-proxy', version: '1.0.0' },
+      { capabilities: {} }
+    );
+
+    const proxyServer = new Server(
       { name: 'mcp-depot', version: '1.0.0' },
       { capabilities: { tools: {} } }
     );
 
-    server.setRequestHandler(types.InitializeRequestSchema, async (request) => {
+    proxyServer.setRequestHandler(types.InitializeRequestSchema, async (request) => {
       if (request.params?.clientInfo?.name) {
         actualClientName = request.params.clientInfo.name;
         actualClientVersion = request.params.clientInfo.version || '1.0.0';
@@ -219,37 +213,22 @@ function startMcpProxy() {
       };
     });
 
-    server.setRequestHandler(types.ListToolsRequestSchema, async () => {
-      await ensureToolsLoaded();
-      return {
-        tools: tools.map(tool => {
-          const endpoint = tool.endpoint || {};
-          const pathParams = extractParams(endpoint.path || '');
-          const bodyParams = endpoint.params || {};
-          const allParams = { ...pathParams, ...bodyParams };
-
-          const sanitizedName = String(tool.name || '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '_');
-
-          return {
-            name: sanitizedName,
-            description: tool.description || `Execute ${tool.name}`,
-            inputSchema: tool.inputSchema || buildJsonSchema(allParams)
-          };
-        })
-      };
+    proxyServer.setRequestHandler(types.ListToolsRequestSchema, async () => {
+      try {
+        const result = await upstreamClient.listTools();
+        return result;
+      } catch (error) {
+        console.error('[MCP Depot] Error listing tools from upstream:', error.message);
+        return { tools: [] };
+      }
     });
 
-    server.setRequestHandler(types.CallToolRequestSchema, async (request) => {
+    proxyServer.setRequestHandler(types.CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
 
       try {
-        const result = await executeTool(name, args);
-        return {
-          content: [{
-            type: 'text',
-            text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-          }]
-        };
+        const result = await upstreamClient.callTool({ name, arguments: args || {} });
+        return result;
       } catch (error) {
         return {
           content: [{ type: 'text', text: `Error: ${error.message}` }],
@@ -258,9 +237,13 @@ function startMcpProxy() {
       }
     });
 
+    // Connect to upstream MCP server BEFORE accepting proxy requests
+    await upstreamClient.connect(upstreamTransport);
+    console.error(`[MCP Depot] Connected to upstream MCP server at ${MCP_NATIVE_URL}`);
+
     const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error('[MCP Depot] Server connected and ready');
+    await proxyServer.connect(transport);
+    console.error('[MCP Depot] Proxy server connected and ready');
 
     const regHeaders = { 'Content-Type': 'application/json' };
     if (AUTH_TOKEN) regHeaders['x-api-key'] = AUTH_TOKEN;
@@ -303,65 +286,6 @@ function startMcpProxy() {
         }).catch(() => {});
       }
     });
-  }
-
-  function extractParams(path) {
-    const params = {};
-    const matches = path.match(/\{([^}]+)\}/g);
-    if (matches) {
-      matches.forEach(match => {
-        const paramName = match.replace(/[{}]/g, '');
-        params[paramName] = { type: 'string', description: `Parameter: ${paramName}` };
-      });
-    }
-    return params;
-  }
-
-  function buildJsonSchema(params) {
-    const properties = {};
-    const required = [];
-    Object.entries(params).forEach(([key, val]) => {
-      properties[key] = {
-        type: 'string',
-        description: (val && typeof val === 'object' ? val.description : undefined) || key
-      };
-      if (val && typeof val === 'object' && val.required) {
-        required.push(key);
-      }
-    });
-    return {
-      type: 'object',
-      properties,
-      ...(required.length > 0 ? { required } : {})
-    };
-  }
-
-  async function executeTool(sanitizedName, args) {
-    const originalTool = tools.find(t => {
-      const toolName = String(t.name || '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '_');
-      return toolName === sanitizedName;
-    });
-
-    const toolName = originalTool ? originalTool.name : sanitizedName;
-
-    const headers = { 'Content-Type': 'application/json' };
-    if (AUTH_TOKEN) {
-      headers['x-api-key'] = AUTH_TOKEN;
-    }
-
-    const response = await fetch(`${MCP_DEPOT_URL}/execute`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ toolName, params: args || {}, ...(registeredSessionId ? { sessionId: registeredSessionId } : {}) })
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(error.error || `HTTP ${response.status}`);
-    }
-
-    const result = await response.json();
-    return result.result || result;
   }
 
   main().catch(err => {

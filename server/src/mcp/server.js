@@ -933,61 +933,28 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     logger.info('MCP Server started with stdio transport');
   }
 
-  async startHttp(app) {
-    const sessionUserIds = new Map();
-    this._sessionUserIds = sessionUserIds;
+  async startHttp() {
+    this._sessionUserIds = new Map();
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: async (sessionId) => {
         const userId = transport._pendingUserId;
         if (userId) {
-          sessionUserIds.set(sessionId, userId);
+          this._sessionUserIds.set(sessionId, userId);
         }
       }
     });
 
     this._httpTransport = transport;
-    const self = this;
     transport.onclose = () => {
       const sid = transport.sessionId;
       if (sid) {
-        self._sessionClientMap.delete(sid);
-        self._removeSessionSubscriptions(sid);
-        self._broadcastSessions();
+        this._sessionClientMap.delete(sid);
+        this._removeSessionSubscriptions(sid);
+        this._broadcastSessions();
       }
     };
-
-    const authenticateAndRun = async (req, res, body) => {
-      let userId = null;
-      try {
-        const apiKey = req.header('X-API-Key');
-        const authHeader = req.header('Authorization');
-        if (apiKey) {
-          const hashed = hashApiKey(apiKey);
-          const user = await User.findOne({ where: { apiKey: hashed } });
-          if (user) userId = user.id;
-        } else if (authHeader?.startsWith('Bearer ')) {
-          const token = authHeader.replace('Bearer ', '');
-          const decoded = jwt.verify(token, config.jwtSecret);
-          const user = await User.findByPk(decoded.userId);
-          if (user) userId = user.id;
-        }
-      } catch (e) {
-      }
-
-      const existingSessionId = req.headers['mcp-session-id'];
-      if (existingSessionId && userId) {
-        sessionUserIds.set(existingSessionId, userId);
-      }
-
-      transport._pendingUserId = userId;
-      transport.handleRequest(req, res, body);
-    };
-
-    app.post('/mcp', (req, res) => authenticateAndRun(req, res, req.body));
-    app.get('/mcp', (req, res) => authenticateAndRun(req, res, null));
-    app.delete('/mcp', (req, res) => authenticateAndRun(req, res, null));
 
     await this.server.connect(transport);
     logger.info('MCP Server started with HTTP+SSE transport');

@@ -1,8 +1,15 @@
-# mcp-depot
+# MCP Depot
 
 **Connect your integrations to any AI assistant via Model Context Protocol (MCP)**
 
-mcp-depot is a self-hosted MCP server that exposes your integrations (Jira, GitHub, Confluence, Jenkins, custom APIs) as MCP tools. Connect once, use from Claude Code, Cursor, Windsurf, and more.
+MCP Depot is a self-hosted MCP server that exposes your integrations (Jira, GitHub, Confluence, Jenkins, custom APIs) as MCP tools. Connect once, use from Claude Code, Cursor, Windsurf, and more.
+
+[![npm version](https://img.shields.io/npm/v/mcp-depot)](https://www.npmjs.com/package/mcp-depot)
+[![Docker](https://img.shields.io/badge/ghcr.io-mcp--depot-blue)](https://github.com/mcp-depot/mcp-depot/pkgs/container/mcp-depot)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green)](./LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/mcp-depot/mcp-depot)](https://github.com/mcp-depot/mcp-depot)
+
+**[Website](https://mcp-depot.com) · [Live Demo](https://mcp-depot.com/demo) · [Documentation](https://mcp-depot.com/docs.html)**
 
 ---
 
@@ -12,11 +19,15 @@ mcp-depot is a self-hosted MCP server that exposes your integrations (Jira, GitH
 - **MCP Tool Server** — Exposes integrations as MCP tools for AI assistants
 - **OpenAPI Import** — Auto-generate tools from OpenAPI specs
 - **Composite Tools** — Chain multiple API calls into single AI-invokable tools
+- **Response Field Selector** — Pick exactly which JSON fields to return per tool
+- **Response Line Filter** — Regex-based line filtering for large text responses (logs, diffs)
+- **Per-Integration SSL** — Toggle self-signed certificate support per integration
 - **User Management** — Admin UI for creating and managing users
-- **OAuth Login** — Secure authentication with Google and GitHub
-- **Tags** — Organize and filter Integrations and Skills with tags
+- **OAuth Login** — Secure authentication with Google, GitHub, and custom OIDC
+- **Tags** — Organize and filter integrations and skills with tags
 - **Session Contexts** — Share AI working context across sessions and teammates
 - **Session Channels** — Append-only logs shared across parallel AI sessions
+- **CLI Profiles** — Support multiple MCP Depot instances via named profiles
 - **Workflow Automation** — Chain tools into automated workflows
 - **Monitoring** — Track tool usage, response times, and errors
 - **Encryption** — Sensitive credentials encrypted at rest
@@ -38,7 +49,7 @@ Admin credentials are printed to the console on first run. Look for the startup 
 
 ```
 DEFAULT ADMIN USER CREATED
-Email:    admin@mcp-depot.io
+Email:    admin@mcp-depot.com
 Password: <generated>
 API Key:  <generated>
 ```
@@ -62,14 +73,12 @@ docker compose logs server | grep -E "Email:|Password:|API Key:"
 git clone https://github.com/mcp-depot/mcp-depot
 cd mcp-depot
 
-# Build images
-docker build -t mcphub-server ./server
-docker build -t mcphub-client ./client
-
-# Install
+# Install using published images
 helm install mcp-depot ./helm/mcp-depot \
   --namespace mcp-depot \
-  --create-namespace
+  --create-namespace \
+  --set server.image=ghcr.io/mcp-depot/mcp-depot-server:latest \
+  --set client.image=ghcr.io/mcp-depot/mcp-depot-client:latest
 
 # Access via port-forward
 kubectl port-forward -n mcp-depot svc/mcp-depot-client 8080:80
@@ -93,18 +102,13 @@ mcp-depot --login
 
 Follow the prompts to enter your server URL and API key.
 
-2. Add to `~/.claude.json`:
+2. Register with Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "mcp-depot": {
-      "command": "mcp-depot",
-      "args": ["--mcp"]
-    }
-  }
-}
+```bash
+claude mcp add mcp-depot -- mcp-depot --mcp
 ```
+
+Then use `/mcp` inside Claude Code to verify the connection.
 
 ### HTTP (Docker / server with MCP_ENABLED=true)
 
@@ -113,7 +117,7 @@ Follow the prompts to enter your server URL and API key.
   "mcpServers": {
     "mcp-depot": {
       "type": "http",
-      "url": "http://localhost:3000/mcp"
+      "url": "http://localhost:3000/api/mcp"
     }
   }
 }
@@ -131,7 +135,9 @@ See [docs/connect/claude-code.md](./docs/connect/claude-code.md) for full setup 
 | `mcp-depot --server` | Server only, no UI |
 | `mcp-depot --port 8080` | Run on a custom port |
 | `mcp-depot --login` | Save server URL and API key for stdio transport |
+| `mcp-depot --login --profile work` | Save credentials under a named profile |
 | `mcp-depot --mcp` | MCP stdio wrapper (used by AI clients) |
+| `mcp-depot --mcp --profile work` | MCP stdio using a specific profile |
 
 ---
 
@@ -152,10 +158,10 @@ See [docs/connect/claude-code.md](./docs/connect/claude-code.md) for full setup 
 | `LOG_LEVEL` | `info` | Logging level: trace, debug, info, warn, error, fatal. |
 | `ALLOWED_ORIGINS` | *(not set)* | CORS allowed origins (comma-separated). |
 | `ALLOW_REGISTRATION` | `true` | Set to `false` to disable user self-registration. |
-| `ALLOW_SELF_SIGNED_CERTS` | `false` | Set to `true` to allow self-signed SSL certificates. |
-| `ADMIN_EMAIL` | `admin@mcp-depot.io` | Admin account email created on first run. |
+| `ALLOW_SELF_SIGNED_CERTS` | `false` | Set to `true` to allow self-signed SSL certificates globally. |
+| `ADMIN_EMAIL` | `admin@mcp-depot.com` | Admin account email created on first run. |
 | `ADMIN_PASSWORD` | *(auto-generated)* | Admin password. Leave blank to auto-generate. |
-| `MCP_ENABLED` | `false` | Set to `true` to enable HTTP MCP transport at `/mcp`. |
+| `MCP_ENABLED` | `false` | Set to `true` to enable HTTP MCP transport at `/api/mcp`. |
 | `MCP_TRANSPORT` | `http` | MCP transport type: `http` or `stdio`. |
 | `API_BASE_URL` | *(not set)* | Public URL for MCP server (used in tool schemas). |
 | `TOOLS_CACHE_ENABLED` | `false` | Set to `true` to enable tools caching. |
@@ -181,9 +187,9 @@ See [docs/connect/claude-code.md](./docs/connect/claude-code.md) for full setup 
 
 ---
 
-## Using mcp-depot Without the UI
+## Using MCP Depot Without the UI
 
-mcp-depot can run as a headless API server without the frontend UI.
+MCP Depot can run as a headless API server without the frontend UI.
 
 ### Enable API-Only Mode
 
@@ -220,7 +226,7 @@ The REST API is available at `http://localhost:3000/api/v1`:
 ```bash
 curl -X POST http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@mcpdepot.io","password":"your-password"}'
+  -d '{"email":"admin@mcp-depot.com","password":"your-password"}'
 ```
 
 2. Use access token in subsequent requests:
@@ -284,4 +290,5 @@ AGPL-3.0 — see [LICENSE](./LICENSE)
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and contribution guidelines.
+See [GOVERNANCE.md](./GOVERNANCE.md) for project governance and maintainer process.
