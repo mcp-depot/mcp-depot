@@ -41,6 +41,133 @@ const executeToolSchema = Joi.object({
   sessionId: Joi.string().optional()
 }).or('toolId', 'toolName');
 
+const META_TOOL_STUBS = [
+  {
+    name: 'mcp_list_integrations',
+    title: 'mcp_list_integrations',
+    description: 'List all registered integrations with their tool counts, types, and auth methods',
+    params: [],
+    input_schema: { type: 'object', properties: {} },
+    source: 'meta',
+    toolType: 'meta'
+  },
+  {
+    name: 'mcp_register_integration',
+    title: 'mcp_register_integration',
+    description: 'Register a new third-party integration (API, MCP server, or custom)',
+    params: [
+      { name: 'name', in: 'body', required: true, type: 'string', description: 'Integration name' },
+      { name: 'type', in: 'body', required: false, type: 'string', description: 'Integration type (custom, mcp, openapi)' },
+      { name: 'baseUrl', in: 'body', required: false, type: 'string', description: 'Base URL for the API' },
+      { name: 'description', in: 'body', required: false, type: 'string', description: 'Description of the integration' },
+      { name: 'shared', in: 'body', required: false, type: 'boolean', description: 'Make visible to all users' }
+    ],
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Integration name' },
+        type: { type: 'string', description: 'Integration type (custom, mcp, openapi)' },
+        baseUrl: { type: 'string', description: 'Base URL for the API' },
+        description: { type: 'string', description: 'Description of the integration' },
+        shared: { type: 'boolean', description: 'Make visible to all users' }
+      },
+      required: ['name']
+    },
+    source: 'meta',
+    toolType: 'meta'
+  },
+  {
+    name: 'mcp_register_tool',
+    title: 'mcp_register_tool',
+    description: 'Add a new tool to an existing integration (endpoint path, method, parameters)',
+    params: [
+      { name: 'integration', in: 'body', required: true, type: 'string', description: 'Integration name to add the tool to' },
+      { name: 'name', in: 'body', required: true, type: 'string', description: 'Tool name' },
+      { name: 'description', in: 'body', required: true, type: 'string', description: 'Tool description' },
+      { name: 'path', in: 'body', required: true, type: 'string', description: 'API endpoint path (e.g. /api/users/:id)' },
+      { name: 'method', in: 'body', required: false, type: 'string', description: 'HTTP method (GET, POST, PUT, DELETE)' },
+      { name: 'params', in: 'body', required: false, type: 'string', description: 'JSON string of parameter definitions' },
+      { name: 'responseFields', in: 'body', required: false, type: 'string', description: 'JSON string of response field paths to extract' }
+    ],
+    input_schema: {
+      type: 'object',
+      properties: {
+        integration: { type: 'string', description: 'Integration name to add the tool to' },
+        name: { type: 'string', description: 'Tool name' },
+        description: { type: 'string', description: 'Tool description' },
+        path: { type: 'string', description: 'API endpoint path (e.g. /api/users/:id)' },
+        method: { type: 'string', description: 'HTTP method (GET, POST, PUT, DELETE)' },
+        params: { type: 'string', description: 'JSON string of parameter definitions' },
+        responseFields: { type: 'string', description: 'JSON string of response field paths to extract' }
+      },
+      required: ['integration', 'name', 'description', 'path']
+    },
+    source: 'meta',
+    toolType: 'meta'
+  },
+  {
+    name: 'mcp_describe_tool',
+    title: 'mcp_describe_tool',
+    description: 'Get detailed information about a tool by name',
+    params: [
+      { name: 'name', in: 'body', required: true, type: 'string', description: 'Tool name to describe' }
+    ],
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Tool name to describe' }
+      },
+      required: ['name']
+    },
+    source: 'meta',
+    toolType: 'meta'
+  },
+  {
+    name: 'mcp_remove_tool',
+    title: 'mcp_remove_tool',
+    description: 'Remove a tool from an integration (requires confirmation)',
+    params: [
+      { name: 'name', in: 'body', required: true, type: 'string', description: 'Tool name to remove' },
+      { name: 'integration', in: 'body', required: true, type: 'string', description: 'Integration name the tool belongs to' },
+      { name: 'confirm', in: 'body', required: false, type: 'boolean', description: 'Must be true to confirm deletion' }
+    ],
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Tool name to remove' },
+        integration: { type: 'string', description: 'Integration name the tool belongs to' },
+        confirm: { type: 'boolean', description: 'Must be true to confirm deletion' }
+      },
+      required: ['name', 'integration']
+    },
+    source: 'meta',
+    toolType: 'meta'
+  },
+  {
+    name: 'watch_until_done',
+    title: 'watch_until_done',
+    description: 'Wait for an asynchronous external process (CI build, deployment, pipeline) to complete. Polls internally and sends progress notifications.',
+    params: [
+      { name: 'integrationId', in: 'body', required: true, type: 'string', description: 'UUID of the integration holding credentials' },
+      { name: 'trigger', in: 'body', required: true, type: 'object', description: 'Adapter-specific trigger parameters' },
+      { name: 'pollIntervalSeconds', in: 'body', required: false, type: 'number', description: 'Seconds between polls' },
+      { name: 'timeoutSeconds', in: 'body', required: false, type: 'number', description: 'Maximum watch duration in seconds (default 3600)' }
+    ],
+    input_schema: {
+      type: 'object',
+      properties: {
+        integrationId: { type: 'string', description: 'UUID of the integration holding credentials' },
+        trigger: { type: 'object', description: 'Adapter-specific trigger parameters (e.g. { job: "my-job" })' },
+        pollIntervalSeconds: { type: 'number', description: 'Seconds between polls' },
+        timeoutSeconds: { type: 'number', description: 'Maximum watch duration in seconds (default 3600)' }
+      },
+      required: ['integrationId', 'trigger']
+    },
+    source: 'meta',
+    toolType: 'meta'
+  }
+];
+
 function safeJsonParse(value, defaultValue) {
   if (!value) return defaultValue;
   try {
@@ -762,7 +889,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
     
     const externalTools = await fetchExternalMcpTools(userId, role);
     
-    const result = { tools: [...localTools, ...externalTools] };
+    const result = { tools: [...localTools, ...externalTools, ...META_TOOL_STUBS] };
     setCachedTools(userId, result);
     
     res.json(result);
@@ -1130,6 +1257,13 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       tool = await Tool.findOne({ where: { name: toolName, isActive: true } });
     }
     
+    if (!tool && toolName) {
+      const isMetaStub = META_TOOL_STUBS.some(s => s.name === toolName);
+      if (isMetaStub) {
+        tool = { name: toolName, type: 'meta', id: null };
+      }
+    }
+
     if (!tool) {
       return res.status(404).json({ error: 'Tool not found' });
     }

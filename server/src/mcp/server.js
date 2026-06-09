@@ -633,78 +633,82 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       timeoutSeconds: z.number().optional().describe('Maximum watch duration in seconds (default 3600)')
     });
 
-    try {
-      this.server.tool('watch_until_done', {
-        description: 'Wait for an asynchronous external process (CI build, deployment, pipeline) to complete. Polls internally and sends progress notifications. Returns structured summary on completion.',
-        inputSchema: watchSchema
-      }, async (args, extra) => {
-        const startTime = Date.now();
-        const watchId = `watch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const watchHandler = async (args, extra) => {
+      const startTime = Date.now();
+      const watchId = `watch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-        try {
-          const integration = await Integration.findByPk(args.integrationId);
-          if (!integration) {
-            throw new Error(`Integration ${args.integrationId} not found`);
-          }
+      try {
+        const integration = await Integration.findByPk(args.integrationId);
+        if (!integration) {
+          throw new Error(`Integration ${args.integrationId} not found`);
+        }
 
-          let resolvedConfig = integration.config;
-          if (secretStore.isInitialized()) {
-            const credentials = resolvedConfig.auth?.credentials;
-            if (credentials) {
-              for (const [key, value] of Object.entries(credentials)) {
-                if (typeof value === 'string' && secretStore.isSecretRef(value)) {
-                  const resolved = await secretStore.resolveSecret(value);
-                  if (resolved) {
-                    resolvedConfig = { ...resolvedConfig };
-                    resolvedConfig.auth = { ...resolvedConfig.auth };
-                    resolvedConfig.auth.credentials = { ...credentials };
-                    resolvedConfig.auth.credentials[key] = resolved;
-                  }
+        let resolvedConfig = integration.config;
+        if (secretStore.isInitialized()) {
+          const credentials = resolvedConfig.auth?.credentials;
+          if (credentials) {
+            for (const [key, value] of Object.entries(credentials)) {
+              if (typeof value === 'string' && secretStore.isSecretRef(value)) {
+                const resolved = await secretStore.resolveSecret(value);
+                if (resolved) {
+                  resolvedConfig = { ...resolvedConfig };
+                  resolvedConfig.auth = { ...resolvedConfig.auth };
+                  resolvedConfig.auth.credentials = { ...credentials };
+                  resolvedConfig.auth.credentials[key] = resolved;
                 }
               }
             }
           }
-
-          const adapter = await loadAdapter(integration.type);
-
-          const result = await runWatcher({
-            watchId,
-            adapter,
-            trigger: args.trigger,
-            credentials: resolvedConfig,
-            integrationType: integration.type,
-            meta: { pollIntervalSeconds: args.pollIntervalSeconds, timeoutSeconds: args.timeoutSeconds },
-            signal: extra?.signal,
-            onProgress: ({ status, progress, elapsed }) => {
-              if (extra?.progressToken) {
-                this.server.server.notification({
-                  method: 'notifications/progress',
-                  params: {
-                    progressToken: extra.progressToken,
-                    progress: elapsed,
-                    total: args.timeoutSeconds ?? 3600,
-                    message: `${status}${progress ? ` - ${progress}` : ''} (${elapsed}s)`
-                  }
-                }).catch(() => {});
-              }
-            }
-          });
-
-          recordToolCall('watch_until_done', Date.now() - startTime, true);
-          return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
-        } catch (error) {
-          recordToolCall('watch_until_done', Date.now() - startTime, false);
-          return {
-            content: [{ type: 'text', text: `Error: ${error.message}` }],
-            isError: true
-          };
         }
-      });
+
+        const adapter = await loadAdapter(integration.type);
+
+        const result = await runWatcher({
+          watchId,
+          adapter,
+          trigger: args.trigger,
+          credentials: resolvedConfig,
+          integrationType: integration.type,
+          meta: { pollIntervalSeconds: args.pollIntervalSeconds, timeoutSeconds: args.timeoutSeconds },
+          signal: extra?.signal,
+          onProgress: ({ status, progress, elapsed }) => {
+            if (extra?.progressToken) {
+              this.server.server.notification({
+                method: 'notifications/progress',
+                params: {
+                  progressToken: extra.progressToken,
+                  progress: elapsed,
+                  total: args.timeoutSeconds ?? 3600,
+                  message: `${status}${progress ? ` - ${progress}` : ''} (${elapsed}s)`
+                }
+              }).catch(() => {});
+            }
+          }
+        });
+
+        recordToolCall('watch_until_done', Date.now() - startTime, true);
+        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+      } catch (error) {
+        recordToolCall('watch_until_done', Date.now() - startTime, false);
+        return {
+          content: [{ type: 'text', text: `Error: ${error.message}` }],
+          isError: true
+        };
+      }
+    };
+
+    try {
+      this.server.tool('watch_until_done', {
+        description: 'Wait for an asynchronous external process (CI build, deployment, pipeline) to complete. Polls internally and sends progress notifications. Returns structured summary on completion.',
+        inputSchema: watchSchema
+      }, watchHandler);
     } catch (e) {
       if (!e.message?.includes('already registered')) {
         logger.warn({ err: e.message }, 'watch_until_done registration failed');
       }
     }
+
+    this.toolsMap.set('watch_until_done', { handler: watchHandler.bind(this), type: 'meta' });
 
     logger.info('watch_until_done tool registered');
   }
