@@ -865,9 +865,6 @@ function Tools({ all: isAllTools }) {
             <span style={{ color: 'var(--text)' }}>Tools</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <p>{integration?.description}</p>
-            </div>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button className="btn btn-secondary" onClick={() => setShowExploreModal(true)}>
                 Explore API
@@ -890,6 +887,11 @@ function Tools({ all: isAllTools }) {
               )}
             </div>
           </div>
+          {integration?.description && (
+            <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--text-dim)' }} title={integration.description}>
+              {integration.description}
+            </p>
+          )}
         </div>
 
         {isBuiltIn(integration) && (
