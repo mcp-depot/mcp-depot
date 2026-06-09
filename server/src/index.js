@@ -156,18 +156,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Lazy MCP route handler - wired after MCP server initializes
-let mcpAuthenticateAndRun = (req, res) => {
-  res.status(503).json({ error: 'MCP server not yet initialized' });
-};
-app.post('/mcp', (req, res) => mcpAuthenticateAndRun(req, res, req.body));
-app.get('/mcp', (req, res) => mcpAuthenticateAndRun(req, res, null));
-app.delete('/mcp', (req, res) => mcpAuthenticateAndRun(req, res, null));
-
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
-
 const startServer = async () => {
   try {
     await connectDB();
@@ -177,47 +165,9 @@ const startServer = async () => {
       await mcpServer.initialize();
       mcpServer.setMcpEnabled(true);
       if (process.env.MCP_TRANSPORT === 'http' || !process.env.MCP_TRANSPORT) {
-        await mcpServer.startHttp().catch(err => {
+        await mcpServer.startHttp(app).catch(err => {
           logger.error({ err: err.message }, 'Failed to start MCP HTTP server');
         });
-        // Wire the real MCP auth handler now that the transport is ready
-        mcpAuthenticateAndRun = (req, res, body) => {
-          const transport = mcpServer._httpTransport;
-          if (!transport) {
-            return res.status(503).json({ error: 'MCP transport not ready' });
-          }
-          const authenticateAndRun = async () => {
-            const crypto = require('crypto');
-            const jwt = require('jsonwebtoken');
-            const config = require('./config/env');
-            const User = require('./models/User');
-            let userId = null;
-            try {
-              const apiKey = req.header('X-API-Key');
-              const authHeader = req.header('Authorization');
-              if (apiKey) {
-                const hashed = crypto.createHash('sha256').update(apiKey).digest('hex');
-                const user = await User.findOne({ where: { apiKey: hashed } });
-                if (user) userId = user.id;
-              } else if (authHeader?.startsWith('Bearer ')) {
-                const token = authHeader.replace('Bearer ', '');
-                const decoded = jwt.verify(token, config.jwtSecret);
-                const user = await User.findByPk(decoded.userId);
-                if (user) userId = user.id;
-              }
-            } catch (e) {}
-            const existingSessionId = req.headers['mcp-session-id'];
-            const sessionUserIds = mcpServer._sessionUserIds;
-            if (existingSessionId && userId && sessionUserIds) {
-              sessionUserIds.set(existingSessionId, userId);
-            }
-            transport._pendingUserId = userId;
-            transport.handleRequest(req, res, body);
-          };
-          authenticateAndRun().catch(err => {
-            res.status(500).json({ error: 'MCP handler error' });
-          });
-        };
       } else if (process.env.MCP_TRANSPORT === 'stdio') {
         mcpServer.startStdio().catch(err => {
           logger.error({ err: err.message }, 'Failed to start MCP stdio server');
@@ -257,6 +207,10 @@ const startServer = async () => {
       });
     }
     
+    app.use((req, res) => {
+      res.status(404).json({ error: 'Route not found' });
+    });
+
     const server = app.listen(config.port, () => {
       logger.info({ port: config.port }, 'MCP Depot Server started');
     });
