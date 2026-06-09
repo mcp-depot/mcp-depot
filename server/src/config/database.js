@@ -88,7 +88,7 @@ const generatePassword = () => {
 const createDefaultUser = async () => {
   const User = require('../models/User');
   
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.io';
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.com';
   const adminExists = await User.findOne({ where: { email: adminEmail } });
   
   if (!adminExists) {
@@ -137,7 +137,7 @@ const createDefaultTool = async () => {
   let userId;
   
   if (!mcpDepotIntegration) {
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.io';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.com';
     const adminUser = await User.findOne({ where: { email: adminEmail } });
     
     if (!adminUser) {
