@@ -685,7 +685,6 @@ const createDefaultTool = async () => {
       description: 'AI-driven integration builder — meta-tools for creating and managing integrations from chat. Disable to hide meta-tools.',
       config: { baseUrl: actualBaseUrl, auth: { type: 'none' } },
       isActive: true,
-      metadata: { source: 'built-in' }
     });
     logger.info('MCP Depot - AI Tools integration created (enable/disable via the UI card to toggle meta-tools)');
   } else if (aiToolsIntegration.config?.auth?.type === 'apikey') {

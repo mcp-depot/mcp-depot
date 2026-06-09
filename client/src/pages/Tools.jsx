@@ -860,7 +860,7 @@ function Tools({ all: isAllTools }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: '0.5rem' }}>
             <Link to="/integrations" style={{ color: 'var(--primary)' }}>Integrations</Link>
             <span>/</span>
-            <span>{integration?.name}</span>
+            <span style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{integration?.name}</span>
             <span>/</span>
             <span style={{ color: 'var(--text)' }}>Tools</span>
           </div>
