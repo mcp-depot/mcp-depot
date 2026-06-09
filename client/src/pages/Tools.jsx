@@ -887,12 +887,12 @@ function Tools({ all: isAllTools }) {
               )}
             </div>
           </div>
-          {integration?.description && (
-            <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--text-dim)' }} title={integration.description}>
-              {integration.description}
-            </p>
-          )}
         </div>
+        {integration?.description && (
+          <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-dim)' }} title={integration.description}>
+            {integration.description}
+          </p>
+        )}
 
         {isBuiltIn(integration) && (
           <div className="card" style={{ marginBottom: '1rem', background: 'var(--surface-hover)', border: '1px solid var(--border-light)' }}>
