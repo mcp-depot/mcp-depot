@@ -78,7 +78,7 @@ jobs:
           if [ "${{ github.ref_name }}" = "main" ]; then
             echo "tag=latest" >> $GITHUB_OUTPUT
           else
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            echo "tag=$(echo '${{ github.ref_name }}' | tr '/' '-')" >> $GITHUB_OUTPUT
           fi
           echo "sha=sha-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
