@@ -1,0 +1,47 @@
+name: Publish npm Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build client
+        run: npm run build:client
+
+      - name: Check if version already published
+        id: version_check
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view mcp-depot@$VERSION version 2>/dev/null | grep -q "$VERSION"; then
+            echo "already_published=true" >> $GITHUB_OUTPUT
+            echo "Version $VERSION already published — skipping."
+          else
+            echo "already_published=false" >> $GITHUB_OUTPUT
+            echo "Version $VERSION not yet published — will publish."
+          fi
+
+      - name: Publish to npm
+        if: steps.version_check.outputs.already_published == 'false'
+        run: npm publish --access public
