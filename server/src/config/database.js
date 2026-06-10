@@ -88,7 +88,7 @@ const generatePassword = () => {
 const createDefaultUser = async () => {
   const User = require('../models/User');
   
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.io';
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.com';
   const adminExists = await User.findOne({ where: { email: adminEmail } });
   
   if (!adminExists) {
@@ -137,7 +137,7 @@ const createDefaultTool = async () => {
   let userId;
   
   if (!mcpDepotIntegration) {
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.io';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@mcp-depot.com';
     const adminUser = await User.findOne({ where: { email: adminEmail } });
     
     if (!adminUser) {
@@ -685,7 +685,6 @@ const createDefaultTool = async () => {
       description: 'AI-driven integration builder — meta-tools for creating and managing integrations from chat. Disable to hide meta-tools.',
       config: { baseUrl: actualBaseUrl, auth: { type: 'none' } },
       isActive: true,
-      metadata: { source: 'built-in' }
     });
     logger.info('MCP Depot - AI Tools integration created (enable/disable via the UI card to toggle meta-tools)');
   } else if (aiToolsIntegration.config?.auth?.type === 'apikey') {

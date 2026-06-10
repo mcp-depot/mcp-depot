@@ -860,14 +860,11 @@ function Tools({ all: isAllTools }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: '0.5rem' }}>
             <Link to="/integrations" style={{ color: 'var(--primary)' }}>Integrations</Link>
             <span>/</span>
-            <span>{integration?.name}</span>
+            <span style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={integration?.name}>{integration?.name}</span>
             <span>/</span>
             <span style={{ color: 'var(--text)' }}>Tools</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-            <div>
-              <p>{integration?.description}</p>
-            </div>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
               <button className="btn btn-secondary" onClick={() => setShowExploreModal(true)}>
                 Explore API
@@ -891,6 +888,11 @@ function Tools({ all: isAllTools }) {
             </div>
           </div>
         </div>
+        {integration?.description && (
+          <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-dim)' }} title={integration.description}>
+            {integration.description}
+          </p>
+        )}
 
         {isBuiltIn(integration) && (
           <div className="card" style={{ marginBottom: '1rem', background: 'var(--surface-hover)', border: '1px solid var(--border-light)' }}>

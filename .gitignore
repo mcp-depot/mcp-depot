@@ -22,6 +22,7 @@ internal/
 error.png
 opencode.json
 *.har
+data.db
 mcp-connect-wrapper/config.json
 docker/demo-cleanup.sh
 Dockerfile.demo-cleanup

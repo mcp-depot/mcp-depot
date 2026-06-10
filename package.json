@@ -1,6 +1,6 @@
 {
   "name": "mcp-depot",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Self-hosted MCP server — connect AI assistants to your APIs and platforms",
   "license": "AGPL-3.0",
   "repository": {

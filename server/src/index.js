@@ -156,10 +156,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
-
 const startServer = async () => {
   try {
     await connectDB();
@@ -211,6 +207,10 @@ const startServer = async () => {
       });
     }
     
+    app.use((req, res) => {
+      res.status(404).json({ error: 'Route not found' });
+    });
+
     const server = app.listen(config.port, () => {
       logger.info({ port: config.port }, 'MCP Depot Server started');
     });
