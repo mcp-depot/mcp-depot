@@ -7,12 +7,12 @@ replicaCount: 1
 
 image:
   server:
-    repository: mcphub-server
-    tag: "1.0.0"
+    repository: ghcr.io/mcp-depot/mcp-depot-server
+    tag: "latest"
     pullPolicy: IfNotPresent
   client:
-    repository: mcphub-client
-    tag: "1.0.0"
+    repository: ghcr.io/mcp-depot/mcp-depot-client
+    tag: "latest"
     pullPolicy: IfNotPresent
 
 imagePullSecrets: []
