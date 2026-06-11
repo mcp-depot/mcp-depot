@@ -57,6 +57,8 @@ function Login() {
     try {
       const res = await api.get(`/auth/oauth-url/${provider}`);
       if (res.data.url) {
+        sessionStorage.setItem('oauth_provider', provider);
+        sessionStorage.setItem('oauth_state', res.data.state);
         window.location.href = res.data.url;
       }
     } catch (err) {
@@ -70,11 +72,16 @@ function Login() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
-    const provider = params.get('state');
-    if (code && provider) {
+    const state = params.get('state');
+    const provider = sessionStorage.getItem('oauth_provider');
+    const savedState = sessionStorage.getItem('oauth_state');
+
+    if (code && state && provider && state === savedState) {
+      sessionStorage.removeItem('oauth_provider');
+      sessionStorage.removeItem('oauth_state');
       window.history.replaceState({}, '', '/login');
       setLoading(true);
-      api.post(`/auth/oauth/${provider}`, { code })
+      api.post(`/auth/oauth/${provider}`, { code, state })
         .then(res => {
           loginWithToken(res.data.accessToken, res.data.refreshToken, res.data.user);
           navigate('/');
