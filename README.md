@@ -172,6 +172,7 @@ See [docs/connect/claude-code.md](./docs/connect/claude-code.md) for full setup 
 | `GOOGLE_CLIENT_SECRET` | *(not set)* | OAuth Google client secret. |
 | `GITHUB_CLIENT_ID` | *(not set)* | OAuth GitHub client ID. |
 | `GITHUB_CLIENT_SECRET` | *(not set)* | OAuth GitHub client secret. |
+| `CLIENT_URL` | `http://localhost:5173` | Public URL of the MCP Depot UI. **Required for OIDC** — used to build the `redirect_uri` sent to the identity provider. Must match the redirect URI configured in your OIDC provider. |
 | `OIDC_ENABLED` | `false` | Enable custom OIDC (Keycloak, Okta, Auth0). |
 | `OIDC_ISSUER_URL` | *(not set)* | OIDC issuer URL (server-side, used for token exchange and discovery). |
 | `OIDC_ISSUER_PUBLIC_URL` | *(not set)* | Public-facing issuer URL (browser redirect). Defaults to `OIDC_ISSUER_URL`. Set this when internal and public hostnames differ (e.g. Docker/k8s). |
