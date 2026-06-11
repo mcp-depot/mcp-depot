@@ -90,6 +90,22 @@ env:
   ALLOW_REGISTRATION: "false"
   API_BASE_URL: ""
 
+extraEnv: []
+# Example:
+# extraEnv:
+#   - name: OIDC_PROVIDER_URL
+#     value: "https://keycloak.example.com/realms/myrealm"
+#   - name: OIDC_CLIENT_ID
+#     value: "mcp-depot"
+#   - name: MCP_ENABLED
+#     value: "true"
+
+extraEnvFrom: []
+# Example:
+# extraEnvFrom:
+#   - secretRef:
+#       name: my-oidc-secret
+
 livenessProbe:
   enabled: true
   path: /health

@@ -33,10 +33,21 @@ spec:
             - configMapRef:
                 name: {{ include "mcp-depot.fullname" . }}-config
             - secretRef:
-                name: {{ include "mcp-depot.fullname" . }}-secrets
+                name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "mcp-depot.fullname" .)) }}
+            {{- if .Values.extraEnvFrom }}
+            {{- toYaml .Values.extraEnvFrom | nindent 12 }}
+            {{- end }}
           env:
+            {{- if .Values.postgres.enabled }}
             - name: DATABASE_URL
               value: "postgres://postgres:$(POSTGRES_PASSWORD)@{{ include "mcp-depot.fullname" . }}-postgres:5432/mcpconnect"
+            {{- else }}
+            - name: DATABASE_URL
+              value: {{ .Values.externalDatabase.url | quote }}
+            {{- end }}
+            {{- if .Values.extraEnv }}
+            {{- toYaml .Values.extraEnv | nindent 12 }}
+            {{- end }}
           {{- if .Values.livenessProbe.enabled }}
           livenessProbe:
             httpGet:
