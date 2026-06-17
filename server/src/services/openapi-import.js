@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { loadModels } = require('../config/database');
+const { deriveAnnotations } = require('./annotations');
 
 async function parseOpenApiSpec(specUrl, specContent = null) {
   let spec;
@@ -105,7 +106,8 @@ async function importOpenApiTools(userId, integrationId, specUrl, specContent = 
       }
       
       const exposedName = require('../utils/slugify').computeExposedName(intSlug, tool.name);
-      
+      const annotations = deriveAnnotations(tool.endpoint.method);
+
       await Tool.create({
         userId,
         integrationId,
@@ -113,7 +115,8 @@ async function importOpenApiTools(userId, integrationId, specUrl, specContent = 
         description: tool.description,
         endpoint: tool.endpoint,
         isActive: true,
-        exposedName
+        exposedName,
+        ...annotations
       });
       
       created.push(tool.name);

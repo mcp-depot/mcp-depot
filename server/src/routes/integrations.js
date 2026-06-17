@@ -41,6 +41,11 @@ const integrationSchema = Joi.object({
 const toolSchema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().allow('').optional(),
+  title: Joi.string().allow('').optional(),
+  readOnlyHint: Joi.boolean().optional(),
+  destructiveHint: Joi.boolean().optional(),
+  idempotentHint: Joi.boolean().optional(),
+  openWorldHint: Joi.boolean().optional(),
   endpoint: Joi.object({
     path: Joi.string().required(),
     method: Joi.string().valid('GET', 'POST', 'PUT', 'PATCH', 'DELETE').default('GET'),
@@ -398,7 +403,7 @@ router.post('/', authWithApiKey, async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { type, name, description, config, metadata, tags } = value;
+    const { type, name, description, config, metadata, tags, slug: userSlug } = value;
 
     let finalConfig = config;
     if (config && config.auth && config.auth.credentials && config.auth.type !== 'none') {
@@ -415,7 +420,7 @@ router.post('/', authWithApiKey, async (req, res) => {
       finalConfig = config;
     }
 
-    let slugValue = slugify(name);
+    let slugValue = userSlug ? slugify(userSlug) : slugify(name);
     const existingWithSlug = await Integration.findOne({
       where: { userId: req.user.id, slug: slugValue }
     });

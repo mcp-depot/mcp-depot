@@ -265,10 +265,10 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
     const annotations = {
       title: tool.title || undefined,
-      readOnlyHint: tool.readOnlyHint !== undefined ? tool.readOnlyHint : deriveAnnotations(endpoint.method).readOnlyHint,
-      destructiveHint: tool.destructiveHint !== undefined ? tool.destructiveHint : deriveAnnotations(endpoint.method).destructiveHint,
-      idempotentHint: tool.idempotentHint !== undefined ? tool.idempotentHint : deriveAnnotations(endpoint.method).idempotentHint,
-      openWorldHint: tool.openWorldHint !== undefined ? tool.openWorldHint : deriveAnnotations(endpoint.method).openWorldHint
+      readOnlyHint: tool.readOnlyHint != null ? tool.readOnlyHint : deriveAnnotations(endpoint.method).readOnlyHint,
+      destructiveHint: tool.destructiveHint != null ? tool.destructiveHint : deriveAnnotations(endpoint.method).destructiveHint,
+      idempotentHint: tool.idempotentHint != null ? tool.idempotentHint : deriveAnnotations(endpoint.method).idempotentHint,
+      openWorldHint: tool.openWorldHint != null ? tool.openWorldHint : deriveAnnotations(endpoint.method).openWorldHint
     };
 
     try {

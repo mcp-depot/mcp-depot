@@ -36,7 +36,7 @@ module.exports = {
     await queryInterface.addColumn('tools', 'destructiveHint', {
       type: Sequelize.BOOLEAN,
       allowNull: false,
-      defaultValue: true,
+      defaultValue: false,
       comment: 'Tool may delete or irreversibly modify data'
     });
 
