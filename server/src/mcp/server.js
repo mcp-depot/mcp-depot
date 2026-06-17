@@ -215,7 +215,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   registerTool(tool) {
     if (tool.type === 'meta') return;
 
-    const toolName = this.sanitizeToolName(tool.name);
+    const toolName = tool.exposedName || this.sanitizeToolName(tool.name);
     const endpoint = tool.endpoint || {};
 
     let schema = {};
@@ -263,7 +263,13 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       )
     });
 
-    const annotations = endpoint.annotations || deriveAnnotations(endpoint.method);
+    const annotations = {
+      title: tool.title || undefined,
+      readOnlyHint: tool.readOnlyHint !== undefined ? tool.readOnlyHint : deriveAnnotations(endpoint.method).readOnlyHint,
+      destructiveHint: tool.destructiveHint !== undefined ? tool.destructiveHint : deriveAnnotations(endpoint.method).destructiveHint,
+      idempotentHint: tool.idempotentHint !== undefined ? tool.idempotentHint : deriveAnnotations(endpoint.method).idempotentHint,
+      openWorldHint: tool.openWorldHint !== undefined ? tool.openWorldHint : deriveAnnotations(endpoint.method).openWorldHint
+    };
 
     try {
       this.server.tool(

@@ -17,6 +17,17 @@ function hasHardcodedCredential(text) {
 
 const isBuiltIn = (integration) => integration?.metadata?.source === 'built-in';
 
+const slugify = (str) => str.toLowerCase().replace(/[^a-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 32);
+
+const computeExposedName = (integrationSlug, toolName) => {
+  const slug = slugify(integrationSlug || '');
+  const toolPart = (toolName || '').replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  const prefix = slug + '_';
+  const budget = 64 - prefix.length;
+  const truncated = budget > 0 ? toolPart.substring(0, budget).replace(/_+$/g, '') : '';
+  return prefix + truncated;
+};
+
 function Tools({ all: isAllTools }) {
   const params = useParams();
   const [searchParams] = useSearchParams();
@@ -95,7 +106,12 @@ function Tools({ all: isAllTools }) {
     body: '',
     responseTransformer: '',
     responseFields: '',
-    responseLineFilter: ''
+    responseLineFilter: '',
+    title: '',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true
   });
 
   const [collapsedIntegrations, setCollapsedIntegrations] = useState({});
@@ -262,7 +278,12 @@ function Tools({ all: isAllTools }) {
         endpoint,
         responseTransformer: form.responseTransformer || null,
         responseFields: parsedResponseFields,
-        responseLineFilter: form.responseLineFilter || null
+        responseLineFilter: form.responseLineFilter || null,
+        title: form.title || null,
+        readOnlyHint: form.readOnlyHint,
+        destructiveHint: form.destructiveHint,
+        idempotentHint: form.idempotentHint,
+        openWorldHint: form.openWorldHint
       };
 
       if (editingTool) {
@@ -293,7 +314,12 @@ function Tools({ all: isAllTools }) {
       body: JSON.stringify(tool.endpoint.body, null, 2),
       responseTransformer: tool.endpoint.responseTransformer || tool.responseTransformer || '',
       responseFields: tool.responseFields ? JSON.stringify(tool.responseFields, null, 2) : '',
-      responseLineFilter: tool.responseLineFilter || ''
+      responseLineFilter: tool.responseLineFilter || '',
+      title: tool.title || '',
+      readOnlyHint: tool.readOnlyHint !== undefined ? tool.readOnlyHint : (tool.endpoint?.method === 'GET' || tool.endpoint?.method === 'HEAD'),
+      destructiveHint: tool.destructiveHint !== undefined ? tool.destructiveHint : (tool.endpoint?.method === 'DELETE'),
+      idempotentHint: tool.idempotentHint !== undefined ? tool.idempotentHint : (tool.endpoint?.method !== 'POST'),
+      openWorldHint: tool.openWorldHint !== undefined ? tool.openWorldHint : true
     });
     setShowModal(true);
   };
@@ -450,7 +476,7 @@ function Tools({ all: isAllTools }) {
 
   const resetForm = () => {
     setEditingTool(null);
-    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '', responseFields: '', responseLineFilter: '' });
+    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '', responseFields: '', responseLineFilter: '', title: '', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
   };
 
   const handleExplore = async (e) => {
@@ -956,6 +982,15 @@ function Tools({ all: isAllTools }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem' }}>
                       <strong>{tool.name}</strong>
+                      {tool.exposedName && tool.exposedName !== tool.name && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginLeft: '0.5rem', fontFamily: 'monospace' }}>{tool.exposedName}</span>
+                      )}
+                      {tool.readOnlyHint && (
+                        <span style={{ fontSize: '0.65rem', background: '#166534', color: '#bbf7d0', padding: '0.1rem 0.35rem', borderRadius: '3px', marginLeft: '0.35rem' }}>RO</span>
+                      )}
+                      {tool.destructiveHint && (
+                        <span style={{ fontSize: '0.65rem', background: '#991b1b', color: '#fca5a5', padding: '0.1rem 0.35rem', borderRadius: '3px', marginLeft: '0.35rem' }}>D</span>
+                      )}
                     </div>
                     <span className={`tool-method ${tool.endpoint.method.toLowerCase()}`}>{tool.endpoint.method}</span>
                     <span className="tool-path">{tool.endpoint.path}</span>
@@ -1270,6 +1305,65 @@ function Tools({ all: isAllTools }) {
                       value={form.responseLineFilter || ''}
                       onChange={e => setForm({ ...form, responseLineFilter: e.target.value })}
                     />
+                  </div>
+
+                  {/* Exposed name preview */}
+                  <div className="form-group" style={{ marginTop: '0.5rem' }}>
+                    <label>Exposed as</label>
+                    <div style={{
+                      background: 'var(--bg-secondary, #1a1a2e)',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '4px',
+                      fontFamily: 'monospace',
+                      fontSize: '0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}>
+                      <code>{(() => {
+                        const exposed = computeExposedName(integration?.slug || integration?.name || '', form.name);
+                        const truncated = exposed.length < (slugify(integration?.slug || integration?.name || '') + '_' + form.name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')).length;
+                        return exposed;
+                      })()}</code>
+                      {(() => {
+                        const exposed = computeExposedName(integration?.slug || integration?.name || '', form.name);
+                        const fullLength = (slugify(integration?.slug || integration?.name || '') + '_' + form.name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')).length;
+                        return fullLength > 64 ? <span style={{ color: '#f59e0b', fontSize: '0.75rem' }}>Truncated</span> : null;
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Title (human-readable) */}
+                  <div className="form-group">
+                    <label>Display Title</label>
+                    <input type="text" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Human-readable name (shown in AI clients)" />
+                  </div>
+
+                  {/* Annotation toggles */}
+                  <div style={{ borderTop: '1px solid var(--border, #333)', paddingTop: '1rem', marginTop: '0.5rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Annotations (hints for AI clients)</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" checked={form.readOnlyHint}
+                          onChange={e => setForm({ ...form, readOnlyHint: e.target.checked })} />
+                        <span style={{ fontSize: '0.85rem' }}>Read-only (safe to auto-approve)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" checked={form.destructiveHint}
+                          onChange={e => setForm({ ...form, destructiveHint: e.target.checked })} />
+                        <span style={{ fontSize: '0.85rem' }}>Destructive (may modify/delete data)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" checked={form.idempotentHint}
+                          onChange={e => setForm({ ...form, idempotentHint: e.target.checked })} />
+                        <span style={{ fontSize: '0.85rem' }}>Idempotent (same result on repeat calls)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" checked={form.openWorldHint}
+                          onChange={e => setForm({ ...form, openWorldHint: e.target.checked })} />
+                        <span style={{ fontSize: '0.85rem' }}>External system interaction</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
                 <div className="modal-footer">

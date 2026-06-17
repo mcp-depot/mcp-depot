@@ -102,6 +102,36 @@ const Tool = sequelize.define('Tool', {
     type: DataTypes.JSON,
     defaultValue: null,
     comment: 'Composite tool steps array'
+  },
+  exposedName: {
+    type: DataTypes.STRING(64),
+    allowNull: true,
+    comment: 'MCP-exposed tool name: {integration.slug}_{tool.name}, truncated to 64 chars'
+  },
+  title: {
+    type: DataTypes.STRING(128),
+    allowNull: true,
+    comment: 'Human-readable display name for the tool'
+  },
+  readOnlyHint: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  destructiveHint: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true
+  },
+  idempotentHint: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  openWorldHint: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true
   }
 }, {
   tableName: 'tools'

@@ -15,12 +15,14 @@ const logger = require('../services/logger');
 const { executeComposite, executeCompositeTool } = require('../services/compositeExecutor');
 const { refreshMcpTools } = require('../utils/mcpHelpers');
 const { ownerWhereId } = require('../utils/queryHelpers');
+const { slugify, computeExposedName } = require('../utils/slugify');
 
 const router = express.Router();
 
 const integrationSchema = Joi.object({
   type: Joi.string().required(),
   name: Joi.string().required(),
+  slug: Joi.string().allow('').optional(),
   description: Joi.string().allow('').optional(),
     config: Joi.object({
       baseUrl: Joi.string().uri().required(),
@@ -137,6 +139,7 @@ router.get('/', authWithApiKey, async (req, res) => {
         _id: i.id,
         type: i.type,
         name: i.name,
+        slug: i.slug,
         description: i.description,
         baseUrl: i.config.baseUrl,
         allowSelfSignedCerts: i.config?.allowSelfSignedCerts || false,
@@ -379,7 +382,8 @@ router.get('/:id', authWithApiKey, async (req, res) => {
 
     res.json({
       ...integration.toJSON(),
-      _id: integration.id
+      _id: integration.id,
+      slug: integration.slug
     });
   } catch (error) {
     logger.error({ err: error.message }, 'Get integration error');
@@ -411,6 +415,18 @@ router.post('/', authWithApiKey, async (req, res) => {
       finalConfig = config;
     }
 
+    let slugValue = slugify(name);
+    const existingWithSlug = await Integration.findOne({
+      where: { userId: req.user.id, slug: slugValue }
+    });
+    if (existingWithSlug) {
+      let counter = 1;
+      while (await Integration.findOne({ where: { userId: req.user.id, slug: slugValue + '_' + counter } })) {
+        counter++;
+      }
+      slugValue = slugValue + '_' + counter;
+    }
+
     const integration = await Integration.create({
       userId: req.user.id,
       type,
@@ -418,7 +434,8 @@ router.post('/', authWithApiKey, async (req, res) => {
       description,
       config: finalConfig,
       metadata,
-      tags
+      tags,
+      slug: slugValue
     });
 
     await audit.log({
@@ -458,7 +475,7 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    const { name, description, config, metadata, isActive, visibility, tags } = req.body;
+    const { name, description, config, metadata, isActive, visibility, tags, slug: newSlug } = req.body;
 
     if (name !== undefined) integration.name = name;
     if (description !== undefined) integration.description = description;
@@ -467,6 +484,16 @@ router.put('/:id', authWithApiKey, async (req, res) => {
     if (tags !== undefined) integration.tags = tags;
     if (visibility !== undefined && ['private', 'shared'].includes(visibility)) {
       integration.visibility = visibility;
+    }
+    if (newSlug !== undefined && newSlug !== integration.slug) {
+      const cleanSlug = slugify(newSlug);
+      const existing = await Integration.findOne({
+        where: { userId: req.user.id, slug: cleanSlug, id: { [Op.ne]: integration.id } }
+      });
+      if (existing) {
+        return res.status(409).json({ error: 'Slug already in use for this user' });
+      }
+      integration.slug = cleanSlug;
     }
     
     if (config !== undefined) {
@@ -492,13 +519,27 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       };
     }
 
+    const slugChanged = integration.changed() && integration.changed().includes('slug');
+
     await integration.save();
+
+    if (slugChanged && integration.slug) {
+      const tools = await Tool.findAll({ where: { integrationId: integration.id } });
+      for (const tool of tools) {
+        const exposedName = computeExposedName(integration.slug, tool.name);
+        if (exposedName !== tool.exposedName) {
+          await tool.update({ exposedName });
+        }
+      }
+      refreshMcpTools();
+    }
 
     res.json({
       _id: integration.id,
       type: integration.type,
       name: integration.name,
       description: integration.description,
+      slug: integration.slug,
       baseUrl: integration.config?.baseUrl,
       authType: integration.config?.auth?.type || 'none',
       isActive: integration.isActive,
@@ -637,7 +678,7 @@ router.get('/:id/tools', authWithApiKey, async (req, res) => {
       where: { integrationId: req.params.id }
     });
 
-    res.json(tools.map(t => ({ ...t.toJSON(), _id: t.id })));
+    res.json(tools.map(t => ({ ...t.toJSON(), _id: t.id, exposedName: t.exposedName })));
   } catch (error) {
     res.status(500).json({ error: 'Failed to list tools' });
   }
@@ -681,6 +722,8 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
       enrichedEndpoint.params = allParams;
     }
 
+    const exposedName = computeExposedName(integration.slug || slugify(integration.name), value.name);
+
     const tool = await Tool.create({
       userId: req.user.id,
       integrationId: integration.id,
@@ -691,7 +734,8 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
       outputSchema: value.outputSchema,
       responseFields: value.responseFields,
       responseTransformer: value.responseTransformer,
-      responseLineFilter: value.responseLineFilter
+      responseLineFilter: value.responseLineFilter,
+      exposedName
     });
 
     refreshMcpTools()
@@ -710,14 +754,15 @@ router.put('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
       : { id: req.params.toolId, integrationId: req.params.id, userId: req.user.id };
     
     const tool = await Tool.findOne({
-      where: whereClause
+      where: whereClause,
+      include: [{ model: Integration, as: 'integration' }]
     });
 
     if (!tool) {
       return res.status(404).json({ error: 'Tool not found' });
     }
 
-    const { name, description, endpoint, isActive, enabled, responseFields, responseTransformer, responseLineFilter } = req.body;
+    const { name, description, endpoint, isActive, enabled, responseFields, responseTransformer, responseLineFilter, title, readOnlyHint, destructiveHint, idempotentHint, openWorldHint } = req.body;
     const updates = {};
     
     if (name !== undefined) updates.name = name;
@@ -728,6 +773,16 @@ router.put('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
     if (responseFields !== undefined) updates.responseFields = responseFields;
     if (responseTransformer !== undefined) updates.responseTransformer = responseTransformer;
     if (responseLineFilter !== undefined) updates.responseLineFilter = responseLineFilter;
+    if (title !== undefined) updates.title = title;
+    if (readOnlyHint !== undefined) updates.readOnlyHint = readOnlyHint;
+    if (destructiveHint !== undefined) updates.destructiveHint = destructiveHint;
+    if (idempotentHint !== undefined) updates.idempotentHint = idempotentHint;
+    if (openWorldHint !== undefined) updates.openWorldHint = openWorldHint;
+
+    if (name !== undefined || tool.exposedName == null) {
+      const intSlug = tool.integration?.slug || slugify(tool.integration?.name || '');
+      updates.exposedName = computeExposedName(intSlug, updates.name || tool.name);
+    }
 
     await tool.update(updates);
 
@@ -969,6 +1024,8 @@ router.post('/:id/import-tools', authWithApiKey, async (req, res) => {
           });
         }
         
+        const exposedName = computeExposedName(integration.slug || slugify(integration.name), toolName);
+
         const tool = await Tool.create({
           userId: req.user.id,
           integrationId: integration.id,
@@ -990,7 +1047,8 @@ router.post('/:id/import-tools', authWithApiKey, async (req, res) => {
             required: ep.body?.required || []
           } : {},
           outputSchema: {},
-          isActive: true
+          isActive: true,
+          exposedName
         });
         logger.info({ toolId: tool.id, name: tool.name }, 'Tool created');
         createdTools.push(tool);
@@ -1105,6 +1163,18 @@ router.post('/import', authWithApiKey, async (req, res) => {
           });
           integration = existingIntegration;
         } else {
+          let intSlug = slugify(intData.name);
+          const existingSlug = await Integration.findOne({
+            where: { userId: req.user.id, slug: intSlug }
+          });
+          if (existingSlug) {
+            let counter = 1;
+            while (await Integration.findOne({ where: { userId: req.user.id, slug: intSlug + '_' + counter } })) {
+              counter++;
+            }
+            intSlug = intSlug + '_' + counter;
+          }
+
           integration = await Integration.create({
             userId: req.user.id,
             name: intData.name,
@@ -1115,7 +1185,8 @@ router.post('/import', authWithApiKey, async (req, res) => {
               auth: intData.auth
             },
             metadata: intData.metadata,
-            isActive: true
+            isActive: true,
+            slug: intSlug
           });
         }
         
@@ -1123,13 +1194,15 @@ router.post('/import', authWithApiKey, async (req, res) => {
         if (includeTools && intData.tools && Array.isArray(intData.tools)) {
           for (const toolData of intData.tools) {
             try {
+              const exposedName = computeExposedName(integration.slug || slugify(integration.name), toolData.name);
               await Tool.create({
                 userId: req.user.id,
                 integrationId: integration.id,
                 name: toolData.name,
                 description: toolData.description || '',
                 endpoint: toolData.endpoint,
-                isActive: toolData.isActive !== false
+                isActive: toolData.isActive !== false,
+                exposedName
               });
               toolsImported++;
             } catch (te) {
@@ -1318,6 +1391,18 @@ router.post('/postman-import', authWithApiKey, async (req, res) => {
     }
     
     // Create the integration
+    let intSlug = slugify(name || 'postman-import');
+    const existingSlug = await Integration.findOne({
+      where: { userId: req.user.id, slug: intSlug }
+    });
+    if (existingSlug) {
+      let counter = 1;
+      while (await Integration.findOne({ where: { userId: req.user.id, slug: intSlug + '_' + counter } })) {
+        counter++;
+      }
+      intSlug = intSlug + '_' + counter;
+    }
+
     const integration = await Integration.create({
       userId: req.user.id,
       type: 'custom',
@@ -1329,12 +1414,14 @@ router.post('/postman-import', authWithApiKey, async (req, res) => {
         headers: {},
         timeout: 30000
       },
-      isActive: true
+      isActive: true,
+      slug: intSlug
     });
     
     // Create tools from Postman requests
     const createdTools = [];
     for (const toolDef of tools) {
+      const exposedName = computeExposedName(intSlug, toolDef.name);
       const tool = await Tool.create({
         userId: req.user.id,
         integrationId: integration.id,
@@ -1347,7 +1434,8 @@ router.post('/postman-import', authWithApiKey, async (req, res) => {
           headers: {},
           body: toolDef.body || null
         },
-        isActive: true
+        isActive: true,
+        exposedName
       });
       createdTools.push(tool);
     }

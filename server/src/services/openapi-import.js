@@ -83,7 +83,10 @@ async function parseOpenApiSpec(specUrl, specContent = null) {
 }
 
 async function importOpenApiTools(userId, integrationId, specUrl, specContent = null) {
-  const { Tool } = loadModels();
+  const { Tool, Integration } = loadModels();
+  
+  const integration = await Integration.findByPk(integrationId);
+  const intSlug = integration?.slug || (integration ? require('../utils/slugify').slugify(integration.name) : '');
   
   const parsed = await parseOpenApiSpec(specUrl, specContent);
   
@@ -101,13 +104,16 @@ async function importOpenApiTools(userId, integrationId, specUrl, specContent = 
         continue;
       }
       
+      const exposedName = require('../utils/slugify').computeExposedName(intSlug, tool.name);
+      
       await Tool.create({
         userId,
         integrationId,
         name: tool.name,
         description: tool.description,
         endpoint: tool.endpoint,
-        isActive: true
+        isActive: true,
+        exposedName
       });
       
       created.push(tool.name);

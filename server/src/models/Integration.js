@@ -48,6 +48,11 @@ const Integration = sequelize.define('Integration', {
   tags: {
     type: DataTypes.JSON,
     defaultValue: []
+  },
+  slug: {
+    type: DataTypes.STRING(32),
+    allowNull: true,
+    comment: 'URL-friendly identifier used for tool name namespacing'
   }
 }, {
   tableName: 'integrations',

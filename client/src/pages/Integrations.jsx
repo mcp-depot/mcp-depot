@@ -63,9 +63,12 @@ function Integrations() {
   const [selectedEndpoints, setSelectedEndpoints] = useState([]);
   const [importing, setImporting] = useState(false);
 
+  const slugify = (str) => str.toLowerCase().replace(/[^a-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 32);
+
   const [form, setForm] = useState({
     type: 'custom',
     name: '',
+    slug: '',
     description: '',
     baseUrl: '',
     authType: 'none',
@@ -195,7 +198,7 @@ function Integrations() {
       let payload;
 
       if (editingId) {
-        payload = { name: form.name, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts };
+        payload = { name: form.name, slug: form.slug || undefined, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts };
         
         const hasNewCredentials = (form.authType === 'basic' && (form.username || form.token)) ||
           (form.authType === 'bearer' && form.bearerToken) ||
@@ -239,7 +242,7 @@ function Integrations() {
           config.auth.credentials = { key: form.apiKeyName, value: form.apiKey, addTo: form.apiKeyIn };
         }
 
-        payload = { type: form.type, name: form.name, description: form.description, config, tags: form.tags };
+        payload = { type: form.type, name: form.name, slug: form.slug || undefined, description: form.description, config, tags: form.tags };
       }
 
       if (editingId) {
@@ -264,6 +267,7 @@ function Integrations() {
     setForm({
       type: integration.type,
       name: integration.name,
+      slug: integration.slug || '',
       description: integration.description || '',
       baseUrl: integration.baseUrl,
       authType: integration.authType || 'none',
@@ -367,8 +371,8 @@ function Integrations() {
   const resetForm = () => {
     setEditingId(null);
     setForm({
-      type: 'custom', name: '', description: '', baseUrl: '', authType: 'none',
-      username: '', token: '', apiKey: '', apiKeyName: '', apiKeyIn: 'header', bearerToken: '', tags: []
+      type: 'custom', name: '', slug: '', description: '', baseUrl: '', authType: 'none',
+      username: '', token: '', apiKey: '', apiKeyName: '', apiKeyIn: 'header', bearerToken: '', tags: [], allowSelfSignedCerts: false
     });
   };
 
@@ -1050,12 +1054,20 @@ function Integrations() {
             <div className="form-row">
               <div className="form-group">
                 <label>Name</label>
-                <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="My API" required />
+                <input type="text" value={form.name} onChange={e => {
+                  const newName = e.target.value;
+                  setForm({ ...form, name: newName, slug: editingId ? form.slug : slugify(newName) });
+                }} placeholder="My API" required />
               </div>
               <div className="form-group">
-                <label>Description</label>
-                <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional description" />
+                <label>Slug</label>
+                <input type="text" value={form.slug} onChange={e => setForm({ ...form, slug: slugify(e.target.value) })}
+                  placeholder="my-api" pattern="[a-z0-9_-]+" title="Lowercase letters, numbers, underscores, hyphens" />
               </div>
+            </div>
+            <div className="form-group">
+              <label>Description</label>
+              <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional description" />
             </div>
             <div className="form-group">
               <label>Base URL</label>

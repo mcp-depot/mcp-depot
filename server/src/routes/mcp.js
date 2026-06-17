@@ -746,7 +746,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
         where: { isActive: true },
         attributes: ['userId', 'visibility']
       }],
-      attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type']
+      attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type', 'exposedName', 'title']
     });
 
     const visibleTools = tools.filter(t => {
@@ -763,10 +763,12 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
           properties: inputSchema.properties || {},
           required: inputSchema.required || []
         };
+        const compositeName = t.exposedName || t.name;
         return {
           id: t.id,
-          name: t.name,
-          title: t.name,
+          name: compositeName,
+          title: t.title || t.name,
+          exposedName: t.exposedName,
           description: t.description,
           endpoint: t.endpoint,
           params: [],
@@ -876,8 +878,9 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
 
       return {
         id: t.id,
-        name: t.name,
-        title: t.name,
+        name: t.exposedName || t.name,
+        title: t.title || t.name,
+        exposedName: t.exposedName,
         description: t.description,
         endpoint: t.endpoint,
         params,
