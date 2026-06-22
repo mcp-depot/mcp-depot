@@ -5,9 +5,9 @@
   "license": "AGPL-3.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bscideas/mcp-depot.git"
+    "url": "https://github.com/mcp-depot/mcp-depot.git"
   },
-  "author": "BSC Ideas <hello@bscideas.com>",
+  "author": "MCP Depot <hello@mcp-depot.com>",
   "bin": {
     "mcp-depot": "bin/cli.js"
   },
