@@ -740,6 +740,11 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
       responseFields: value.responseFields,
       responseTransformer: value.responseTransformer,
       responseLineFilter: value.responseLineFilter,
+      title: value.title,
+      readOnlyHint: value.readOnlyHint,
+      destructiveHint: value.destructiveHint,
+      idempotentHint: value.idempotentHint,
+      openWorldHint: value.openWorldHint,
       exposedName
     });
 
