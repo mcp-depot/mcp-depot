@@ -285,7 +285,11 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           const sessionId = extra?.sessionId || 'stdio';
           const sessionData = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
           const clientInfo = { clientName: sessionData.clientName, clientVersion: sessionData.clientVersion };
-          const currentTool = this.toolsMap.get(toolName)?.tool ?? tool;
+          const entry = this.toolsMap.get(toolName);
+          if (!entry?.tool) {
+            throw new Error(`Tool "${toolName}" is not registered - run /mcp to reconnect`);
+          }
+          const currentTool = entry.tool;
 
           try {
             const toolLimit = currentTool.rateLimit || 0;
@@ -1001,14 +1005,18 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
   async refreshTools() {
     if (this._refreshPromise) {
+      this._pendingRefresh = true;
       return this._refreshPromise;
     }
-    this._refreshPromise = this._doRefreshTools();
-    try {
-      await this._refreshPromise;
-    } finally {
-      this._refreshPromise = null;
-    }
+    do {
+      this._pendingRefresh = false;
+      this._refreshPromise = this._doRefreshTools();
+      try {
+        await this._refreshPromise;
+      } finally {
+        this._refreshPromise = null;
+      }
+    } while (this._pendingRefresh);
   }
 
   async _doRefreshTools() {

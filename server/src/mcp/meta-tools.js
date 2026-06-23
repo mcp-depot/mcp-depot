@@ -136,10 +136,16 @@ function registerMetaTools(server, toolsMap) {
 
   handlerMap.mcp_describe_tool = wrapHandler(async (params) => {
     const { Tool, Integration } = loadModels();
-    const tool = await Tool.findOne({
+    let tool = await Tool.findOne({
       where: { name: params.name, isActive: true },
       include: [{ model: Integration, as: 'integration' }]
     });
+    if (!tool) {
+      tool = await Tool.findOne({
+        where: { exposedName: params.name, isActive: true },
+        include: [{ model: Integration, as: 'integration' }]
+      });
+    }
     if (!tool) {
       return { content: [{ type: 'text', text: `Tool "${params.name}" not found.` }], isError: true };
     }
