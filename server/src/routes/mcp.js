@@ -1258,6 +1258,9 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       tool = await Tool.findByPk(toolId);
     } else if (toolName) {
       tool = await Tool.findOne({ where: { name: toolName, isActive: true } });
+      if (!tool) {
+        tool = await Tool.findOne({ where: { exposedName: toolName, isActive: true } });
+      }
     }
     
     if (!tool && toolName) {
