@@ -3,6 +3,7 @@
 const { z } = require('zod/v3');
 const { loadModels } = require('../config/database');
 const { refreshToolsIfEnabled } = require('./server');
+const { slugify, computeExposedName } = require('../utils/slugify');
 const logger = require('../services/logger');
 
 const INTEGRATION_NAME = 'MCP Depot - AI Tools';
@@ -98,6 +99,7 @@ function registerMetaTools(server, toolsMap) {
       }
     }
     const admin = await User.findOne({ where: { role: 'admin' } });
+    const exposedName = computeExposedName(integration.slug || slugify(integration.name), params.name);
     const tool = await Tool.create({
       userId: admin ? admin.id : null, integrationId: integration.id, name: params.name,
       description: params.description,
@@ -105,7 +107,8 @@ function registerMetaTools(server, toolsMap) {
         path: params.path, method: (params.method || 'GET').toUpperCase(),
         params: parsedParams, headers: {}, body: null, responseFields
       },
-      inputSchema: {}, outputSchema: {}, isActive: true, metadata: { source: 'ai-generated' }
+      inputSchema: {}, outputSchema: {}, isActive: true, metadata: { source: 'ai-generated' },
+      exposedName
     });
     await refreshToolsIfEnabled();
     return {
