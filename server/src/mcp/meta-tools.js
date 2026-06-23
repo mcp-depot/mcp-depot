@@ -98,6 +98,21 @@ function registerMetaTools(server, toolsMap) {
         return { content: [{ type: 'text', text: `Invalid JSON in responseFields parameter.` }], isError: true };
       }
     }
+    const inputSchema = Object.keys(parsedParams).length > 0 ? {
+      type: 'object',
+      properties: Object.fromEntries(
+        Object.entries(parsedParams).map(([key, param]) => [
+          key,
+          {
+            type: (param && param.type) || 'string',
+            ...(param && param.description ? { description: param.description } : {})
+          }
+        ])
+      ),
+      required: Object.entries(parsedParams)
+        .filter(([, p]) => p && p.required)
+        .map(([key]) => key)
+    } : {};
     const admin = await User.findOne({ where: { role: 'admin' } });
     const exposedName = computeExposedName(integration.slug || slugify(integration.name), params.name);
     const tool = await Tool.create({
@@ -107,7 +122,7 @@ function registerMetaTools(server, toolsMap) {
         path: params.path, method: (params.method || 'GET').toUpperCase(),
         params: parsedParams, headers: {}, body: null, responseFields
       },
-      inputSchema: {}, outputSchema: {}, isActive: true, metadata: { source: 'ai-generated' },
+      inputSchema, outputSchema: {}, isActive: true, metadata: { source: 'ai-generated' },
       exposedName
     });
     await refreshToolsIfEnabled();
