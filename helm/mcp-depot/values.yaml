@@ -9,11 +9,11 @@ image:
   server:
     repository: ghcr.io/mcp-depot/mcp-depot-server
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   client:
     repository: ghcr.io/mcp-depot/mcp-depot-client
     tag: "latest"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
 imagePullSecrets: []
 nameOverride: ""
