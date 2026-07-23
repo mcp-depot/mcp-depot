@@ -61,6 +61,7 @@ function Integrations() {
   const [discovering, setDiscovering] = useState(false);
   const [discoveredEndpoints, setDiscoveredEndpoints] = useState([]);
   const [selectedEndpoints, setSelectedEndpoints] = useState([]);
+  const [endpointSearch, setEndpointSearch] = useState('');
   const [importing, setImporting] = useState(false);
 
   const slugify = (str) => str.toLowerCase().replace(/[^a-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 32);
@@ -146,10 +147,19 @@ function Integrations() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedEndpoints.length === discoveredEndpoints.length) {
-      setSelectedEndpoints([]);
+    const visible = endpointSearch
+      ? discoveredEndpoints.filter(ep =>
+          ep.path.toLowerCase().includes(endpointSearch.toLowerCase()) ||
+          ep.method.toLowerCase().includes(endpointSearch.toLowerCase()) ||
+          (ep.operationId && ep.operationId.toLowerCase().includes(endpointSearch.toLowerCase()))
+        )
+      : discoveredEndpoints;
+    const allVisibleSelected = visible.length > 0 && visible.every(ep => selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method));
+    if (allVisibleSelected) {
+      setSelectedEndpoints(prev => prev.filter(e => !visible.some(v => v.path === e.path && v.method === e.method)));
     } else {
-      setSelectedEndpoints([...discoveredEndpoints]);
+      const toAdd = visible.filter(ep => !selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method));
+      setSelectedEndpoints(prev => [...prev, ...toAdd]);
     }
   };
 
@@ -913,15 +923,15 @@ function Integrations() {
 
         {/* Discover API Modal */}
         {showDiscoverModal && (
-          <Modal title="Discover API Endpoints" size="lg" onClose={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); }}
+          <Modal title="Discover API Endpoints" size="lg" onClose={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); setEndpointSearch(''); }}
             footer={
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                 {discoveredEndpoints.length > 0 && (
-                  <button className="btn btn-secondary" onClick={() => { setDiscoveredEndpoints([]); setSelectedEndpoints([]); }}>
+                  <button className="btn btn-secondary" onClick={() => { setDiscoveredEndpoints([]); setSelectedEndpoints([]); setEndpointSearch(''); }}>
                     Back
                   </button>
                 )}
-                <button className="btn btn-secondary" onClick={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); }}>
+                <button className="btn btn-secondary" onClick={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); setEndpointSearch(''); }}>
                   Cancel
                 </button>
                 {discoveredEndpoints.length > 0 && (
@@ -980,6 +990,7 @@ function Integrations() {
                 <button type="submit" className="btn btn-primary" disabled={discovering} style={{ width: '100%' }}>
                   {discovering ? 'Discovering...' : 'Discover Endpoints'}
                 </button>
+                {discovering && <progress style={{ width: '100%', marginTop: '0.5rem' }} />}
               </form>
             ) : (
               <div>
@@ -987,14 +998,21 @@ function Integrations() {
                   <strong>Found {discoveredEndpoints.length} endpoints</strong>
                 </div>
                 <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '1rem', border: '1px solid var(--border-light)' }}>
-                  <div style={{ padding: '0.5rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ padding: '0.5rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={selectedEndpoints.length === discoveredEndpoints.length} onChange={toggleSelectAll} />
+                      <input type="checkbox" checked={(() => { const v = endpointSearch ? discoveredEndpoints.filter(ep => ep.path.toLowerCase().includes(endpointSearch.toLowerCase()) || ep.method.toLowerCase().includes(endpointSearch.toLowerCase()) || (ep.operationId && ep.operationId.toLowerCase().includes(endpointSearch.toLowerCase()))) : discoveredEndpoints; return v.length > 0 && v.every(ep => selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method)); })()} onChange={toggleSelectAll} />
                       <strong>Select All</strong>
                     </label>
-                    <span>{selectedEndpoints.length} selected</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <input type="text" placeholder="Search endpoints..." value={endpointSearch} onChange={e => setEndpointSearch(e.target.value)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem', width: '180px' }} />
+                      <span>{selectedEndpoints.length} selected</span>
+                    </div>
                   </div>
-                  {discoveredEndpoints.map((ep, idx) => (
+                  {(endpointSearch ? discoveredEndpoints.filter(ep =>
+                    ep.path.toLowerCase().includes(endpointSearch.toLowerCase()) ||
+                    ep.method.toLowerCase().includes(endpointSearch.toLowerCase()) ||
+                    (ep.operationId && ep.operationId.toLowerCase().includes(endpointSearch.toLowerCase()))
+                  ) : discoveredEndpoints).map((ep, idx) => (
                     <div key={idx} style={{ padding: '0.5rem', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <input type="checkbox" checked={selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method)} onChange={() => toggleEndpoint(ep)} />
                       <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: ep.method === 'GET' ? '#28a745' : ep.method === 'POST' ? '#007bff' : ep.method === 'PUT' ? '#ffc107' : ep.method === 'DELETE' ? '#dc3545' : '#6c757d' }}>{ep.method}</span>

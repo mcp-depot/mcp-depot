@@ -52,6 +52,7 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:test@localhost:5432/mcp_depot_test
           JWT_SECRET: test-secret
+          JWT_REFRESH_SECRET: test-refresh-secret
           ENCRYPTION_KEY: test-32-byte-encryption-key!!!!
           NODE_ENV: test
           
@@ -97,6 +98,7 @@ jobs:
         run: |
           ENCRYPTION_KEY=ci-test-32-byte-encryption-key!! \
           JWT_SECRET=ci-test-secret \
+          JWT_REFRESH_SECRET=ci-test-refresh-secret!! \
           TAG=${{ steps.tag.outputs.tag }} \
           docker compose up -d
           sleep 20
