@@ -1,10 +1,40 @@
 const express = require('express');
 const { Op } = require('sequelize');
-const { auth } = require('../middleware/auth');
+const { auth, requireAdmin } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { loadModels, sequelize } = require('../config/database');
+const circuitBreaker = require('../services/circuit-breaker');
 
 const router = express.Router();
+
+router.get('/circuit-breaker-status', auth, requireAdmin, async (req, res) => {
+  res.json(circuitBreaker.getStatus());
+});
+
+router.get('/audit-log', auth, requireAdmin, async (req, res) => {
+  try {
+    const audit = require('../services/audit');
+    const { page = 1, limit = 50, userId, action, integrationType, status } = req.query;
+    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+    const { count, rows } = await audit.getAllLogs({
+      limit: parseInt(limit, 10),
+      offset,
+      userId,
+      action,
+      integrationType,
+      status
+    });
+
+    res.json({
+      logs: rows,
+      pagination: { total: count, page: parseInt(page, 10), limit: parseInt(limit, 10), pages: Math.ceil(count / parseInt(limit, 10)) }
+    });
+  } catch (error) {
+    logger.error({ error: error.message }, 'Get audit log failed');
+    res.status(500).json({ error: 'Failed to get audit log' });
+  }
+});
 
 router.get('/stats', auth, async (req, res) => {
   try {

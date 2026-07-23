@@ -101,13 +101,20 @@ router.delete('/credentials/:integrationId', auth, async (req, res) => {
 
 router.get('/shared', auth, async (req, res) => {
   try {
-    const { Integration, UserIntegrationCredentials, Sequelize } = loadModels();
+    const { Integration, User, UserIntegrationCredentials, Sequelize } = loadModels();
     const userId = req.user.id;
     const { Op } = Sequelize;
 
-    const where = req.user.role === 'admin'
-      ? { isActive: true }
-      : { isActive: true, [Op.or]: [{ userId }, { visibility: 'shared' }] };
+    let where;
+    if (req.user.role === 'admin') {
+      where = { isActive: true };
+    } else {
+      const admins = await User.findAll({ where: { role: 'admin' }, attributes: ['id'], raw: true });
+      const adminIds = admins.map(u => u.id);
+      // "shared" only counts when it's owned by an admin - a regular user's
+      // own integration must never surface here just because it's their own.
+      where = { isActive: true, [Op.or]: [{ userId }, { visibility: 'shared', userId: { [Op.in]: adminIds } }] };
+    }
 
     const integrations = await Integration.findAll({
       where,

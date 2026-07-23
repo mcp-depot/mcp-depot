@@ -3,6 +3,7 @@ const https = require('https');
 const encryption = require('../services/encryption');
 const logger = require('../services/logger');
 const envConfig = require('../config/env');
+const circuitBreaker = require('../services/circuit-breaker');
 
 class DynamicAdapter {
   constructor(config, options = {}) {
@@ -161,11 +162,15 @@ class DynamicAdapter {
 
   async makeRequest(method, path, data = null, options = {}) {
     const { params, headers, retries = 3 } = options;
-    
+
+    if (circuitBreaker.isOpen(this.integrationId)) {
+      throw new Error('Integration temporarily unavailable: too many recent failures (circuit breaker open), retry shortly');
+    }
+
     if (this.auth.type === 'oauth2') {
       await this.ensureValidToken();
     }
-    
+
     const config = {
       method,
       url: path,
@@ -186,6 +191,7 @@ class DynamicAdapter {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const response = await this.client.request(config);
+        circuitBreaker.recordSuccess(this.integrationId);
         return {
           data: response.data,
           status: response.status,
@@ -194,27 +200,37 @@ class DynamicAdapter {
       } catch (error) {
         const status = error.response?.status;
         const retryAfter = error.response?.headers?.['retry-after'];
-        
+
         if (status === 429 && retryAfter) {
           const waitMs = parseInt(retryAfter) * 1000;
           await new Promise(r => setTimeout(r, waitMs));
           continue;
         }
-        
+
         if (attempt < retries && status >= 500) {
           const delay = Math.min(Math.pow(2, attempt) * 500, 30000);
           await new Promise(r => setTimeout(r, delay));
           lastError = error;
           continue;
         }
-        
+
+        // No status at all (network/timeout) or a persistent 5xx counts as
+        // the integration being down - trip the breaker so the next caller
+        // fails fast instead of piling on retries against a dead upstream.
+        if (!status || status >= 500) {
+          circuitBreaker.recordFailure(this.integrationId);
+        }
+
         const errorDetail = error?.response?.data
           ? JSON.stringify(error.response.data)
           : (error?.message || String(error));
         throw new Error(`API Error: ${errorDetail}`);
       }
     }
-    
+
+    if (!lastError?.response?.status || lastError.response.status >= 500) {
+      circuitBreaker.recordFailure(this.integrationId);
+    }
     throw lastError;
   }
 

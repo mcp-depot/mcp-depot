@@ -296,7 +296,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
             const intLimit = currentTool.Integration?.rateLimit || {};
             const integrationLimitRpm = intLimit.requestsPerMinute || 0;
             const integrationLimitRph = intLimit.requestsPerHour || 0;
-            const rateCheck = checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph);
+            const rateCheck = checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph, currentTool.Integration?.id);
             if (!rateCheck.allowed) {
               return {
                 content: [{

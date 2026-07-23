@@ -59,9 +59,15 @@ function checkSlidingWindow(resourceId, limit, windowMs) {
   return { allowed: true, remaining, resetInSeconds: Math.max(1, Math.ceil((windowMs - elapsedInCurrent) / 1000)) };
 }
 
-function checkRateLimit(toolId, userId, toolLimit, integrationLimitRpm, integrationLimitRph) {
+function checkRateLimit(toolId, userId, toolLimit, integrationLimitRpm, integrationLimitRph, integrationId) {
   const toolKey = `tool:${toolId}:${userId}`;
-  const integrationKey = `integration:${toolId}:${userId}`;
+  // Pooled across every user and every tool on this integration - a shared
+  // Jira/Confluence-style integration has one real upstream quota, and no
+  // single user's per-user budget should be able to exhaust the whole pool.
+  // Falls back to the old per-tool-per-user key when no integrationId is
+  // supplied (e.g. composite/meta tools with no backing integration).
+  const poolId = integrationId || toolId;
+  const integrationKey = `integration:${poolId}`;
 
   const effectiveToolLimit = toolLimit || DEFAULT_RPM;
   const effectiveIntegrationLimitRpm = integrationLimitRpm || DEFAULT_RPM;

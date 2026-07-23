@@ -13,8 +13,8 @@ if (process.env.DATABASE_URL) {
     logging: false,
     dialect: 'postgres',
     pool: {
-      max: 5,
-      min: 0,
+      max: parseInt(process.env.DB_POOL_MAX, 10) || 20,
+      min: parseInt(process.env.DB_POOL_MIN, 10) || 2,
       acquire: 30000,
       idle: 10000
     }

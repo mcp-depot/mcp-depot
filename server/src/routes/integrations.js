@@ -408,13 +408,13 @@ router.post('/', authWithApiKey, async (req, res) => {
     let finalConfig = config;
     if (config && config.auth && config.auth.credentials && config.auth.type !== 'none') {
       const credentials = config.auth.credentials;
-      if (credentials.token && !credentials.token.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.token)) {
+      if (credentials.token && !encryption.isEncrypted(credentials.token) && !secretStore.isSecretRef(credentials.token)) {
         credentials.token = encryption.encrypt(credentials.token);
       }
-      if (credentials.username && !credentials.username.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.username)) {
+      if (credentials.username && !encryption.isEncrypted(credentials.username) && !secretStore.isSecretRef(credentials.username)) {
         credentials.username = encryption.encrypt(credentials.username);
       }
-      if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.apiKey)) {
+      if (credentials.apiKey && !encryption.isEncrypted(credentials.apiKey) && !secretStore.isSecretRef(credentials.apiKey)) {
         credentials.apiKey = encryption.encrypt(credentials.apiKey);
       }
       finalConfig = config;
@@ -487,7 +487,13 @@ router.put('/:id', authWithApiKey, async (req, res) => {
     if (metadata !== undefined) integration.metadata = metadata;
     if (isActive !== undefined) integration.isActive = isActive;
     if (tags !== undefined) integration.tags = tags;
-    if (visibility !== undefined && ['private', 'shared'].includes(visibility)) {
+    if (visibility !== undefined) {
+      if (!['private', 'shared'].includes(visibility)) {
+        return res.status(400).json({ error: 'Invalid visibility value' });
+      }
+      if (visibility === 'shared' && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+      }
       integration.visibility = visibility;
     }
     if (newSlug !== undefined && newSlug !== integration.slug) {
@@ -504,13 +510,13 @@ router.put('/:id', authWithApiKey, async (req, res) => {
     if (config !== undefined) {
       if (config.auth?.credentials && config.auth.type !== 'none') {
         const credentials = config.auth.credentials;
-        if (credentials.token && !credentials.token.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.token)) {
+        if (credentials.token && !encryption.isEncrypted(credentials.token) && !secretStore.isSecretRef(credentials.token)) {
           credentials.token = encryption.encrypt(credentials.token);
         }
-        if (credentials.username && !credentials.username.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.username)) {
+        if (credentials.username && !encryption.isEncrypted(credentials.username) && !secretStore.isSecretRef(credentials.username)) {
           credentials.username = encryption.encrypt(credentials.username);
         }
-        if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.apiKey)) {
+        if (credentials.apiKey && !encryption.isEncrypted(credentials.apiKey) && !secretStore.isSecretRef(credentials.apiKey)) {
           credentials.apiKey = encryption.encrypt(credentials.apiKey);
         }
       }
@@ -538,6 +544,15 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       }
       refreshMcpTools();
     }
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'update_integration',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      details: { name: integration.name },
+      status: 'success'
+    });
 
     res.json({
       _id: integration.id,
@@ -574,17 +589,29 @@ router.delete('/:id', authWithApiKey, async (req, res) => {
     }
 
     // Delete associated tool_calls first (they reference tools)
-    await sequelize.query(`
-      DELETE FROM tool_calls WHERE "toolId" IN (SELECT id FROM tools WHERE "integrationId" = '${req.params.id}')
-    `);
-    
+    await sequelize.query(
+      `DELETE FROM tool_calls WHERE "toolId" IN (SELECT id FROM tools WHERE "integrationId" = :integrationId)`,
+      { replacements: { integrationId: req.params.id } }
+    );
+
     // Delete associated tools
     await Tool.destroy({ where: { integrationId: req.params.id } });
-    
+
+    const deletedInfo = { id: integration.id, type: integration.type, name: integration.name };
+
     // Delete the integration
     await integration.destroy();
 
     refreshMcpTools()
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'delete_integration',
+      integrationType: deletedInfo.type,
+      integrationId: deletedInfo.id,
+      details: { name: deletedInfo.name },
+      status: 'success'
+    });
 
     res.json({ message: 'Integration deleted' });
   } catch (error) {
@@ -625,8 +652,8 @@ router.post('/:id/test', authWithApiKey, async (req, res) => {
         authType: integration.config?.auth?.type || 'none',
         hasCredentials: !!(integration.config?.auth?.credentials),
         credentialsKeys: integration.config?.auth?.credentials ? Object.keys(integration.config.auth.credentials) : [],
-        credentialsAreEncrypted: integration.config?.auth?.credentials?.token 
-          ? integration.config.auth.credentials.token.startsWith('U2FsdGVk') 
+        credentialsAreEncrypted: integration.config?.auth?.credentials?.token
+          ? encryption.isEncrypted(integration.config.auth.credentials.token)
           : false
       },
       computedAuth: {
@@ -1255,8 +1282,21 @@ router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
     if (!['private', 'shared'].includes(visibility)) {
       return res.status(400).json({ error: 'Invalid visibility value' });
     }
+    if (visibility === 'shared' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+    }
 
     await integration.update({ visibility });
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'update_visibility',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      details: { visibility },
+      status: 'success'
+    });
+
     res.json({ success: true, visibility: integration.visibility });
   } catch (error) {
     logger.error({ err: error.message }, 'Update visibility error');
@@ -1291,13 +1331,27 @@ router.patch('/:id/credentials', authWithApiKey, async (req, res) => {
       });
       
       logger.info({ userId: req.user.id, integrationId: integration.id }, 'User connected to shared integration');
+      await audit.log({
+        userId: req.user.id,
+        action: 'connect_shared_integration',
+        integrationType: integration.type,
+        integrationId: integration.id,
+        status: 'success'
+      });
       res.json({ success: true, message: 'Credentials saved successfully' });
     } else if (isOwnerOrAdmin) {
       const config = { ...integration.config };
-      config.auth.credentials = encryption.encryptCredentials(credentials);
+      config.auth.credentials = encryption.encryptObject(credentials);
       await integration.update({ config });
-      
+
       logger.info({ integrationId: integration.id }, 'Integration credentials updated');
+      await audit.log({
+        userId: req.user.id,
+        action: 'update_integration_credentials',
+        integrationType: integration.type,
+        integrationId: integration.id,
+        status: 'success'
+      });
       res.json({ success: true, message: 'Credentials updated successfully' });
     } else {
       return res.status(403).json({ error: 'Not authorized to update credentials for this integration' });
@@ -1327,8 +1381,15 @@ router.delete('/:id/credentials', authWithApiKey, async (req, res) => {
     await UserIntegrationCredentials.destroy({
       where: { userId: req.user.id, integrationId: integration.id }
     });
-    
+
     logger.info({ userId: req.user.id, integrationId: integration.id }, 'User disconnected from integration');
+    await audit.log({
+      userId: req.user.id,
+      action: 'delete_integration_credentials',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      status: 'success'
+    });
     res.json({ success: true, message: 'Disconnected successfully' });
   } catch (error) {
     logger.error({ err: error.message }, 'Disconnect error');

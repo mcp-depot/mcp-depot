@@ -26,7 +26,7 @@ const config = require('./config/env');
 const logger = require('./services/logger');
 const promClient = require('prom-client');
 const { middleware: metricsMiddleware } = require('./services/metrics');
-const { auth } = require('./middleware/auth');
+const { auth, requireAdmin } = require('./middleware/auth');
 
 const authRoutes = require('./routes/auth');
 const integrationRoutes = require('./routes/integrations');
@@ -128,7 +128,7 @@ app.use('/api', v1Router); // Backward compatibility
 
 setExternalMcpClearCache(clearToolsCache);
 
-app.get('/metrics', auth, async (req, res) => {
+app.get('/metrics', auth, requireAdmin, async (req, res) => {
   res.set('Content-Type', promClient.register.contentType);
   res.end(await promClient.register.metrics());
 });
@@ -192,6 +192,10 @@ const startServer = async () => {
     const { startContextCleanup } = require('./services/context-cleanup');
     const { loadModels } = require('./config/database');
     startContextCleanup(loadModels);
+
+    // Purge old tool_calls / SessionChannel rows so both tables don't grow unbounded
+    const { startDataRetention } = require('./services/data-retention');
+    startDataRetention(loadModels);
     
     // Initialize Secret Store if configured via env vars
     const secretStore = require('./services/secret-store');
@@ -222,11 +226,19 @@ const startServer = async () => {
     
     const gracefulShutdown = async (signal) => {
       logger.info({ signal }, 'Shutting down gracefully');
-      
-      server.close(() => {
-        logger.info('HTTP server closed');
+
+      const forceExitTimer = setTimeout(() => {
+        logger.error('Graceful shutdown timed out, forcing exit');
+        process.exit(1);
+      }, 10000);
+
+      await new Promise((resolve) => {
+        server.close(() => {
+          logger.info('HTTP server closed');
+          resolve();
+        });
       });
-      
+
       try {
         await pool.closeAll();
         logger.info('MCP connection pool closed');
@@ -250,6 +262,7 @@ const startServer = async () => {
         logger.error({ err: e.message }, 'Error closing database');
       }
       
+      clearTimeout(forceExitTimer);
       logger.info('Shutdown complete');
       process.exit(0);
     };

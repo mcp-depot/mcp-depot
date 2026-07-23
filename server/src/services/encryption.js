@@ -1,26 +1,64 @@
+const crypto = require('crypto');
 const CryptoJS = require('crypto-js');
 const config = require('../config/env');
 
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 12;
+const AUTH_TAG_LENGTH = 16;
+const VERSION_PREFIX = 'v2:';
+
 class EncryptionService {
   constructor() {
-    this.key = config.encryptionKey;
+    // Derive a fixed 32-byte key from the configured secret for AES-256-GCM.
+    this.key = crypto.createHash('sha256').update(config.encryptionKey).digest();
+    // Kept only to decrypt ciphertext written before the GCM migration.
+    this.legacyPassphrase = config.encryptionKey;
   }
 
   encrypt(text) {
     if (!text) return text;
-    return CryptoJS.AES.encrypt(text, this.key).toString();
+    const iv = crypto.randomBytes(IV_LENGTH);
+    const cipher = crypto.createCipheriv(ALGORITHM, this.key, iv);
+    const ciphertext = Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    return VERSION_PREFIX + Buffer.concat([iv, authTag, ciphertext]).toString('base64');
   }
 
   decrypt(ciphertext) {
     if (!ciphertext) return null;
     try {
-      const bytes = CryptoJS.AES.decrypt(ciphertext, this.key);
-      const result = bytes.toString(CryptoJS.enc.Utf8);
-      if (!result) return null;
-      return result;
+      if (ciphertext.startsWith(VERSION_PREFIX)) {
+        return this._decryptGcm(ciphertext.slice(VERSION_PREFIX.length));
+      }
+      return this._decryptLegacy(ciphertext);
     } catch (error) {
       return null;
     }
+  }
+
+  _decryptGcm(payload) {
+    const raw = Buffer.from(payload, 'base64');
+    if (raw.length < IV_LENGTH + AUTH_TAG_LENGTH) return null;
+    const iv = raw.subarray(0, IV_LENGTH);
+    const authTag = raw.subarray(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
+    const data = raw.subarray(IV_LENGTH + AUTH_TAG_LENGTH);
+    const decipher = crypto.createDecipheriv(ALGORITHM, this.key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
+    return decrypted.toString('utf8');
+  }
+
+  // Decrypt-only path for credentials encrypted before the AES-256-GCM
+  // migration (plain CryptoJS passphrase-based AES-CBC, no auth tag).
+  // Re-saving any such credential re-encrypts it under the new scheme.
+  _decryptLegacy(ciphertext) {
+    const bytes = CryptoJS.AES.decrypt(ciphertext, this.legacyPassphrase);
+    const result = bytes.toString(CryptoJS.enc.Utf8);
+    return result || null;
+  }
+
+  isEncrypted(value) {
+    return typeof value === 'string' && (value.startsWith(VERSION_PREFIX) || value.startsWith('U2FsdGVk'));
   }
 
   encryptObject(obj) {

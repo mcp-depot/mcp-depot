@@ -45,6 +45,24 @@ class AuditService {
       limit
     });
   }
+
+  // Admin-only: every user's activity, optionally filtered.
+  async getAllLogs(options = {}) {
+    const { limit = 50, offset = 0, userId, action, integrationType, status } = options;
+
+    const where = {};
+    if (userId) where.userId = userId;
+    if (action) where.action = action;
+    if (integrationType) where.integrationType = integrationType;
+    if (status) where.status = status;
+
+    return AuditLog.findAndCountAll({
+      where,
+      order: [['timestamp', 'DESC']],
+      offset,
+      limit
+    });
+  }
 }
 
 module.exports = new AuditService();

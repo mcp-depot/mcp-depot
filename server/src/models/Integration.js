@@ -60,8 +60,18 @@ const Integration = sequelize.define('Integration', {
     beforeSave: (integration) => {
       if (integration.changed('config') && integration.config?.auth?.credentials) {
         const encryption = require('../services/encryption');
+        const secretStore = require('../services/secret-store');
         const config = JSON.parse(JSON.stringify(integration.config));
-        config.auth.credentials = encryption.encryptObject(config.auth.credentials);
+        const credentials = config.auth.credentials;
+        // Guard against double-encryption: only encrypt fields that aren't
+        // already ciphertext and aren't an external secret-store reference.
+        // Route handlers may have already encrypted a field before calling
+        // save/update - encrypting it again here would make it undecryptable.
+        for (const [key, value] of Object.entries(credentials)) {
+          if (typeof value === 'string' && value && !encryption.isEncrypted(value) && !secretStore.isSecretRef(value)) {
+            credentials[key] = encryption.encrypt(value);
+          }
+        }
         integration.config = config;
       }
     },

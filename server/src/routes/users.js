@@ -3,6 +3,7 @@ const Joi = require('joi');
 const User = require('../models/User');
 const logger = require('../services/logger');
 const { auth, requireAdmin } = require('../middleware/auth');
+const audit = require('../services/audit');
 
 const router = express.Router();
 
@@ -57,6 +58,14 @@ router.post('/', auth, requireAdmin, async (req, res) => {
       mustResetPassword: !password
     });
 
+    await audit.log({
+      userId: req.user.id,
+      action: 'create_user',
+      integrationType: 'user_management',
+      details: { targetUserId: user.id, email: user.email, role: user.role },
+      status: 'success'
+    });
+
     res.status(201).json({
       ...user.toJSON(),
       temporaryPassword: password ? undefined : tempPassword
@@ -86,7 +95,17 @@ router.put('/:id', auth, requireAdmin, async (req, res) => {
       }
     }
 
+    const roleChanged = value.role !== undefined && value.role !== user.role;
     await user.update(value);
+
+    await audit.log({
+      userId: req.user.id,
+      action: roleChanged ? 'change_user_role' : 'update_user',
+      integrationType: 'user_management',
+      details: { targetUserId: user.id, email: user.email, ...(roleChanged ? { newRole: value.role } : {}) },
+      status: 'success'
+    });
+
     res.json(user.toJSON());
   } catch (error) {
     logger.error({ err: error.message }, 'Failed to update user');
@@ -106,6 +125,15 @@ router.delete('/:id', auth, requireAdmin, async (req, res) => {
     }
 
     await user.destroy();
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'delete_user',
+      integrationType: 'user_management',
+      details: { targetUserId: user.id, email: user.email },
+      status: 'success'
+    });
+
     res.json({ message: 'User deleted' });
   } catch (error) {
     logger.error({ err: error.message }, 'Failed to delete user');
@@ -126,6 +154,14 @@ router.post('/:id/reset-password', auth, requireAdmin, async (req, res) => {
     await user.update({
       password: tempPassword,
       mustResetPassword: true
+    });
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'reset_user_password',
+      integrationType: 'user_management',
+      details: { targetUserId: user.id, email: user.email },
+      status: 'success'
     });
 
     res.json({ temporaryPassword: tempPassword });

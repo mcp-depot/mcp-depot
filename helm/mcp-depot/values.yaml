@@ -114,6 +114,6 @@ livenessProbe:
 
 readinessProbe:
   enabled: true
-  path: /health
+  path: /ready
   initialDelaySeconds: 5
   periodSeconds: 5

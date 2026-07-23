@@ -6,8 +6,55 @@ const logger = require('../services/logger');
 
 const PROBE_TIMEOUT_MS = 5000;
 const CACHE_TTL_MS = 60000;
+const ALERT_THRESHOLD = parseInt(process.env.ALERT_FAILURE_THRESHOLD, 10) || 3;
+const ALERT_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL || null;
 
 const cache = new Map();
+// Map<integrationId, { consecutiveFailures, alerted }> - used only to decide
+// when to fire an alert webhook, independent of the health-check result cache.
+const failureTracking = new Map();
+
+async function sendAlert(payload) {
+  if (!ALERT_WEBHOOK_URL) return;
+  try {
+    await axios.post(ALERT_WEBHOOK_URL, payload, { timeout: 5000 });
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Failed to deliver alert webhook');
+  }
+}
+
+function trackFailure(integration, result) {
+  const track = failureTracking.get(integration.id) || { consecutiveFailures: 0, alerted: false };
+
+  if (result.status === 'ok') {
+    if (track.alerted) {
+      sendAlert({
+        text: `[MCP Depot] Integration "${integration.name}" recovered after ${track.consecutiveFailures} consecutive failed health checks`,
+        integrationId: integration.id,
+        integrationName: integration.name,
+        status: 'recovered',
+        timestamp: new Date().toISOString()
+      });
+    }
+    failureTracking.delete(integration.id);
+    return;
+  }
+
+  track.consecutiveFailures++;
+  if (track.consecutiveFailures >= ALERT_THRESHOLD && !track.alerted) {
+    track.alerted = true;
+    sendAlert({
+      text: `[MCP Depot] Integration "${integration.name}" has failed ${track.consecutiveFailures} consecutive health checks: ${result.error}`,
+      integrationId: integration.id,
+      integrationName: integration.name,
+      status: 'unhealthy',
+      consecutiveFailures: track.consecutiveFailures,
+      error: result.error,
+      timestamp: new Date().toISOString()
+    });
+  }
+  failureTracking.set(integration.id, track);
+}
 
 async function buildProbeHeaders(config) {
   const auth = config.auth || { type: 'none' };
@@ -100,6 +147,7 @@ async function probe(integration) {
 async function checkAll(integrations) {
   const checks = integrations.map(async (integration) => {
     const result = await probe(integration);
+    trackFailure(integration, result);
     const entry = {
       id: integration.id,
       name: integration.name,
