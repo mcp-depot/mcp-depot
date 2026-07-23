@@ -45,8 +45,14 @@ async function isUrlSafe(urlString) {
   if (!['http:', 'https:'].includes(url.protocol)) return false;
   if (BLOCKED_HOSTNAMES.has(url.hostname.toLowerCase())) return false;
 
-  if (net.isIP(url.hostname)) {
-    return !isPrivateIp(url.hostname);
+  // url.hostname keeps the surrounding brackets for IPv6 literals
+  // (e.g. "[::1]"), which net.isIP() does not recognize - strip them before
+  // checking, otherwise IPv6 literals fall through to a DNS lookup of the
+  // literal bracketed string, which fails and is blocked for the wrong
+  // reason (masking that public IPv6 literals would be wrongly blocked too).
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(hostname)) {
+    return !isPrivateIp(hostname);
   }
 
   try {
