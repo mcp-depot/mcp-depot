@@ -9,6 +9,8 @@ import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown, LayoutGrid, PanelLeft, Li
 import { ViewToggle } from '../components/ViewToggle';
 import { showError } from '../utils/toast';
 import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { useId } from 'react';
 
 const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
 
@@ -82,6 +84,16 @@ function Tools({ all: isAllTools }) {
   });
   const [selectedPromptTemplate, setSelectedPromptTemplate] = useState('full-cycle');
   const [showExternalToolsModal, setShowExternalToolsModal] = useState(false);
+  const formTitleId = useId();
+  const formModalRef = useModalA11y(() => setShowModal(false), showModal);
+  const exploreTitleId = useId();
+  const exploreModalRef = useModalA11y(() => setShowExploreModal(false), showExploreModal);
+  const testTitleId = useId();
+  const testModalRef = useModalA11y(() => setShowTestModal(false), showTestModal);
+  const externalToolsTitleId = useId();
+  const externalToolsModalRef = useModalA11y(() => setShowExternalToolsModal(false), showExternalToolsModal);
+  const promptLibraryTitleId = useId();
+  const promptLibraryModalRef = useModalA11y(() => setShowPromptLibrary(false), showPromptLibrary);
   const [editingTool, setEditingTool] = useState(null);
   const [testingTool, setTestingTool] = useState(null);
   const [testResult, setTestResult] = useState(null);
@@ -1161,10 +1173,10 @@ function Tools({ all: isAllTools }) {
 
         {showModal && (
           <div className="modal-overlay">
-            <div className="modal" style={{ maxWidth: '650px' }} onClick={e => e.stopPropagation()}>
+            <div ref={formModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={formTitleId} tabIndex={-1} style={{ maxWidth: '650px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>{editingTool ? 'Edit Tool' : 'Add Tool'}</h2>
-                <button className="modal-close" onClick={() => setShowModal(false)}>&times;</button>
+                <h2 id={formTitleId}>{editingTool ? 'Edit Tool' : 'Add Tool'}</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowModal(false)}>&times;</button>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="modal-body">
@@ -1383,10 +1395,10 @@ function Tools({ all: isAllTools }) {
         {/* Explore API Modal */}
         {showExploreModal && (
           <div className="modal-overlay">
-            <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
+            <div ref={exploreModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={exploreTitleId} tabIndex={-1} style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Explore API Endpoints</h2>
-                <button className="modal-close" onClick={() => setShowExploreModal(false)}>&times;</button>
+                <h2 id={exploreTitleId}>Explore API Endpoints</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowExploreModal(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 {discoveredEndpoints.length === 0 ? (
@@ -1495,10 +1507,10 @@ function Tools({ all: isAllTools }) {
         {/* Test Tool Modal */}
         {showTestModal && currentToolForTest && (
           <div className="modal-overlay">
-            <div className="modal" onClick={e => e.stopPropagation()}>
+            <div ref={testModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={testTitleId} tabIndex={-1} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Test: {currentToolForTest.name}</h2>
-                <button className="modal-close" onClick={() => setShowTestModal(false)}>&times;</button>
+                <h2 id={testTitleId}>Test: {currentToolForTest.name}</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowTestModal(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '4px' }}>
@@ -1563,10 +1575,10 @@ function Tools({ all: isAllTools }) {
         {/* External Tools Modal */}
         {showExternalToolsModal && (
           <div className="modal-overlay" onClick={() => setShowExternalToolsModal(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div ref={externalToolsModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={externalToolsTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
               <div className="modal-header">
-                <h2>External MCP Tools</h2>
-                <button className="modal-close" onClick={() => setShowExternalToolsModal(false)}>&times;</button>
+                <h2 id={externalToolsTitleId}>External MCP Tools</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowExternalToolsModal(false)}>&times;</button>
               </div>
               <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
                 {externalTools.length === 0 ? (
@@ -1636,10 +1648,10 @@ function Tools({ all: isAllTools }) {
         {/* Prompt Library Modal */}
         {showPromptLibrary && (
           <div className="modal-overlay" onClick={() => setShowPromptLibrary(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div ref={promptLibraryModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={promptLibraryTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
               <div className="modal-header">
-                <h2>Prompt Library</h2>
-                <button className="modal-close" onClick={() => setShowPromptLibrary(false)}>&times;</button>
+                <h2 id={promptLibraryTitleId}>Prompt Library</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowPromptLibrary(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>

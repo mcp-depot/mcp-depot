@@ -5,6 +5,8 @@ import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import { showError } from '../utils/toast';
 import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { useId } from 'react';
 
 function Workflows() {
   const { user } = useAuth();
@@ -25,6 +27,16 @@ function Workflows() {
   const [showCanvasModal, setShowCanvasModal] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const formTitleId = useId();
+  const formModalRef = useModalA11y(() => setShowModal(false), showModal);
+  const templatesTitleId = useId();
+  const templatesModalRef = useModalA11y(() => setShowTemplatesModal(false), showTemplatesModal);
+  const detailTitleId = useId();
+  const detailModalRef = useModalA11y(() => setShowDetailModal(false), showDetailModal);
+  const inputTitleId = useId();
+  const inputModalRef = useModalA11y(() => setShowInputModal(false), showInputModal);
+  const canvasTitleId = useId();
+  const canvasModalRef = useModalA11y(() => { setShowCanvasModal(false); setSelectedNode(null); }, showCanvasModal);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [hoveredNode, setHoveredNode] = useState(null);
@@ -291,10 +303,10 @@ function Workflows() {
 
         {showModal && (
           <div className="modal-overlay" onClick={() => setShowModal(false)}>
-            <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
+            <div ref={formModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={formTitleId} tabIndex={-1} style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Create Workflow</h2>
-                <button className="modal-close" onClick={() => setShowModal(false)}>&times;</button>
+                <h2 id={formTitleId}>Create Workflow</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowModal(false)}>&times;</button>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="modal-body">
@@ -389,10 +401,10 @@ function Workflows() {
 
         {showTemplatesModal && (
           <div className="modal-overlay" onClick={() => setShowTemplatesModal(false)}>
-            <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+            <div ref={templatesModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={templatesTitleId} tabIndex={-1} style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Workflow Templates</h2>
-                <button className="modal-close" onClick={() => setShowTemplatesModal(false)}>&times;</button>
+                <h2 id={templatesTitleId}>Workflow Templates</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowTemplatesModal(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 {templatesLoading ? (
@@ -426,10 +438,10 @@ function Workflows() {
 
         {showDetailModal && detailWorkflow && (
           <div className="modal-overlay" onClick={() => setShowDetailModal(false)}>
-            <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
+            <div ref={detailModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={detailTitleId} tabIndex={-1} style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>{detailWorkflow.name}</h2>
-                <button className="modal-close" onClick={() => setShowDetailModal(false)}>&times;</button>
+                <h2 id={detailTitleId}>{detailWorkflow.name}</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowDetailModal(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 <p style={{ color: 'var(--text-light)', marginBottom: '1.5rem' }}>{detailWorkflow.description}</p>
@@ -514,10 +526,10 @@ function Workflows() {
 
         {showInputModal && detailWorkflow && (
           <div className="modal-overlay" onClick={() => setShowInputModal(false)}>
-            <div className="modal" style={{ maxWidth: '700px', maxHeight: '80vh' }} onClick={e => e.stopPropagation()}>
+            <div ref={inputModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={inputTitleId} tabIndex={-1} style={{ maxWidth: '700px', maxHeight: '80vh' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>How Claude will call tools</h2>
-                <button className="modal-close" onClick={() => setShowInputModal(false)}>&times;</button>
+                <h2 id={inputTitleId}>How Claude will call tools</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowInputModal(false)}>&times;</button>
               </div>
               <div className="modal-body" style={{ overflowY: 'auto' }}>
                 <div style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)' }}>
@@ -595,12 +607,12 @@ function Workflows() {
 
         {showCanvasModal && detailWorkflow && (
           <div className="modal-overlay" onClick={() => { setShowCanvasModal(false); setSelectedNode(null); }}>
-            <div className="modal" style={{ maxWidth: '1200px', width: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div ref={canvasModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={canvasTitleId} tabIndex={-1} style={{ maxWidth: '1200px', width: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>{detailWorkflow.name}</h2>
+                <h2 id={canvasTitleId}>{detailWorkflow.name}</h2>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button className="btn btn-ghost btn-small" onClick={() => setCanvasOffset({ x: 0, y: 0 })}>Reset View</button>
-                  <button className="modal-close" onClick={() => { setShowCanvasModal(false); setSelectedNode(null); }}>&times;</button>
+                  <button className="modal-close" aria-label="Close" onClick={() => { setShowCanvasModal(false); setSelectedNode(null); }}>&times;</button>
                 </div>
               </div>
               <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

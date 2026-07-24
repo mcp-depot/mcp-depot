@@ -7,6 +7,8 @@ import { formatDate, formatDateTime } from '../utils/date';
 import { getApiError } from '../utils/apiError';
 import { showError } from '../utils/toast';
 import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { useId } from 'react';
 
 function expiryInfo(ctx, now) {
   if (ctx.ttlHours == null || ctx.ttlHours === 0) return { label: 'Pinned', urgency: 'pinned' };
@@ -34,6 +36,8 @@ function SessionContexts() {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
+  const detailTitleId = useId();
+  const detailModalRef = useModalA11y(() => setSelected(null), !!selected);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 60000);
@@ -189,10 +193,10 @@ function SessionContexts() {
 
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div ref={detailModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={detailTitleId} tabIndex={-1} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{selected.name}</h2>
-              <button className="modal-close" onClick={() => setSelected(null)}>✕</button>
+              <h2 id={detailTitleId}>{selected.name}</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setSelected(null)}>✕</button>
             </div>
             <div className="modal-body">
               <div className="modal-meta">

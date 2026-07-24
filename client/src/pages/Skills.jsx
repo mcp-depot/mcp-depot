@@ -7,6 +7,8 @@ import TagInput from '../components/TagInput';
 import { getApiError } from '../utils/apiError';
 import { showError } from '../utils/toast';
 import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { useId } from 'react';
 
 function stripMarkdown(text = '', maxLength = 120) {
   if (!text) return '';
@@ -29,6 +31,8 @@ function Skills() {
   const [form, setForm] = useState({ name: '', description: '', prompt: '', outputFormat: 'text', isShared: false, tags: [] });
   const [formInputs, setFormInputs] = useState([{ name: '', label: '', type: 'string', required: false, placeholder: '' }]);
   const [selectedSkill, setSelectedSkill] = useState(null);
+  const formTitleId = useId();
+  const formModalRef = useModalA11y(() => setShowModal(false), showModal);
   const [inputValues, setInputValues] = useState({});
   const [testingSkill, setTestingSkill] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -312,10 +316,10 @@ function Skills() {
 
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: '650px' }} onClick={e => e.stopPropagation()}>
+          <div ref={formModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={formTitleId} tabIndex={-1} style={{ maxWidth: '650px' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{editingSkill ? 'Edit Skill' : 'Create Skill'}</h2>
-              <button className="modal-close" onClick={() => setShowModal(false)}>&times;</button>
+              <h2 id={formTitleId}>{editingSkill ? 'Edit Skill' : 'Create Skill'}</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setShowModal(false)}>&times;</button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">

@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import { StyledSelect } from '../components/StyledSelect';
 import { Modal } from '../components/Modal';
 import { showSuccess } from '../utils/toast';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 function Monitoring() {
   const [stats, setStats] = useState(null);
@@ -21,6 +22,9 @@ function Monitoring() {
   const [liveMode, setLiveMode] = useState(false);
   const [testerModal, setTesterModal] = useState({ open: false, call: null, params: {}, result: null, testing: false });
   const [replayResult, setReplayResult] = useState(null);
+  const testerTitleId = useId();
+  const closeTesterModal = () => setTesterModal({ open: false, call: null, params: {}, result: null, testing: false });
+  const testerModalRef = useModalA11y(closeTesterModal, testerModal.open);
 
   useEffect(() => {
     fetchStats();
@@ -473,11 +477,11 @@ function Monitoring() {
         )}
 
         {testerModal.open && (
-          <div className="modal-overlay" onClick={() => setTesterModal({ open: false, call: null, params: {}, result: null, testing: false })}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+          <div className="modal-overlay" onClick={closeTesterModal}>
+            <div ref={testerModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={testerTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
               <div className="modal-header">
-                <h2>Test Tool: {testerModal.call?.toolId}</h2>
-                <button className="modal-close" onClick={() => setTesterModal({ open: false, call: null, params: {}, result: null, testing: false })}>&times;</button>
+                <h2 id={testerTitleId}>Test Tool: {testerModal.call?.toolId}</h2>
+                <button className="modal-close" aria-label="Close" onClick={closeTesterModal}>&times;</button>
               </div>
               <div className="modal-body" style={{ maxHeight: '70vh', overflow: 'auto' }}>
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px' }}>

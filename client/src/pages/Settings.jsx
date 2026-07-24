@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import themes from '../config/themes';
@@ -7,6 +7,7 @@ import { StyledSelect } from '../components/StyledSelect';
 import { DropdownMenu, DropdownItem, DropdownSeparator } from '../components/Dropdown';
 import { showSuccess, showError } from '../utils/toast';
 import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { Copy, Trash2, Edit2, Wrench, Package, Link2, Compass } from 'lucide-react';
 
 function LoadingDots({ text = 'Loading' }) {
@@ -159,6 +160,10 @@ function Settings() {
   const [showTestToolModal, setShowTestToolModal] = useState(false);
   const [testingTool, setTestingTool] = useState(null);
   const [testParams, setTestParams] = useState({});
+  const serverModalTitleId = useId();
+  const serverModalRef = useModalA11y(() => setShowServerModal(false), showServerModal);
+  const testToolModalTitleId = useId();
+  const testToolModalRef = useModalA11y(() => setShowTestToolModal(false), showTestToolModal);
   const [testResult, setTestResult] = useState(null);
   const [editingServer, setEditingServer] = useState(null);
   const [externalTab, setExternalTab] = useState('servers');
@@ -1443,10 +1448,10 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
 
       {showServerModal && (
         <div className="modal-overlay">
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div ref={serverModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={serverModalTitleId} tabIndex={-1} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{editingServer ? 'Edit' : 'Add'} External MCP Server</h2>
-              <button className="modal-close" onClick={() => setShowServerModal(false)}>&times;</button>
+              <h2 id={serverModalTitleId}>{editingServer ? 'Edit' : 'Add'} External MCP Server</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setShowServerModal(false)}>&times;</button>
             </div>
               <div className="modal-body">
               <div className="form-group"><label>Name</label><input type="text" value={serverForm.name} onChange={e => setServerForm({ ...serverForm, name: e.target.value })} placeholder="My External MCP" /></div>
@@ -1595,10 +1600,10 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
 
       {showTestToolModal && testingTool && (
         <div className="modal-overlay" onClick={() => setShowTestToolModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+          <div ref={testToolModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={testToolModalTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
-              <h2>Test Tool</h2>
-              <button className="modal-close" onClick={() => setShowTestToolModal(false)}>&times;</button>
+              <h2 id={testToolModalTitleId}>Test Tool</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setShowTestToolModal(false)}>&times;</button>
             </div>
             <div className="modal-body">
               {testingTool.tools ? (
