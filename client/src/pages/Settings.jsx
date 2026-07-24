@@ -1453,12 +1453,23 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                 <StyledSelect
                   options={[
                     { value: 'http', label: 'HTTP' },
-                    { value: 'stdio', label: 'Stdio (process)' }
+                    // Stdio spawns a local process on the shared host, so only
+                    // admins may register/edit it - matches the server-side
+                    // gate in routes/external-mcp.js. Hidden here rather than
+                    // just left to fail on submit, since a non-admin can never
+                    // actually use it (they'd fill out the whole form only to
+                    // get a rejection at the end).
+                    ...(user?.role === 'admin' ? [{ value: 'stdio', label: 'Stdio (process)' }] : [])
                   ]}
                   value={{ value: serverForm.transportType, label: serverForm.transportType === 'http' ? 'HTTP' : 'Stdio (process)' }}
                   onChange={(opt) => setServerForm({ ...serverForm, transportType: opt?.value || 'http' })}
                   isSearchable={false}
                 />
+                {user?.role !== 'admin' && (
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                    Stdio (process) servers can only be added by an admin.
+                  </p>
+                )}
               </div>
               {serverForm.transportType === 'http' ? (
                 <div className="form-group"><label>URL</label><input type="text" value={serverForm.url} onChange={e => setServerForm({ ...serverForm, url: e.target.value })} placeholder="http://localhost:3001/api/mcp" /></div>
