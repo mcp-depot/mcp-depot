@@ -8,11 +8,16 @@ const AUTH_TAG_LENGTH = 16;
 const VERSION_PREFIX = 'v2:';
 
 class EncryptionService {
-  constructor() {
+  // Defaults to the active ENCRYPTION_KEY, but accepts an explicit key so a
+  // second, independent instance can be created for key rotation (see
+  // services/key-rotation.js) without disturbing the app-wide singleton
+  // every other caller in this file's module.exports relies on.
+  constructor(explicitKey) {
+    const rawKey = explicitKey || config.encryptionKey;
     // Derive a fixed 32-byte key from the configured secret for AES-256-GCM.
-    this.key = crypto.createHash('sha256').update(config.encryptionKey).digest();
+    this.key = crypto.createHash('sha256').update(rawKey).digest();
     // Kept only to decrypt ciphertext written before the GCM migration.
-    this.legacyPassphrase = config.encryptionKey;
+    this.legacyPassphrase = rawKey;
   }
 
   encrypt(text) {
@@ -97,3 +102,4 @@ class EncryptionService {
 }
 
 module.exports = new EncryptionService();
+module.exports.EncryptionService = EncryptionService;
