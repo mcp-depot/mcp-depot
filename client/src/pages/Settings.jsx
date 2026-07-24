@@ -157,6 +157,7 @@ function Settings() {
   const [externalLoading, setExternalLoading] = useState(true);
   const [poolStatus, setPoolStatus] = useState([]);
   const [showServerModal, setShowServerModal] = useState(false);
+  const [deletingServerId, setDeletingServerId] = useState(null);
   const [showTestToolModal, setShowTestToolModal] = useState(false);
   const [testingTool, setTestingTool] = useState(null);
   const [testParams, setTestParams] = useState({});
@@ -412,12 +413,15 @@ function Settings() {
   async function deleteExternalServer(id) {
     const ok = await confirmDialog('Are you sure you want to delete this external MCP server?', { danger: true, confirmLabel: 'Delete' });
     if (!ok) return;
+    setDeletingServerId(id);
     try {
       await api.delete(`/external-mcp/${id}`);
       showSuccess('External MCP server deleted');
       fetchExternalServers();
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to delete');
+    } finally {
+      setDeletingServerId(null);
     }
   }
 
@@ -919,8 +923,8 @@ function Settings() {
                                   <DropdownItem onClick={() => { setEditingServer(server); const envPairs = server.env ? Object.entries(JSON.parse(server.env)).map(([key, value]) => ({ key, value: String(value) })) : [{ key: '', value: '' }]; setServerForm({ name: server.name, transportType: server.transportType || 'http', runtime: server.runtime || 'node', url: server.url || '', command: server.command || 'npx', args: server.args || '', env: server.env || '', envPairs, authType: server.authType || 'none', authToken: '', authHeader: server.authHeader || '' }); setShowServerModal(true); }}>
                                     <Edit2 size={14} /> Edit
                                   </DropdownItem>
-                                  <DropdownItem onClick={() => deleteExternalServer(server._id)} danger>
-                                    <Trash2 size={14} /> Delete
+                                  <DropdownItem onClick={() => deleteExternalServer(server._id)} disabled={deletingServerId === server._id} danger>
+                                    <Trash2 size={14} /> {deletingServerId === server._id ? 'Deleting...' : 'Delete'}
                                   </DropdownItem>
                                 </DropdownMenu>
                               </div>

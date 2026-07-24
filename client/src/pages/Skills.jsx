@@ -37,6 +37,9 @@ function Skills() {
   const [testingSkill, setTestingSkill] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [selectedTag, setSelectedTag] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     fetchCustomSkills();
@@ -48,11 +51,14 @@ function Skills() {
       setCustomSkills(res.data || []);
     } catch (err) {
       console.error('Failed to fetch skills:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
       const payload = {
         name: form.name,
@@ -76,6 +82,8 @@ function Skills() {
       fetchCustomSkills();
     } catch (err) {
       showError(getApiError(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -101,11 +109,14 @@ function Skills() {
   const handleDelete = async (id) => {
     const ok = await confirmDialog('Delete this skill?', { danger: true, confirmLabel: 'Delete' });
     if (!ok) return;
+    setDeletingId(id);
     try {
       await api.delete(`/skills/${id}`);
       fetchCustomSkills();
     } catch (err) {
       showError('Failed to delete');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -185,7 +196,9 @@ function Skills() {
             {selectedTag && <button onClick={() => setSelectedTag(null)} style={{ background: 'transparent', border: 'none', color: 'var(--text-light)', cursor: 'pointer', fontSize: '0.75rem' }}>Clear</button>}
           </div>
 
-        {selectedSkill ? (
+        {loading ? (
+          <div className="loading-overlay"><div className="spinner"></div></div>
+        ) : selectedSkill ? (
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div>
@@ -305,7 +318,9 @@ function Skills() {
                 {skill.isCustom && (
                   <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.75rem' }}>
                     <button className="btn btn-ghost btn-small" onClick={(e) => { e.stopPropagation(); openEdit(skill); }}>Edit</button>
-                    <button className="btn btn-ghost btn-small" style={{ color: 'var(--danger)' }} onClick={(e) => { e.stopPropagation(); handleDelete(skill.id); }}>Delete</button>
+                    <button className="btn btn-ghost btn-small" style={{ color: 'var(--danger)' }} onClick={(e) => { e.stopPropagation(); handleDelete(skill.id); }} disabled={deletingId === skill.id}>
+                      {deletingId === skill.id ? 'Deleting...' : 'Delete'}
+                    </button>
                   </div>
                 )}
               </div>
@@ -377,7 +392,7 @@ function Skills() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">{editingSkill ? 'Update' : 'Create'}</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Saving...' : (editingSkill ? 'Update' : 'Create')}</button>
               </div>
             </form>
           </div>

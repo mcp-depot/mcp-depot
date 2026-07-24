@@ -97,7 +97,7 @@ function HealthDashboard() {
       )}
 
       {loading ? (
-        <div className="loading">Loading health data...</div>
+        <div className="loading-overlay"><div className="spinner"></div></div>
       ) : results.length === 0 ? (
         <div className="empty-state">
           <Activity size={48} style={{ color: '#999' }} />

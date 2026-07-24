@@ -30,6 +30,9 @@ function Agents() {
   const [editingAgent, setEditingAgent] = useState(null);
   const [form, setForm] = useState({ name: '', role: '', systemPrompt: '', description: '', isShared: false, tools: '', model: '' });
   const [viewingAgent, setViewingAgent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingName, setDeletingName] = useState(null);
 
   const viewTitleId = useId();
   const viewModalRef = useModalA11y(() => setViewingAgent(null), !!viewingAgent);
@@ -46,11 +49,14 @@ function Agents() {
       setAgents(res.data || []);
     } catch (err) {
       console.error('Failed to fetch agents:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
       const toolsArray = form.tools
         ? form.tools.split(',').map(t => t.trim()).filter(Boolean)
@@ -70,6 +76,8 @@ function Agents() {
       fetchAgents();
     } catch (err) {
       showError(getApiError(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -97,11 +105,14 @@ function Agents() {
   const handleDelete = async (name) => {
     const ok = await confirmDialog('Delete this agent?', { danger: true, confirmLabel: 'Delete' });
     if (!ok) return;
+    setDeletingName(name);
     try {
       await api.delete(`/agents/${name}`);
       fetchAgents();
     } catch (err) {
       showError(getApiError(err));
+    } finally {
+      setDeletingName(null);
     }
   };
 
@@ -117,7 +128,9 @@ function Agents() {
         </button>
       </div>
 
-      {agents.length === 0 ? (
+      {loading ? (
+        <div className="loading-overlay"><div className="spinner"></div></div>
+      ) : agents.length === 0 ? (
         <div className="empty-state">
           <div style={{ fontSize: '3rem' }}>🤖</div>
           <h3>No agents yet</h3>
@@ -160,7 +173,9 @@ function Agents() {
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
                 <button className="btn btn-small btn-secondary" onClick={() => setViewingAgent(a)}>View</button>
                 <button className="btn btn-small btn-secondary" onClick={() => openEdit(a)}>Edit</button>
-                <button className="btn btn-small btn-danger" onClick={() => handleDelete(a.name)}>Delete</button>
+                <button className="btn btn-small btn-danger" onClick={() => handleDelete(a.name)} disabled={deletingName === a.name}>
+                  {deletingName === a.name ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </div>
           ))}
@@ -241,7 +256,7 @@ function Agents() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => { setShowModal(false); setEditingAgent(null); }}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Saving...' : 'Save'}</button>
               </div>
             </form>
           </div>

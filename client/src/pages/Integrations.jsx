@@ -24,6 +24,8 @@ function Integrations() {
   const [connectTarget, setConnectTarget] = useState(null);
   const [connectForm, setConnectForm] = useState({ username: '', password: '', token: '', apiKeyName: '', apiKeyValue: '' });
   const [connectSubmitting, setConnectSubmitting] = useState(false);
+  const [savingIntegration, setSavingIntegration] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const [showAllUrls, setShowAllUrls] = useState(false);
   const [selectedForExport, setSelectedForExport] = useState([]);
   const [selectedForImport, setSelectedForImport] = useState([]);
@@ -208,6 +210,7 @@ function Integrations() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSavingIntegration(true);
     try {
       let payload;
 
@@ -272,6 +275,8 @@ function Integrations() {
       fetchIntegrations();
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to save integration');
+    } finally {
+      setSavingIntegration(false);
     }
   };
 
@@ -384,11 +389,14 @@ function Integrations() {
     const ok = await confirmDialog(confirmMessage, { danger: true, confirmLabel: 'Delete' });
     if (!ok) return;
 
+    setDeletingId(id);
     api.delete(`/integrations/${id}`).then(() => {
       showSuccess('Integration deleted successfully');
       fetchIntegrations();
     }).catch(err => {
       showError(err.response?.data?.error || 'Failed to delete integration');
+    }).finally(() => {
+      setDeletingId(null);
     });
   };
 
@@ -920,12 +928,13 @@ function Integrations() {
                           Del
                         </span>
                       ) : (
-                        <button 
-                          className="btn btn-icon btn-danger" 
-                          onClick={() => handleDelete(integration._id)} 
+                        <button
+                          className="btn btn-icon btn-danger"
+                          onClick={() => handleDelete(integration._id)}
+                          disabled={deletingId === integration._id}
                           title="Delete integration"
                         >
-                          Del
+                          {deletingId === integration._id ? '...' : 'Del'}
                         </button>
                       )}
                     </>
@@ -1062,7 +1071,9 @@ function Integrations() {
           footer={
             <>
               <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-              <button type="submit" form="integration-form" className="btn btn-primary">{editingId ? 'Update' : 'Create'} Integration</button>
+              <button type="submit" form="integration-form" className="btn btn-primary" disabled={savingIntegration}>
+                {savingIntegration ? 'Saving...' : `${editingId ? 'Update' : 'Create'} Integration`}
+              </button>
             </>
           }
         >

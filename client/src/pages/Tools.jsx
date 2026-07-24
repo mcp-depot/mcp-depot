@@ -101,6 +101,8 @@ function Tools({ all: isAllTools }) {
   const [currentToolForTest, setCurrentToolForTest] = useState(null);
   const [selectedResponseFields, setSelectedResponseFields] = useState(new Set());
   const [savingFields, setSavingFields] = useState(false);
+  const [deletingToolId, setDeletingToolId] = useState(null);
+  const [bulkActionRunning, setBulkActionRunning] = useState(false);
 
   const [exploring, setExploring] = useState(false);
   const [discoveredEndpoints, setDiscoveredEndpoints] = useState([]);
@@ -341,11 +343,14 @@ function Tools({ all: isAllTools }) {
   const handleDelete = async (toolId) => {
     const ok = await confirmDialog('Are you sure you want to delete this tool?', { danger: true, confirmLabel: 'Delete' });
     if (!ok) return;
+    setDeletingToolId(toolId);
     try {
       await api.delete(`/integrations/${id}/tools/${toolId}`);
       fetchData();
     } catch (err) {
       showError('Failed to delete tool: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setDeletingToolId(null);
     }
   };
 
@@ -577,12 +582,15 @@ function Tools({ all: isAllTools }) {
     const ok = await confirmDialog(`Are you sure you want to ${action} ${selectedTools.size} tool(s)?`, { danger: true, confirmLabel: 'Confirm' });
     if (!ok) return;
 
+    setBulkActionRunning(true);
     try {
       await api.patch(`/integrations/${id}/tools/bulk`, { ids: [...selectedTools], action });
       setSelectedTools(new Set());
       fetchData();
     } catch (err) {
       showError(err.response?.data?.error || `Failed to ${action} tools`);
+    } finally {
+      setBulkActionRunning(false);
     }
   };
 
@@ -795,9 +803,9 @@ function Tools({ all: isAllTools }) {
                       {showBulkActions && selectedTools.size > 0 && (
                         <div className="bulk-action-bar" style={{ padding: '0.75rem', marginBottom: '0.5rem', background: 'var(--primary)', borderRadius: '8px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                           <span style={{ color: 'white' }}>{selectedTools.size} selected</span>
-                          <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')}>Enable</button>
-                          <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')}>Disable</button>
-                          <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')}>Delete</button>
+                          <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')} disabled={bulkActionRunning}>Enable</button>
+                          <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')} disabled={bulkActionRunning}>Disable</button>
+                          <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')} disabled={bulkActionRunning}>{bulkActionRunning ? 'Working...' : 'Delete'}</button>
                         </div>
                       )}
                       {tools.map(tool => (
@@ -859,7 +867,7 @@ function Tools({ all: isAllTools }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
-                <p>Loading integration...</p>
+                <div className="skeleton skeleton-title" style={{ width: '180px' }}></div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <button className="btn btn-secondary" disabled>Explore API</button>
@@ -979,9 +987,9 @@ function Tools({ all: isAllTools }) {
             {showBulkActions && selectedTools.size > 0 && (
               <div style={{ padding: '0.75rem', marginBottom: '0.5rem', background: 'var(--primary)', borderRadius: '8px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <span style={{ color: 'white' }}>{selectedTools.size} selected</span>
-                <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')}>Enable</button>
-                <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')}>Disable</button>
-                <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')}>Delete</button>
+                <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')} disabled={bulkActionRunning}>Enable</button>
+                <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')} disabled={bulkActionRunning}>Disable</button>
+                <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')} disabled={bulkActionRunning}>{bulkActionRunning ? 'Working...' : 'Delete'}</button>
               </div>
             )}
             <div className="tool-list">
@@ -1019,8 +1027,8 @@ function Tools({ all: isAllTools }) {
                     <button className="btn btn-icon" onClick={() => handleEdit(tool)} title="Edit tool">
                       Edit
                     </button>
-                    <button className="btn btn-icon btn-danger" onClick={() => handleDelete(tool._id || tool.id)} title="Delete tool">
-                      Del
+                    <button className="btn btn-icon btn-danger" onClick={() => handleDelete(tool._id || tool.id)} disabled={deletingToolId === (tool._id || tool.id)} title="Delete tool">
+                      {deletingToolId === (tool._id || tool.id) ? '...' : 'Del'}
                     </button>
                   </div>
                 </div>

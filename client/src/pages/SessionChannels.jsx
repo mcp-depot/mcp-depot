@@ -13,6 +13,7 @@ function SessionChannels() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const loadChannels = async () => {
     setLoading(true);
@@ -52,10 +53,15 @@ function SessionChannels() {
   const handleClear = async (channel) => {
     const ok = await confirmDialog(`Clear all messages in "${channel}"?`, { danger: true, confirmLabel: 'Clear' });
     if (!ok) return;
-    await api.delete(`/session-channels/${encodeURIComponent(channel)}`, token);
-    setSelected(null);
-    setMessages([]);
-    loadChannels();
+    setClearing(true);
+    try {
+      await api.delete(`/session-channels/${encodeURIComponent(channel)}`, token);
+      setSelected(null);
+      setMessages([]);
+      loadChannels();
+    } finally {
+      setClearing(false);
+    }
   };
 
   const handleRefresh = () => {
@@ -72,7 +78,7 @@ function SessionChannels() {
 
       <div className="two-panel">
         <div className="panel-left">
-          {loading && <p>Loading...</p>}
+          {loading && <div className="loading-overlay"><div className="spinner"></div></div>}
           {channels.map(ch => (
             <div
               key={ch.channel}
@@ -99,12 +105,12 @@ function SessionChannels() {
                   <button className="btn-secondary btn-sm" onClick={handleRefresh} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <RefreshCw size={13} /> Refresh
                   </button>
-                  <button className="btn-danger btn-sm" onClick={() => handleClear(selected)} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Trash2 size={13} /> Clear
+                  <button className="btn-danger btn-sm" onClick={() => handleClear(selected)} disabled={clearing} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Trash2 size={13} /> {clearing ? 'Clearing...' : 'Clear'}
                   </button>
                 </div>
               </div>
-              {loadingMessages && <p>Loading messages...</p>}
+              {loadingMessages && <div className="loading-overlay"><div className="spinner"></div></div>}
               <div className="message-log">
                 {messages.map(m => (
                   <div key={m.id} className="log-entry">

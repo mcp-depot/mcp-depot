@@ -27,6 +27,9 @@ function Workflows() {
   const [showCanvasModal, setShowCanvasModal] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [creatingFromTemplateId, setCreatingFromTemplateId] = useState(null);
   const formTitleId = useId();
   const formModalRef = useModalA11y(() => setShowModal(false), showModal);
   const templatesTitleId = useId();
@@ -67,6 +70,7 @@ function Workflows() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
       const payload = {
         name: form.name,
@@ -87,6 +91,8 @@ function Workflows() {
       fetchData();
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to create workflow');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -123,6 +129,7 @@ function Workflows() {
   };
 
   const handleCreateFromTemplate = async (template) => {
+    setCreatingFromTemplateId(template.id);
     try {
       await api.post('/workflows/from-template', {
         templateId: template.id,
@@ -133,6 +140,8 @@ function Workflows() {
       fetchData();
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to create workflow from template');
+    } finally {
+      setCreatingFromTemplateId(null);
     }
   };
 
@@ -157,11 +166,14 @@ function Workflows() {
   const handleDelete = async (id) => {
     const ok = await confirmDialog('Are you sure you want to delete this workflow?', { danger: true, confirmLabel: 'Delete' });
     if (!ok) return;
+    setDeletingId(id);
     try {
       await api.delete(`/workflows/${id}`);
       fetchData();
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to delete workflow');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -263,8 +275,8 @@ function Workflows() {
                   >
                     How it works
                   </button>
-                  <button className="btn btn-danger btn-small" onClick={() => handleDelete(wf.id)}>
-                    Delete
+                  <button className="btn btn-danger btn-small" onClick={() => handleDelete(wf.id)} disabled={deletingId === wf.id}>
+                    {deletingId === wf.id ? 'Deleting...' : 'Delete'}
                   </button>
                 </div>
               </div>
@@ -392,7 +404,7 @@ function Workflows() {
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary">Create Workflow</button>
+                  <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Creating...' : 'Create Workflow'}</button>
                 </div>
               </form>
             </div>
@@ -408,7 +420,7 @@ function Workflows() {
               </div>
               <div className="modal-body">
                 {templatesLoading ? (
-                  <div style={{ textAlign: 'center', padding: '2rem' }}>Loading templates...</div>
+                  <div className="loading-overlay"><div className="spinner"></div></div>
                 ) : templates.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-light)' }}>
                     No templates available. Fetch templates first.
@@ -419,10 +431,16 @@ function Workflows() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {templates.map(template => (
-                      <div key={template.id} style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: 'var(--radius)', cursor: 'pointer' }} onClick={() => handleCreateFromTemplate(template)}>
+                      <div
+                        key={template.id}
+                        style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: 'var(--radius)', cursor: creatingFromTemplateId ? 'default' : 'pointer', opacity: creatingFromTemplateId && creatingFromTemplateId !== template.id ? 0.6 : 1 }}
+                        onClick={() => { if (!creatingFromTemplateId) handleCreateFromTemplate(template); }}
+                      >
                         <h3 style={{ margin: 0 }}>{template.name}</h3>
                         <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginTop: '0.5rem' }}>{template.description}</p>
-                        <p style={{ color: 'var(--text-light)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{template.actions?.length || 0} actions</p>
+                        <p style={{ color: 'var(--text-light)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                          {creatingFromTemplateId === template.id ? 'Creating...' : `${template.actions?.length || 0} actions`}
+                        </p>
                       </div>
                     ))}
                   </div>

@@ -20,6 +20,9 @@ function Users() {
   const [tempPassword, setTempPassword] = useState(null);
   const [credentialInfo, setCredentialInfo] = useState(null);
   const [form, setForm] = useState({ email: '', name: '', role: 'user', password: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [resetting, setResetting] = useState(false);
   const formTitleId = useId();
   const formModalRef = useModalA11y(() => setShowModal(false), showModal);
   const resetTitleId = useId();
@@ -44,6 +47,7 @@ function Users() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
       if (editingUser) {
         const res = await api.put(`/users/${editingUser.id}`, form);
@@ -65,22 +69,28 @@ function Users() {
       setForm({ email: '', name: '', role: 'user', password: '' });
     } catch (err) {
       showError(`Failed to save user: ${getApiError(err)}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleDelete = async (user) => {
     const ok = await confirmDialog(`Delete user ${user.email}?`, { danger: true, confirmLabel: 'Delete' });
     if (!ok) return;
+    setDeletingId(user.id);
     try {
       await api.delete(`/users/${user.id}`);
       setUsers(users.filter(u => u.id !== user.id));
       showSuccess('User deleted');
     } catch (err) {
       showError(`Failed to delete user: ${getApiError(err)}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const handleResetPassword = async () => {
+    setResetting(true);
     try {
       const res = await api.post(`/users/${resetUser.id}/reset-password`);
       setTempPassword(res.data.temporaryPassword);
@@ -88,6 +98,8 @@ function Users() {
       setCredentialInfo({ email: resetUser.email, password: res.data.temporaryPassword });
     } catch (err) {
       showError(`Failed to reset password: ${getApiError(err)}`);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -148,7 +160,7 @@ function Users() {
                         <RotateCcw size={14} />
                       </button>
                       {user.id !== currentUser?.id && (
-                        <button className="btn btn-small btn-danger" onClick={() => handleDelete(user)} title="Delete">
+                        <button className="btn btn-small btn-danger" onClick={() => handleDelete(user)} disabled={deletingId === user.id} title="Delete">
                           <Trash2 size={14} />
                         </button>
                       )}
@@ -195,7 +207,7 @@ function Users() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">{editingUser ? 'Update' : 'Create'}</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Saving...' : (editingUser ? 'Update' : 'Create')}</button>
               </div>
             </form>
           </div>
@@ -215,7 +227,7 @@ function Users() {
             </div>
             <div className="modal-footer">
               <button type="button" className="btn btn-secondary" onClick={() => setShowResetModal(false)}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={handleResetPassword}>Reset Password</button>
+              <button type="button" className="btn btn-primary" onClick={handleResetPassword} disabled={resetting}>{resetting ? 'Resetting...' : 'Reset Password'}</button>
             </div>
           </div>
         </div>

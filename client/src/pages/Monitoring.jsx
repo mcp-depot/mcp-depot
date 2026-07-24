@@ -220,7 +220,7 @@ function Monitoring() {
         )}
         
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '2rem' }}>Loading stats...</div>
+          <div className="loading-overlay"><div className="spinner"></div></div>
         ) : stats ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
@@ -329,7 +329,7 @@ function Monitoring() {
               </div>
 
               {history.length === 0 && historyLoading ? (
-                <div style={{ textAlign: 'center', padding: '2rem' }}>Loading history...</div>
+                <div className="loading-overlay"><div className="spinner"></div></div>
               ) : history.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>No calls recorded yet</div>
               ) : (
