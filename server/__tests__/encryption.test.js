@@ -106,11 +106,17 @@ describe('Encryption Service', () => {
       expect(encryption.decrypt(legacy)).toBe('legacy-secret-value');
     });
 
-    test('returns null (not the wrong secret) when the legacy ciphertext was encrypted under a different key', () => {
+    test('never returns the real secret when the legacy ciphertext was encrypted under a different key', () => {
+      // Legacy AES-CBC has no integrity check, so a wrong-key attempt can
+      // land on either null or (rarely) short UTF-8-looking garbage,
+      // depending on the random salt CryptoJS picks each call - assert the
+      // property that actually matters (never recovers the real secret)
+      // rather than a specific outcome, so this isn't flaky either way.
       const CryptoJS = require('crypto-js');
-      const legacy = CryptoJS.AES.encrypt('legacy-secret-value', 'a-completely-different-key').toString();
-
-      expect(encryption.decrypt(legacy)).toBeNull();
+      for (let i = 0; i < 25; i++) {
+        const legacy = CryptoJS.AES.encrypt('legacy-secret-value', 'a-completely-different-key').toString();
+        expect(encryption.decrypt(legacy)).not.toBe('legacy-secret-value');
+      }
     });
   });
 });

@@ -54,7 +54,15 @@ class EncryptionService {
   _decryptLegacy(ciphertext) {
     const bytes = CryptoJS.AES.decrypt(ciphertext, this.legacyPassphrase);
     const result = bytes.toString(CryptoJS.enc.Utf8);
-    return result || null;
+    if (!result) return null;
+    // Legacy AES-CBC has no integrity check (that's why it was replaced) -
+    // decrypting with the wrong key can occasionally produce a short string
+    // that happens to pass as "valid" UTF-8 instead of throwing. Reject
+    // anything containing the replacement character or control characters
+    // rather than returning it as if it were a real decrypted secret.
+    if (/�/.test(result)) return null;
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(result)) return null;
+    return result;
   }
 
   isEncrypted(value) {
