@@ -95,7 +95,9 @@ integrationId: {
     { fields: ['integrationId'] },
     { fields: ['createdAt'] },
     { fields: ['success'] },
-    { fields: ['callerType'] }
+    { fields: ['callerType'] },
+    { fields: ['userId', 'createdAt'] },
+    { fields: ['integrationId', 'success'] }
   ]
 });
 

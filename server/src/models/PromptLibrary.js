@@ -45,7 +45,10 @@ module.exports = (sequelize) => {
       defaultValue: []
     }
   }, {
-    tableName: 'prompt_library'
+    tableName: 'prompt_library',
+    indexes: [
+      { fields: ['userId'] }
+    ]
   });
 
   return PromptLibrary;
