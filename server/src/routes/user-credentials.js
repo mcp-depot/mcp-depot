@@ -4,6 +4,7 @@ const { auth } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
+const audit = require('../services/audit');
 
 const router = express.Router();
 
@@ -31,6 +32,14 @@ router.get('/credentials/:integrationId', auth, async (req, res) => {
     }
 
     const decryptedCredentials = encryption.decryptObject(userCreds.credentials);
+
+    await audit.log({
+      userId,
+      action: 'view_own_credentials',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      status: 'success'
+    });
 
     res.json({
       hasCredentials: true,
@@ -68,9 +77,17 @@ router.post('/credentials/:integrationId', auth, async (req, res) => {
       isActive: true
     });
 
-    res.json({ 
-      success: true, 
-      message: created ? 'Credentials saved' : 'Credentials updated' 
+    await audit.log({
+      userId,
+      action: created ? 'save_own_credentials' : 'update_own_credentials',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      status: 'success'
+    });
+
+    res.json({
+      success: true,
+      message: created ? 'Credentials saved' : 'Credentials updated'
     });
   } catch (error) {
     logger.error({ error: error.message }, 'Save credentials error');
@@ -89,6 +106,12 @@ router.delete('/credentials/:integrationId', auth, async (req, res) => {
     });
 
     if (deleted) {
+      await audit.log({
+        userId,
+        action: 'delete_own_credentials',
+        integrationId,
+        status: 'success'
+      });
       res.json({ success: true, message: 'Credentials removed' });
     } else {
       res.status(404).json({ error: 'No credentials found' });

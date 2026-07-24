@@ -36,6 +36,11 @@ const changePasswordSchema = Joi.object({
   newPassword: Joi.string().min(6).required()
 });
 
+const adminResetSchema = Joi.object({
+  email: Joi.string().email().required(),
+  newPassword: Joi.string().min(6).required()
+});
+
 function generateTokens(userId) {
   const accessToken = jwt.sign(
     { userId },
@@ -96,11 +101,13 @@ router.post('/login', authLimiter, async (req, res) => {
 
     const user = await User.findOne({ where: { email } });
     if (!user) {
+      logger.warn({ email, ip: req.ip }, 'Login failed: unknown email');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      logger.warn({ email, ip: req.ip }, 'Login failed: incorrect password');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -152,12 +159,12 @@ router.post('/change-password', auth, async (req, res) => {
 
 router.post('/admin-reset', auth, requireAdmin, async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
-    
-    if (!email || !newPassword) {
-      return res.status(400).json({ error: 'Email and newPassword required' });
+    const { error, value } = adminResetSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
     }
-    
+    const { email, newPassword } = value;
+
     const user = await User.findOne({ where: { email } });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
