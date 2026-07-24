@@ -63,7 +63,11 @@ User.prototype.comparePassword = async function(candidatePassword) {
 };
 
 User.prototype.validateApiKey = function(candidateKey) {
-  return this.apiKey === hashApiKey(candidateKey);
+  if (!this.apiKey) return false;
+  const stored = Buffer.from(this.apiKey);
+  const candidate = Buffer.from(hashApiKey(candidateKey));
+  if (stored.length !== candidate.length) return false;
+  return crypto.timingSafeEqual(stored, candidate);
 };
 
 User.prototype.generateApiKey = function() {
