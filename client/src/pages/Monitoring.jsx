@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import { StyledSelect } from '../components/StyledSelect';
+import { Modal } from '../components/Modal';
+import { showSuccess } from '../utils/toast';
 
 function Monitoring() {
   const [stats, setStats] = useState(null);
@@ -18,6 +20,7 @@ function Monitoring() {
   const [replaying, setReplaying] = useState(null);
   const [liveMode, setLiveMode] = useState(false);
   const [testerModal, setTesterModal] = useState({ open: false, call: null, params: {}, result: null, testing: false });
+  const [replayResult, setReplayResult] = useState(null);
 
   useEffect(() => {
     fetchStats();
@@ -81,9 +84,9 @@ function Monitoring() {
     setReplaying(callId);
     try {
       const res = await api.post(`/monitoring/replay/${callId}`);
-      alert(`Replay result: ${JSON.stringify(res.data, null, 2)}`);
+      setReplayResult({ data: res.data, error: null });
     } catch (err) {
-      alert(`Replay failed: ${err.response?.data?.error || err.message}`);
+      setReplayResult({ data: null, error: err.response?.data?.error || err.message });
     } finally {
       setReplaying(null);
     }
@@ -132,7 +135,7 @@ function Monitoring() {
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
-    alert('Copied to clipboard!');
+    showSuccess('Copied to clipboard!');
   };
 
   return (
@@ -516,6 +519,18 @@ function Monitoring() {
               </div>
             </div>
           </div>
+        )}
+
+        {replayResult && (
+          <Modal title="Replay Result" onClose={() => setReplayResult(null)} size="lg">
+            {replayResult.error ? (
+              <p style={{ color: 'var(--danger)' }}>{replayResult.error}</p>
+            ) : (
+              <pre style={{ margin: 0, padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px', fontSize: '0.8rem', maxHeight: '60vh', overflow: 'auto' }}>
+                {JSON.stringify(replayResult.data, null, 2)}
+              </pre>
+            )}
+          </Modal>
         )}
       </div>
     </div>

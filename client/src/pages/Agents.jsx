@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
 import { getApiError } from '../utils/apiError';
+import { showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 
 function stripMarkdown(text = '', maxLength = 120) {
   if (!text) return '';
@@ -60,7 +62,7 @@ function Agents() {
       resetForm();
       fetchAgents();
     } catch (err) {
-      alert(getApiError(err));
+      showError(getApiError(err));
     }
   };
 
@@ -86,12 +88,13 @@ function Agents() {
   };
 
   const handleDelete = async (name) => {
-    if (!confirm('Delete this agent?')) return;
+    const ok = await confirmDialog('Delete this agent?', { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
     try {
       await api.delete(`/agents/${name}`);
       fetchAgents();
     } catch (err) {
-      alert(getApiError(err));
+      showError(getApiError(err));
     }
   };
 

@@ -10,6 +10,7 @@ import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { Eye, EyeOff, Upload, Search, X, LayoutGrid, PanelLeft, List } from 'lucide-react';
 import { showSuccess, showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 import { Drawer } from '../components/Drawer';
 import { ViewToggle } from '../components/ViewToggle';
 function Integrations() {
@@ -20,6 +21,9 @@ function Integrations() {
   const [showDiscoverModal, setShowDiscoverModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [connectTarget, setConnectTarget] = useState(null);
+  const [connectForm, setConnectForm] = useState({ username: '', password: '', token: '', apiKeyName: '', apiKeyValue: '' });
+  const [connectSubmitting, setConnectSubmitting] = useState(false);
   const [showAllUrls, setShowAllUrls] = useState(false);
   const [selectedForExport, setSelectedForExport] = useState([]);
   const [selectedForImport, setSelectedForImport] = useState([]);
@@ -131,7 +135,7 @@ function Integrations() {
       
       setDiscoveredEndpoints(res.data.endpoints || []);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to discover API');
+      showError(err.response?.data?.error || 'Failed to discover API');
     } finally {
       setDiscovering(false);
     }
@@ -165,7 +169,7 @@ function Integrations() {
 
   const handleImportTools = async () => {
     if (!form.name || !form.baseUrl) {
-      alert('Please enter a name and base URL for the integration');
+      showError('Please enter a name and base URL for the integration');
       return;
     }
     
@@ -196,7 +200,7 @@ function Integrations() {
       setSelectedEndpoints([]);
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create integration');
+      showError(err.response?.data?.error || 'Failed to create integration');
     } finally {
       setImporting(false);
     }
@@ -310,66 +314,76 @@ function Integrations() {
       await api.patch(`/integrations/${id}/visibility`, { visibility: newVisibility });
       fetchIntegrations();
     } catch (err) {
-      alert('Failed to update visibility');
+      showError('Failed to update visibility');
     }
   };
 
-  const handleConnectShared = async (integration) => {
+  const handleConnectShared = (integration) => {
     const authType = integration.authType || 'none';
-    
-    let credentials = {};
-    
-    if (authType === 'basic') {
-      const username = prompt('Enter username:');
-      if (!username) return;
-      const password = prompt('Enter password:');
-      if (!password) return;
-      credentials = { username, token: password };
-    } else if (authType === 'bearer') {
-      const token = prompt('Enter bearer token:');
-      if (!token) return;
-      credentials = { token };
-    } else if (authType === 'apiKey') {
-      const key = prompt('Enter API key name (e.g., X-API-Key):');
-      if (!key) return;
-      const value = prompt('Enter API key value:');
-      if (!value) return;
-      credentials = { key, value, addTo: 'header' };
-    } else if (authType === 'oauth2') {
-      alert('OAuth2 connection requires the admin to configure OAuth first.');
+
+    if (authType === 'oauth2') {
+      showError('OAuth2 connection requires the admin to configure OAuth first.');
       return;
     }
-    
+
+    setConnectForm({ username: '', password: '', token: '', apiKeyName: '', apiKeyValue: '' });
+    setConnectTarget(integration);
+  };
+
+  const handleSubmitConnect = async (e) => {
+    e.preventDefault();
+    if (!connectTarget) return;
+    const authType = connectTarget.authType || 'none';
+
+    let credentials = {};
+    if (authType === 'basic') {
+      if (!connectForm.username || !connectForm.password) return;
+      credentials = { username: connectForm.username, token: connectForm.password };
+    } else if (authType === 'bearer') {
+      if (!connectForm.token) return;
+      credentials = { token: connectForm.token };
+    } else if (authType === 'apiKey') {
+      if (!connectForm.apiKeyName || !connectForm.apiKeyValue) return;
+      credentials = { key: connectForm.apiKeyName, value: connectForm.apiKeyValue, addTo: 'header' };
+    }
+
+    setConnectSubmitting(true);
     try {
-      await api.patch(`/integrations/${integration._id}/credentials`, { credentials });
+      await api.patch(`/integrations/${connectTarget._id}/credentials`, { credentials });
+      showSuccess('Credentials saved');
+      setConnectTarget(null);
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save credentials');
+      showError(err.response?.data?.error || 'Failed to save credentials');
+    } finally {
+      setConnectSubmitting(false);
     }
   };
 
   const handleDisconnectShared = async (id) => {
-    if (!confirm('Are you sure you want to disconnect? Your credentials will be removed.')) return;
-    
+    const ok = await confirmDialog('Are you sure you want to disconnect? Your credentials will be removed.', { danger: true, confirmLabel: 'Disconnect' });
+    if (!ok) return;
+
     try {
       await api.delete(`/integrations/${id}/credentials`);
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to disconnect');
+      showError(err.response?.data?.error || 'Failed to disconnect');
     }
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     const integration = integrations.find(i => i._id === id);
     const hasTools = integration?.metadata?.toolCount > 0;
-    
+
     let confirmMessage = 'Are you sure you want to delete this integration?';
     if (hasTools) {
       confirmMessage = `This integration has ${integration.metadata.toolCount} tool(s). Deleting will also remove all tools. Are you sure you want to proceed?`;
     }
-    
-    if (!confirm(confirmMessage)) return;
-    
+
+    const ok = await confirmDialog(confirmMessage, { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+
     api.delete(`/integrations/${id}`).then(() => {
       showSuccess('Integration deleted successfully');
       fetchIntegrations();
@@ -405,7 +419,7 @@ function Integrations() {
       });
       
       if (!res.data?.integrations?.length) {
-        alert('No integrations found to export');
+        showError('No integrations found to export');
         return;
       }
       
@@ -419,7 +433,7 @@ function Integrations() {
       setShowExportModal(false);
     } catch (err) {
       console.error('Export error:', err);
-      alert(err.response?.data?.error || 'Export failed');
+      showError(err.response?.data?.error || 'Export failed');
     }
   };
 
@@ -432,27 +446,28 @@ function Integrations() {
       setImportData(data);
       setSelectedForImport(data.integrations.map((_, idx) => idx));
     } catch (err) {
-      alert('Invalid file');
+      showError('Invalid file');
     }
   };
 
   const handleImport = async () => {
     try {
-      const includeTools = window.confirm('Import tools as well?');
-      const mode = window.confirm('Update existing integrations?') ? 'update' : 'skip';
+      const includeTools = await confirmDialog('Import tools as well?', { confirmLabel: 'Yes', cancelLabel: 'No' });
+      const updateExisting = await confirmDialog('Update existing integrations?', { confirmLabel: 'Yes', cancelLabel: 'No' });
+      const mode = updateExisting ? 'update' : 'skip';
       const selectedIntegrations = selectedForImport.map(idx => importData.integrations[idx]);
-      const res = await api.post('/integrations/import', { 
-        integrations: selectedIntegrations, 
-        includeTools, 
-        mode 
+      const res = await api.post('/integrations/import', {
+        integrations: selectedIntegrations,
+        includeTools,
+        mode
       });
-      alert(`Imported: ${res.data.imported}, Skipped: ${res.data.skipped}`);
+      showSuccess(`Imported: ${res.data.imported}, Skipped: ${res.data.skipped}`);
       setShowImportModal(false);
       setImportData(null);
       setSelectedForImport([]);
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Import failed');
+      showError(err.response?.data?.error || 'Import failed');
     }
   };
 
@@ -536,7 +551,7 @@ function Integrations() {
       setPostmanSelected(new Set(requests.map((_, i) => i)));
       setPostmanStep(2);
     } catch (err) {
-      alert('Invalid Postman collection file');
+      showError('Invalid Postman collection file');
     }
   };
 
@@ -553,7 +568,7 @@ function Integrations() {
       }
       setPostmanVariables(variables);
     } catch (err) {
-      alert('Invalid environment file');
+      showError('Invalid environment file');
     }
   };
 
@@ -585,7 +600,7 @@ function Integrations() {
 
   const handlePostmanImport = async () => {
     if (postmanSelected.size === 0) {
-      alert('Select at least one request');
+      showError('Select at least one request');
       return;
     }
     
@@ -619,7 +634,7 @@ function Integrations() {
       resetPostmanImport();
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Import failed');
+      showError(err.response?.data?.error || 'Import failed');
     } finally {
       setPostmanImporting(false);
     }
@@ -1308,6 +1323,85 @@ function Integrations() {
               <button className="btn btn-secondary btn-small" onClick={() => setSelectedForExport(integrations.map(i => i._id))}>Select All</button>
               <button className="btn btn-secondary btn-small" onClick={() => setSelectedForExport([])}>Select None</button>
             </div>
+          </Modal>
+        )}
+
+        {connectTarget && (
+          <Modal title={`Connect to ${connectTarget.name}`} onClose={() => setConnectTarget(null)} size="sm">
+            <form onSubmit={handleSubmitConnect}>
+              {connectTarget.authType === 'basic' && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="connect-username">Username</label>
+                    <input
+                      id="connect-username"
+                      type="text"
+                      autoFocus
+                      value={connectForm.username}
+                      onChange={e => setConnectForm({ ...connectForm, username: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="connect-password">Password</label>
+                    <input
+                      id="connect-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={connectForm.password}
+                      onChange={e => setConnectForm({ ...connectForm, password: e.target.value })}
+                      required
+                    />
+                  </div>
+                </>
+              )}
+              {connectTarget.authType === 'bearer' && (
+                <div className="form-group">
+                  <label htmlFor="connect-token">Bearer Token</label>
+                  <input
+                    id="connect-token"
+                    type="password"
+                    autoFocus
+                    autoComplete="new-password"
+                    value={connectForm.token}
+                    onChange={e => setConnectForm({ ...connectForm, token: e.target.value })}
+                    required
+                  />
+                </div>
+              )}
+              {connectTarget.authType === 'apiKey' && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="connect-apikey-name">API Key Name (e.g. X-API-Key)</label>
+                    <input
+                      id="connect-apikey-name"
+                      type="text"
+                      autoFocus
+                      value={connectForm.apiKeyName}
+                      onChange={e => setConnectForm({ ...connectForm, apiKeyName: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="connect-apikey-value">API Key Value</label>
+                    <input
+                      id="connect-apikey-value"
+                      type="password"
+                      autoComplete="new-password"
+                      value={connectForm.apiKeyValue}
+                      onChange={e => setConnectForm({ ...connectForm, apiKeyValue: e.target.value })}
+                      required
+                    />
+                  </div>
+                </>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setConnectTarget(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={connectSubmitting}>
+                  {connectSubmitting ? 'Connecting...' : 'Connect'}
+                </button>
+              </div>
+            </form>
           </Modal>
         )}
 

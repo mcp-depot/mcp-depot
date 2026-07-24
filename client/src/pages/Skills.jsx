@@ -5,6 +5,8 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
 import TagInput from '../components/TagInput';
 import { getApiError } from '../utils/apiError';
+import { showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 
 function stripMarkdown(text = '', maxLength = 120) {
   if (!text) return '';
@@ -69,7 +71,7 @@ function Skills() {
       resetForm();
       fetchCustomSkills();
     } catch (err) {
-      alert(getApiError(err));
+      showError(getApiError(err));
     }
   };
 
@@ -93,12 +95,13 @@ function Skills() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this skill?')) return;
+    const ok = await confirmDialog('Delete this skill?', { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
     try {
       await api.delete(`/skills/${id}`);
       fetchCustomSkills();
     } catch (err) {
-      alert('Failed to delete');
+      showError('Failed to delete');
     }
   };
 

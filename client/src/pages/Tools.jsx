@@ -7,6 +7,8 @@ import { StyledSelect } from '../components/StyledSelect';
 import { JsonTree } from '../components/JsonTree';
 import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown, LayoutGrid, PanelLeft, List, Save, X } from 'lucide-react';
 import { ViewToggle } from '../components/ViewToggle';
+import { showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 
 const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
 
@@ -212,7 +214,7 @@ function Tools({ all: isAllTools }) {
       setCompositeTools(compositeRes.data || []);
     } catch (err) {
       console.error('Failed to fetch data:', err);
-      alert('Failed to load: ' + (err.response?.data?.error || err.message));
+      showError('Failed to load: ' + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
@@ -235,22 +237,22 @@ function Tools({ all: isAllTools }) {
       try {
         parsedParams = form.params ? JSON.parse(form.params) : {};
       } catch (err) {
-        alert('Invalid JSON in Default Params: ' + err.message);
+        showError('Invalid JSON in Default Params: ' + err.message);
         return;
       }
-      
+
       try {
         parsedHeaders = form.headers ? JSON.parse(form.headers) : {};
       } catch (err) {
-        alert('Invalid JSON in Default Headers: ' + err.message);
+        showError('Invalid JSON in Default Headers: ' + err.message);
         return;
       }
-      
+
       try {
         const normalizedBody = (form.body || '').replace(/:\s*\{(\w+)\}/g, ': "{$1}"');
         parsedBody = normalizedBody ? JSON.parse(normalizedBody) : {};
       } catch (err) {
-        alert('Invalid JSON in Request Body: ' + err.message);
+        showError('Invalid JSON in Request Body: ' + err.message);
         return;
       }
       
@@ -297,7 +299,7 @@ function Tools({ all: isAllTools }) {
       resetForm();
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save tool');
+      showError(err.response?.data?.error || 'Failed to save tool');
     }
   };
 
@@ -325,12 +327,13 @@ function Tools({ all: isAllTools }) {
   };
 
   const handleDelete = async (toolId) => {
-    if (!confirm('Are you sure you want to delete this tool?')) return;
+    const ok = await confirmDialog('Are you sure you want to delete this tool?', { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
     try {
       await api.delete(`/integrations/${id}/tools/${toolId}`);
       fetchData();
     } catch (err) {
-      alert('Failed to delete tool: ' + (err.response?.data?.error || err.message));
+      showError('Failed to delete tool: ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -468,7 +471,7 @@ function Tools({ all: isAllTools }) {
         currentToolForTest.responseFields = fields;
       }
     } catch (err) {
-      alert('Failed to save response fields: ' + (err.response?.data?.error || err.message));
+      showError('Failed to save response fields: ' + (err.response?.data?.error || err.message));
     } finally {
       setSavingFields(false);
     }
@@ -559,31 +562,32 @@ function Tools({ all: isAllTools }) {
 
   const handleBulkAction = async (action) => {
     if (selectedTools.size === 0) return;
-    if (!confirm(`Are you sure you want to ${action} ${selectedTools.size} tool(s)?`)) return;
-    
+    const ok = await confirmDialog(`Are you sure you want to ${action} ${selectedTools.size} tool(s)?`, { danger: true, confirmLabel: 'Confirm' });
+    if (!ok) return;
+
     try {
       await api.patch(`/integrations/${id}/tools/bulk`, { ids: [...selectedTools], action });
       setSelectedTools(new Set());
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || `Failed to ${action} tools`);
+      showError(err.response?.data?.error || `Failed to ${action} tools`);
     }
   };
 
   const handleImportEndpoints = async () => {
     if (selectedEndpoints.length === 0) return;
-    
+
     try {
       await api.post(`/integrations/${id}/import-tools`, {
         endpoints: selectedEndpoints
       });
-      
+
       setShowExploreModal(false);
       setDiscoveredEndpoints([]);
       setSelectedEndpoints([]);
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to import endpoints');
+      showError(err.response?.data?.error || 'Failed to import endpoints');
     }
   };
 
@@ -1055,12 +1059,13 @@ function Tools({ all: isAllTools }) {
                         Edit
                       </Link>
                       <button className="btn btn-icon btn-danger" onClick={async () => {
-                        if (!confirm('Delete this composite tool?')) return;
+                        const ok = await confirmDialog('Delete this composite tool?', { danger: true, confirmLabel: 'Delete' });
+                        if (!ok) return;
                         try {
                           await api.delete(`/integrations/composite/${tool._id || tool.id}`);
                           fetchCompositeTools();
                         } catch (err) {
-                          alert('Failed to delete: ' + (err.response?.data?.error || err.message));
+                          showError('Failed to delete: ' + (err.response?.data?.error || err.message));
                         }
                       }}>
                         Del

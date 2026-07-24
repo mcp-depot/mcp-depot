@@ -4,6 +4,7 @@ import api from '../services/api';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { formatDateTime } from '../utils/date';
+import { confirmDialog } from '../utils/confirm';
 
 function SessionChannels() {
   const { token } = useAuth();
@@ -49,7 +50,8 @@ function SessionChannels() {
   };
 
   const handleClear = async (channel) => {
-    if (!confirm(`Clear all messages in "${channel}"?`)) return;
+    const ok = await confirmDialog(`Clear all messages in "${channel}"?`, { danger: true, confirmLabel: 'Clear' });
+    if (!ok) return;
     await api.delete(`/session-channels/${encodeURIComponent(channel)}`, token);
     setSelected(null);
     setMessages([]);

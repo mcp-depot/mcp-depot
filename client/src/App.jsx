@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Toaster } from 'sonner';
+import { ConfirmDialogHost } from './components/ConfirmDialogHost';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import PasswordReset from './pages/PasswordReset';
@@ -93,6 +94,7 @@ function App() {
       <AuthProvider>
         <ThemeProvider>
           <Toaster position="bottom-right" richColors />
+          <ConfirmDialogHost />
           <AppRoutes />
         </ThemeProvider>
       </AuthProvider>

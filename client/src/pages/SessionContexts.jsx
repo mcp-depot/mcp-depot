@@ -5,6 +5,8 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
 import { formatDate, formatDateTime } from '../utils/date';
 import { getApiError } from '../utils/apiError';
+import { showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 
 function expiryInfo(ctx, now) {
   if (ctx.ttlHours == null || ctx.ttlHours === 0) return { label: 'Pinned', urgency: 'pinned' };
@@ -57,13 +59,14 @@ function SessionContexts() {
   };
 
   const handleDelete = async (name) => {
-    if (!confirm(`Delete context "${name}"?`)) return;
+    const ok = await confirmDialog(`Delete context "${name}"?`, { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
     try {
       await api.delete(`/session-contexts/${encodeURIComponent(name)}`, token);
       setSelected(null);
       loadContexts();
     } catch (err) {
-      alert(`Failed to delete: ${getApiError(err)}`);
+      showError(`Failed to delete: ${getApiError(err)}`);
     }
   };
 
@@ -75,7 +78,7 @@ function SessionContexts() {
         setSelected(s => ({ ...s, isShared: !currentShared }));
       }
     } catch (err) {
-      alert(`Failed to toggle share: ${getApiError(err)}`);
+      showError(`Failed to toggle share: ${getApiError(err)}`);
     }
   };
 
@@ -87,7 +90,7 @@ function SessionContexts() {
         setSelected(s => ({ ...s, ttlHours: ttlHours === 0 ? null : ttlHours }));
       }
     } catch (err) {
-      alert(`Failed to update TTL: ${getApiError(err)}`);
+      showError(`Failed to update TTL: ${getApiError(err)}`);
     }
   };
 

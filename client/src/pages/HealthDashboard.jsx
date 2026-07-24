@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Activity, RefreshCw, CheckCircle, XCircle, AlertCircle, Clock } from 'lucide-react';
+import { showError } from '../utils/toast';
 
 function HealthDashboard() {
   const { user } = useAuth();
@@ -28,7 +29,7 @@ function HealthDashboard() {
       const res = await api.post('/health/refresh');
       setResults(res.data.results || []);
     } catch (err) {
-      alert('Failed to refresh health: ' + (err.response?.data?.error || err.message));
+      showError('Failed to refresh health: ' + (err.response?.data?.error || err.message));
     } finally {
       setRefreshing(false);
     }

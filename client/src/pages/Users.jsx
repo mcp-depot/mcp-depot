@@ -5,6 +5,7 @@ import { Users as UsersIcon, Plus, Trash2, RotateCcw, X } from 'lucide-react';
 import { showSuccess, showError } from '../utils/toast';
 import { formatDate } from '../utils/date';
 import { getApiError } from '../utils/apiError';
+import { confirmDialog } from '../utils/confirm';
 
 function Users() {
   const { user: currentUser } = useAuth();
@@ -60,7 +61,8 @@ function Users() {
   };
 
   const handleDelete = async (user) => {
-    if (!confirm(`Delete user ${user.email}?`)) return;
+    const ok = await confirmDialog(`Delete user ${user.email}?`, { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
     try {
       await api.delete(`/users/${user.id}`);
       setUsers(users.filter(u => u.id !== user.id));

@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
+import { showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 
 function Workflows() {
   const { user } = useAuth();
@@ -72,7 +74,7 @@ function Workflows() {
       resetForm();
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create workflow');
+      showError(err.response?.data?.error || 'Failed to create workflow');
     }
   };
 
@@ -118,7 +120,7 @@ function Workflows() {
       setShowTemplatesModal(false);
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create workflow from template');
+      showError(err.response?.data?.error || 'Failed to create workflow from template');
     }
   };
 
@@ -141,12 +143,13 @@ function Workflows() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this workflow?')) return;
+    const ok = await confirmDialog('Are you sure you want to delete this workflow?', { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
     try {
       await api.delete(`/workflows/${id}`);
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete workflow');
+      showError(err.response?.data?.error || 'Failed to delete workflow');
     }
   };
 
