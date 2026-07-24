@@ -4,6 +4,8 @@ const { Op } = require('sequelize');
 const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
 const channelEmitter = require('../services/channel-events');
+const audit = require('../services/audit');
+const logger = require('../services/logger');
 
 const router = express.Router();
 
@@ -202,6 +204,15 @@ router.delete('/:channel', auth, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const deleted = await SessionChannel.destroy({ where: { channel: req.params.channel } });
+
+    logger.warn({ userId: req.user.id, channel: req.params.channel, deleted }, 'Session channel cleared');
+    await audit.log({
+      userId: req.user.id,
+      action: 'clear_session_channel',
+      details: { channel: req.params.channel, deletedCount: deleted },
+      status: 'success'
+    });
+
     res.json({ success: true, deleted });
   } catch (err) {
     res.status(500).json({ error: err.message });
