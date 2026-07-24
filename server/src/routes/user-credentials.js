@@ -4,6 +4,7 @@ const { auth } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
+const audit = require('../services/audit');
 
 const router = express.Router();
 
@@ -31,6 +32,14 @@ router.get('/credentials/:integrationId', auth, async (req, res) => {
     }
 
     const decryptedCredentials = encryption.decryptObject(userCreds.credentials);
+
+    await audit.log({
+      userId,
+      action: 'view_own_credentials',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      status: 'success'
+    });
 
     res.json({
       hasCredentials: true,
@@ -68,9 +77,17 @@ router.post('/credentials/:integrationId', auth, async (req, res) => {
       isActive: true
     });
 
-    res.json({ 
-      success: true, 
-      message: created ? 'Credentials saved' : 'Credentials updated' 
+    await audit.log({
+      userId,
+      action: created ? 'save_own_credentials' : 'update_own_credentials',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      status: 'success'
+    });
+
+    res.json({
+      success: true,
+      message: created ? 'Credentials saved' : 'Credentials updated'
     });
   } catch (error) {
     logger.error({ error: error.message }, 'Save credentials error');
@@ -89,6 +106,12 @@ router.delete('/credentials/:integrationId', auth, async (req, res) => {
     });
 
     if (deleted) {
+      await audit.log({
+        userId,
+        action: 'delete_own_credentials',
+        integrationId,
+        status: 'success'
+      });
       res.json({ success: true, message: 'Credentials removed' });
     } else {
       res.status(404).json({ error: 'No credentials found' });
@@ -101,13 +124,20 @@ router.delete('/credentials/:integrationId', auth, async (req, res) => {
 
 router.get('/shared', auth, async (req, res) => {
   try {
-    const { Integration, UserIntegrationCredentials, Sequelize } = loadModels();
+    const { Integration, User, UserIntegrationCredentials, Sequelize } = loadModels();
     const userId = req.user.id;
     const { Op } = Sequelize;
 
-    const where = req.user.role === 'admin'
-      ? { isActive: true }
-      : { isActive: true, [Op.or]: [{ userId }, { visibility: 'shared' }] };
+    let where;
+    if (req.user.role === 'admin') {
+      where = { isActive: true };
+    } else {
+      const admins = await User.findAll({ where: { role: 'admin' }, attributes: ['id'], raw: true });
+      const adminIds = admins.map(u => u.id);
+      // "shared" only counts when it's owned by an admin - a regular user's
+      // own integration must never surface here just because it's their own.
+      where = { isActive: true, [Op.or]: [{ userId }, { visibility: 'shared', userId: { [Op.in]: adminIds } }] };
+    }
 
     const integrations = await Integration.findAll({
       where,

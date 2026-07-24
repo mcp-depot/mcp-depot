@@ -215,7 +215,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   registerTool(tool) {
     if (tool.type === 'meta') return;
 
-    const toolName = this.sanitizeToolName(tool.name);
+    const toolName = tool.exposedName || this.sanitizeToolName(tool.name);
     const endpoint = tool.endpoint || {};
 
     let schema = {};
@@ -263,7 +263,13 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       )
     });
 
-    const annotations = endpoint.annotations || deriveAnnotations(endpoint.method);
+    const annotations = {
+      title: tool.title || undefined,
+      readOnlyHint: tool.readOnlyHint != null ? tool.readOnlyHint : deriveAnnotations(endpoint.method).readOnlyHint,
+      destructiveHint: tool.destructiveHint != null ? tool.destructiveHint : deriveAnnotations(endpoint.method).destructiveHint,
+      idempotentHint: tool.idempotentHint != null ? tool.idempotentHint : deriveAnnotations(endpoint.method).idempotentHint,
+      openWorldHint: tool.openWorldHint != null ? tool.openWorldHint : deriveAnnotations(endpoint.method).openWorldHint
+    };
 
     try {
       this.server.tool(
@@ -279,14 +285,18 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           const sessionId = extra?.sessionId || 'stdio';
           const sessionData = this._sessionClientMap.get(sessionId) ?? { clientName: 'unknown', clientVersion: null };
           const clientInfo = { clientName: sessionData.clientName, clientVersion: sessionData.clientVersion };
-          const currentTool = this.toolsMap.get(toolName)?.tool ?? tool;
+          const entry = this.toolsMap.get(toolName);
+          if (!entry?.tool) {
+            throw new Error(`Tool "${toolName}" is not registered - run /mcp to reconnect`);
+          }
+          const currentTool = entry.tool;
 
           try {
             const toolLimit = currentTool.rateLimit || 0;
             const intLimit = currentTool.Integration?.rateLimit || {};
             const integrationLimitRpm = intLimit.requestsPerMinute || 0;
             const integrationLimitRph = intLimit.requestsPerHour || 0;
-            const rateCheck = checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph);
+            const rateCheck = checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph, currentTool.Integration?.id);
             if (!rateCheck.allowed) {
               return {
                 content: [{
@@ -995,14 +1005,18 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
   async refreshTools() {
     if (this._refreshPromise) {
+      this._pendingRefresh = true;
       return this._refreshPromise;
     }
-    this._refreshPromise = this._doRefreshTools();
-    try {
-      await this._refreshPromise;
-    } finally {
-      this._refreshPromise = null;
-    }
+    do {
+      this._pendingRefresh = false;
+      this._refreshPromise = this._doRefreshTools();
+      try {
+        await this._refreshPromise;
+      } finally {
+        this._refreshPromise = null;
+      }
+    } while (this._pendingRefresh);
   }
 
   async _doRefreshTools() {

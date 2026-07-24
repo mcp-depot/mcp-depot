@@ -19,6 +19,7 @@ const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcRespons
 const { checkRateLimit } = require('../services/rate-limiter');
 const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
+const { isUrlSafe } = require('../utils/ssrfGuard');
 
 function getCallerId(req) {
   if (
@@ -576,16 +577,20 @@ router.delete('/session-channels/:channel/subscribe', checkMcpAuth, async (req, 
   }
 });
 
-router.get('/fetch-url', optionalAuth, async (req, res) => {
+router.get('/fetch-url', checkMcpAuth, async (req, res) => {
   try {
     const { url, timeout, maxSize, headers } = req.query;
-    
+
     if (!url) {
       return res.status(400).json({ error: 'URL query parameter is required' });
     }
-    
+
     if (!url.match(/^https?:\/\/.+/)) {
       return res.status(400).json({ error: 'URL must start with http:// or https://' });
+    }
+
+    if (!(await isUrlSafe(url))) {
+      return res.status(400).json({ error: 'URL points to a blocked or unresolvable internal address' });
     }
 
     const timeoutMs = parseInt(timeout) || 30000;
@@ -746,7 +751,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
         where: { isActive: true },
         attributes: ['userId', 'visibility']
       }],
-      attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type']
+      attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type', 'exposedName', 'title']
     });
 
     const visibleTools = tools.filter(t => {
@@ -763,10 +768,12 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
           properties: inputSchema.properties || {},
           required: inputSchema.required || []
         };
+        const compositeName = t.exposedName || t.name;
         return {
           id: t.id,
-          name: t.name,
-          title: t.name,
+          name: compositeName,
+          title: t.title || t.name,
+          exposedName: t.exposedName,
           description: t.description,
           endpoint: t.endpoint,
           params: [],
@@ -876,8 +883,9 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
 
       return {
         id: t.id,
-        name: t.name,
-        title: t.name,
+        name: t.exposedName || t.name,
+        title: t.title || t.name,
+        exposedName: t.exposedName,
         description: t.description,
         endpoint: t.endpoint,
         params,
@@ -1255,6 +1263,9 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       tool = await Tool.findByPk(toolId);
     } else if (toolName) {
       tool = await Tool.findOne({ where: { name: toolName, isActive: true } });
+      if (!tool) {
+        tool = await Tool.findOne({ where: { exposedName: toolName, isActive: true } });
+      }
     }
     
     if (!tool && toolName) {
@@ -1317,7 +1328,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       const intLimit = integration.rateLimit || {};
       const integrationLimitRpm = intLimit.requestsPerMinute || 0;
       const integrationLimitRph = intLimit.requestsPerHour || 0;
-      const rateCheck = checkRateLimit(tool.id, userId, toolLimit, integrationLimitRpm, integrationLimitRph);
+      const rateCheck = checkRateLimit(tool.id, userId, toolLimit, integrationLimitRpm, integrationLimitRph, integration.id);
       if (!rateCheck.allowed) {
         return res.status(429).json({
           error: 'Rate limit exceeded',
@@ -1415,7 +1426,10 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       if (typeof url !== 'string' || !url.match(/^https?:\/\/.+/)) {
         return res.status(400).json({ error: 'URL must be a valid http/https URL' });
       }
-      
+      if (!(await isUrlSafe(url))) {
+        return res.status(400).json({ error: 'URL points to a blocked or unresolvable internal address' });
+      }
+
       try {
         const isHttps = url.startsWith('https://');
         const response = await axios.get(url, {
@@ -1467,12 +1481,16 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       acc[key] = val;
       return acc;
     }, {});
-    const mergedParams = { ...paramValues, ...params };
+    const mergedParams = {
+      ...(typeof body === 'object' && body !== null ? body : {}),
+      ...paramValues,
+      ...params
+    };
     const mergedHeaders = { ...tool.endpoint.headers, ...headers };
     let path = tool.endpoint.path;
     const pathParams = {};
     const queryParams = {};
-    let bodyParams = body || tool.endpoint.body || {};
+    let bodyParams = tool.endpoint.body || body || {};
     
     const transformConfig = tool.endpoint.transform || {};
     const hasBodyTemplate = !!(tool.endpoint.body && Object.keys(tool.endpoint.body).length > 0);

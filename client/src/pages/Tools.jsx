@@ -7,6 +7,10 @@ import { StyledSelect } from '../components/StyledSelect';
 import { JsonTree } from '../components/JsonTree';
 import { Zap, Search, ArrowUpDown, ArrowUp, ArrowDown, LayoutGrid, PanelLeft, List, Save, X } from 'lucide-react';
 import { ViewToggle } from '../components/ViewToggle';
+import { showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { useId } from 'react';
 
 const CREDENTIAL_PATTERN = /(?:api[_-]?key|token|secret|password|bearer|auth)["\s]*[:=]["\s]*[a-zA-Z0-9_\-\.]{16,}/i;
 
@@ -16,6 +20,17 @@ function hasHardcodedCredential(text) {
 }
 
 const isBuiltIn = (integration) => integration?.metadata?.source === 'built-in';
+
+const slugify = (str) => str.toLowerCase().replace(/[^a-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 32);
+
+const computeExposedName = (integrationSlug, toolName) => {
+  const slug = slugify(integrationSlug || '');
+  const toolPart = (toolName || '').replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  const prefix = slug + '_';
+  const budget = 64 - prefix.length;
+  const truncated = budget > 0 ? toolPart.substring(0, budget).replace(/_+$/g, '') : '';
+  return prefix + truncated;
+};
 
 function Tools({ all: isAllTools }) {
   const params = useParams();
@@ -69,6 +84,16 @@ function Tools({ all: isAllTools }) {
   });
   const [selectedPromptTemplate, setSelectedPromptTemplate] = useState('full-cycle');
   const [showExternalToolsModal, setShowExternalToolsModal] = useState(false);
+  const formTitleId = useId();
+  const formModalRef = useModalA11y(() => setShowModal(false), showModal);
+  const exploreTitleId = useId();
+  const exploreModalRef = useModalA11y(() => setShowExploreModal(false), showExploreModal);
+  const testTitleId = useId();
+  const testModalRef = useModalA11y(() => setShowTestModal(false), showTestModal);
+  const externalToolsTitleId = useId();
+  const externalToolsModalRef = useModalA11y(() => setShowExternalToolsModal(false), showExternalToolsModal);
+  const promptLibraryTitleId = useId();
+  const promptLibraryModalRef = useModalA11y(() => setShowPromptLibrary(false), showPromptLibrary);
   const [editingTool, setEditingTool] = useState(null);
   const [testingTool, setTestingTool] = useState(null);
   const [testResult, setTestResult] = useState(null);
@@ -76,6 +101,8 @@ function Tools({ all: isAllTools }) {
   const [currentToolForTest, setCurrentToolForTest] = useState(null);
   const [selectedResponseFields, setSelectedResponseFields] = useState(new Set());
   const [savingFields, setSavingFields] = useState(false);
+  const [deletingToolId, setDeletingToolId] = useState(null);
+  const [bulkActionRunning, setBulkActionRunning] = useState(false);
 
   const [exploring, setExploring] = useState(false);
   const [discoveredEndpoints, setDiscoveredEndpoints] = useState([]);
@@ -95,7 +122,12 @@ function Tools({ all: isAllTools }) {
     body: '',
     responseTransformer: '',
     responseFields: '',
-    responseLineFilter: ''
+    responseLineFilter: '',
+    title: '',
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: false,
+    openWorldHint: true
   });
 
   const [collapsedIntegrations, setCollapsedIntegrations] = useState({});
@@ -196,7 +228,7 @@ function Tools({ all: isAllTools }) {
       setCompositeTools(compositeRes.data || []);
     } catch (err) {
       console.error('Failed to fetch data:', err);
-      alert('Failed to load: ' + (err.response?.data?.error || err.message));
+      showError('Failed to load: ' + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
@@ -219,22 +251,22 @@ function Tools({ all: isAllTools }) {
       try {
         parsedParams = form.params ? JSON.parse(form.params) : {};
       } catch (err) {
-        alert('Invalid JSON in Default Params: ' + err.message);
+        showError('Invalid JSON in Default Params: ' + err.message);
         return;
       }
-      
+
       try {
         parsedHeaders = form.headers ? JSON.parse(form.headers) : {};
       } catch (err) {
-        alert('Invalid JSON in Default Headers: ' + err.message);
+        showError('Invalid JSON in Default Headers: ' + err.message);
         return;
       }
-      
+
       try {
         const normalizedBody = (form.body || '').replace(/:\s*\{(\w+)\}/g, ': "{$1}"');
         parsedBody = normalizedBody ? JSON.parse(normalizedBody) : {};
       } catch (err) {
-        alert('Invalid JSON in Request Body: ' + err.message);
+        showError('Invalid JSON in Request Body: ' + err.message);
         return;
       }
       
@@ -262,7 +294,12 @@ function Tools({ all: isAllTools }) {
         endpoint,
         responseTransformer: form.responseTransformer || null,
         responseFields: parsedResponseFields,
-        responseLineFilter: form.responseLineFilter || null
+        responseLineFilter: form.responseLineFilter || null,
+        title: form.title || null,
+        readOnlyHint: form.readOnlyHint,
+        destructiveHint: form.destructiveHint,
+        idempotentHint: form.idempotentHint,
+        openWorldHint: form.openWorldHint
       };
 
       if (editingTool) {
@@ -276,7 +313,7 @@ function Tools({ all: isAllTools }) {
       resetForm();
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save tool');
+      showError(err.response?.data?.error || 'Failed to save tool');
     }
   };
 
@@ -293,18 +330,27 @@ function Tools({ all: isAllTools }) {
       body: JSON.stringify(tool.endpoint.body, null, 2),
       responseTransformer: tool.endpoint.responseTransformer || tool.responseTransformer || '',
       responseFields: tool.responseFields ? JSON.stringify(tool.responseFields, null, 2) : '',
-      responseLineFilter: tool.responseLineFilter || ''
+      responseLineFilter: tool.responseLineFilter || '',
+      title: tool.title || '',
+      readOnlyHint: tool.readOnlyHint !== undefined ? tool.readOnlyHint : (tool.endpoint?.method === 'GET' || tool.endpoint?.method === 'HEAD'),
+      destructiveHint: tool.destructiveHint !== undefined ? tool.destructiveHint : (tool.endpoint?.method === 'DELETE'),
+      idempotentHint: tool.idempotentHint !== undefined ? tool.idempotentHint : (tool.endpoint?.method !== 'POST'),
+      openWorldHint: tool.openWorldHint !== undefined ? tool.openWorldHint : true
     });
     setShowModal(true);
   };
 
   const handleDelete = async (toolId) => {
-    if (!confirm('Are you sure you want to delete this tool?')) return;
+    const ok = await confirmDialog('Are you sure you want to delete this tool?', { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+    setDeletingToolId(toolId);
     try {
       await api.delete(`/integrations/${id}/tools/${toolId}`);
       fetchData();
     } catch (err) {
-      alert('Failed to delete tool: ' + (err.response?.data?.error || err.message));
+      showError('Failed to delete tool: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setDeletingToolId(null);
     }
   };
 
@@ -442,7 +488,7 @@ function Tools({ all: isAllTools }) {
         currentToolForTest.responseFields = fields;
       }
     } catch (err) {
-      alert('Failed to save response fields: ' + (err.response?.data?.error || err.message));
+      showError('Failed to save response fields: ' + (err.response?.data?.error || err.message));
     } finally {
       setSavingFields(false);
     }
@@ -450,7 +496,7 @@ function Tools({ all: isAllTools }) {
 
   const resetForm = () => {
     setEditingTool(null);
-    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '', responseFields: '', responseLineFilter: '' });
+    setForm({ name: '', description: '', method: 'GET', path: '', params: '', headers: '', body: '', responseTransformer: '', responseFields: '', responseLineFilter: '', title: '', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
   };
 
   const handleExplore = async (e) => {
@@ -533,31 +579,35 @@ function Tools({ all: isAllTools }) {
 
   const handleBulkAction = async (action) => {
     if (selectedTools.size === 0) return;
-    if (!confirm(`Are you sure you want to ${action} ${selectedTools.size} tool(s)?`)) return;
-    
+    const ok = await confirmDialog(`Are you sure you want to ${action} ${selectedTools.size} tool(s)?`, { danger: true, confirmLabel: 'Confirm' });
+    if (!ok) return;
+
+    setBulkActionRunning(true);
     try {
       await api.patch(`/integrations/${id}/tools/bulk`, { ids: [...selectedTools], action });
       setSelectedTools(new Set());
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || `Failed to ${action} tools`);
+      showError(err.response?.data?.error || `Failed to ${action} tools`);
+    } finally {
+      setBulkActionRunning(false);
     }
   };
 
   const handleImportEndpoints = async () => {
     if (selectedEndpoints.length === 0) return;
-    
+
     try {
       await api.post(`/integrations/${id}/import-tools`, {
         endpoints: selectedEndpoints
       });
-      
+
       setShowExploreModal(false);
       setDiscoveredEndpoints([]);
       setSelectedEndpoints([]);
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to import endpoints');
+      showError(err.response?.data?.error || 'Failed to import endpoints');
     }
   };
 
@@ -753,9 +803,9 @@ function Tools({ all: isAllTools }) {
                       {showBulkActions && selectedTools.size > 0 && (
                         <div className="bulk-action-bar" style={{ padding: '0.75rem', marginBottom: '0.5rem', background: 'var(--primary)', borderRadius: '8px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                           <span style={{ color: 'white' }}>{selectedTools.size} selected</span>
-                          <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')}>Enable</button>
-                          <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')}>Disable</button>
-                          <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')}>Delete</button>
+                          <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')} disabled={bulkActionRunning}>Enable</button>
+                          <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')} disabled={bulkActionRunning}>Disable</button>
+                          <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')} disabled={bulkActionRunning}>{bulkActionRunning ? 'Working...' : 'Delete'}</button>
                         </div>
                       )}
                       {tools.map(tool => (
@@ -817,7 +867,7 @@ function Tools({ all: isAllTools }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
-                <p>Loading integration...</p>
+                <div className="skeleton skeleton-title" style={{ width: '180px' }}></div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <button className="btn btn-secondary" disabled>Explore API</button>
@@ -937,9 +987,9 @@ function Tools({ all: isAllTools }) {
             {showBulkActions && selectedTools.size > 0 && (
               <div style={{ padding: '0.75rem', marginBottom: '0.5rem', background: 'var(--primary)', borderRadius: '8px', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <span style={{ color: 'white' }}>{selectedTools.size} selected</span>
-                <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')}>Enable</button>
-                <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')}>Disable</button>
-                <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')}>Delete</button>
+                <button className="btn btn-sm" style={{ background: '#28a745' }} onClick={() => handleBulkAction('enable')} disabled={bulkActionRunning}>Enable</button>
+                <button className="btn btn-sm" style={{ background: '#ffc107', color: 'black' }} onClick={() => handleBulkAction('disable')} disabled={bulkActionRunning}>Disable</button>
+                <button className="btn btn-sm" style={{ background: '#dc3545' }} onClick={() => handleBulkAction('delete')} disabled={bulkActionRunning}>{bulkActionRunning ? 'Working...' : 'Delete'}</button>
               </div>
             )}
             <div className="tool-list">
@@ -956,6 +1006,15 @@ function Tools({ all: isAllTools }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem' }}>
                       <strong>{tool.name}</strong>
+                      {tool.exposedName && tool.exposedName !== tool.name && (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', marginLeft: '0.5rem', fontFamily: 'monospace' }}>{tool.exposedName}</span>
+                      )}
+                      {tool.readOnlyHint && (
+                        <span style={{ fontSize: '0.65rem', background: '#166534', color: '#bbf7d0', padding: '0.1rem 0.35rem', borderRadius: '3px', marginLeft: '0.35rem' }}>RO</span>
+                      )}
+                      {tool.destructiveHint && (
+                        <span style={{ fontSize: '0.65rem', background: '#991b1b', color: '#fca5a5', padding: '0.1rem 0.35rem', borderRadius: '3px', marginLeft: '0.35rem' }}>D</span>
+                      )}
                     </div>
                     <span className={`tool-method ${tool.endpoint.method.toLowerCase()}`}>{tool.endpoint.method}</span>
                     <span className="tool-path">{tool.endpoint.path}</span>
@@ -968,8 +1027,8 @@ function Tools({ all: isAllTools }) {
                     <button className="btn btn-icon" onClick={() => handleEdit(tool)} title="Edit tool">
                       Edit
                     </button>
-                    <button className="btn btn-icon btn-danger" onClick={() => handleDelete(tool._id || tool.id)} title="Delete tool">
-                      Del
+                    <button className="btn btn-icon btn-danger" onClick={() => handleDelete(tool._id || tool.id)} disabled={deletingToolId === (tool._id || tool.id)} title="Delete tool">
+                      {deletingToolId === (tool._id || tool.id) ? '...' : 'Del'}
                     </button>
                   </div>
                 </div>
@@ -1020,12 +1079,13 @@ function Tools({ all: isAllTools }) {
                         Edit
                       </Link>
                       <button className="btn btn-icon btn-danger" onClick={async () => {
-                        if (!confirm('Delete this composite tool?')) return;
+                        const ok = await confirmDialog('Delete this composite tool?', { danger: true, confirmLabel: 'Delete' });
+                        if (!ok) return;
                         try {
                           await api.delete(`/integrations/composite/${tool._id || tool.id}`);
                           fetchCompositeTools();
                         } catch (err) {
-                          alert('Failed to delete: ' + (err.response?.data?.error || err.message));
+                          showError('Failed to delete: ' + (err.response?.data?.error || err.message));
                         }
                       }}>
                         Del
@@ -1121,10 +1181,10 @@ function Tools({ all: isAllTools }) {
 
         {showModal && (
           <div className="modal-overlay">
-            <div className="modal" style={{ maxWidth: '650px' }} onClick={e => e.stopPropagation()}>
+            <div ref={formModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={formTitleId} tabIndex={-1} style={{ maxWidth: '650px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>{editingTool ? 'Edit Tool' : 'Add Tool'}</h2>
-                <button className="modal-close" onClick={() => setShowModal(false)}>&times;</button>
+                <h2 id={formTitleId}>{editingTool ? 'Edit Tool' : 'Add Tool'}</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowModal(false)}>&times;</button>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="modal-body">
@@ -1271,6 +1331,65 @@ function Tools({ all: isAllTools }) {
                       onChange={e => setForm({ ...form, responseLineFilter: e.target.value })}
                     />
                   </div>
+
+                  {/* Exposed name preview */}
+                  <div className="form-group" style={{ marginTop: '0.5rem' }}>
+                    <label>Exposed as</label>
+                    <div style={{
+                      background: 'var(--bg-secondary, #1a1a2e)',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '4px',
+                      fontFamily: 'monospace',
+                      fontSize: '0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}>
+                      <code>{(() => {
+                        const exposed = computeExposedName(integration?.slug || integration?.name || '', form.name);
+                        const truncated = exposed.length < (slugify(integration?.slug || integration?.name || '') + '_' + form.name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')).length;
+                        return exposed;
+                      })()}</code>
+                      {(() => {
+                        const exposed = computeExposedName(integration?.slug || integration?.name || '', form.name);
+                        const fullLength = (slugify(integration?.slug || integration?.name || '') + '_' + form.name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')).length;
+                        return fullLength > 64 ? <span style={{ color: '#f59e0b', fontSize: '0.75rem' }}>Truncated</span> : null;
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Title (human-readable) */}
+                  <div className="form-group">
+                    <label>Display Title</label>
+                    <input type="text" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Human-readable name (shown in AI clients)" />
+                  </div>
+
+                  {/* Annotation toggles */}
+                  <div style={{ borderTop: '1px solid var(--border, #333)', paddingTop: '1rem', marginTop: '0.5rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Annotations (hints for AI clients)</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" checked={form.readOnlyHint}
+                          onChange={e => setForm({ ...form, readOnlyHint: e.target.checked })} />
+                        <span style={{ fontSize: '0.85rem' }}>Read-only (safe to auto-approve)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" checked={form.destructiveHint}
+                          onChange={e => setForm({ ...form, destructiveHint: e.target.checked })} />
+                        <span style={{ fontSize: '0.85rem' }}>Destructive (may modify/delete data)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" checked={form.idempotentHint}
+                          onChange={e => setForm({ ...form, idempotentHint: e.target.checked })} />
+                        <span style={{ fontSize: '0.85rem' }}>Idempotent (same result on repeat calls)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <input type="checkbox" checked={form.openWorldHint}
+                          onChange={e => setForm({ ...form, openWorldHint: e.target.checked })} />
+                        <span style={{ fontSize: '0.85rem' }}>External system interaction</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
@@ -1284,10 +1403,10 @@ function Tools({ all: isAllTools }) {
         {/* Explore API Modal */}
         {showExploreModal && (
           <div className="modal-overlay">
-            <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
+            <div ref={exploreModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={exploreTitleId} tabIndex={-1} style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Explore API Endpoints</h2>
-                <button className="modal-close" onClick={() => setShowExploreModal(false)}>&times;</button>
+                <h2 id={exploreTitleId}>Explore API Endpoints</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowExploreModal(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 {discoveredEndpoints.length === 0 ? (
@@ -1396,10 +1515,10 @@ function Tools({ all: isAllTools }) {
         {/* Test Tool Modal */}
         {showTestModal && currentToolForTest && (
           <div className="modal-overlay">
-            <div className="modal" onClick={e => e.stopPropagation()}>
+            <div ref={testModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={testTitleId} tabIndex={-1} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Test: {currentToolForTest.name}</h2>
-                <button className="modal-close" onClick={() => setShowTestModal(false)}>&times;</button>
+                <h2 id={testTitleId}>Test: {currentToolForTest.name}</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowTestModal(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '4px' }}>
@@ -1464,10 +1583,10 @@ function Tools({ all: isAllTools }) {
         {/* External Tools Modal */}
         {showExternalToolsModal && (
           <div className="modal-overlay" onClick={() => setShowExternalToolsModal(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div ref={externalToolsModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={externalToolsTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
               <div className="modal-header">
-                <h2>External MCP Tools</h2>
-                <button className="modal-close" onClick={() => setShowExternalToolsModal(false)}>&times;</button>
+                <h2 id={externalToolsTitleId}>External MCP Tools</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowExternalToolsModal(false)}>&times;</button>
               </div>
               <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
                 {externalTools.length === 0 ? (
@@ -1537,10 +1656,10 @@ function Tools({ all: isAllTools }) {
         {/* Prompt Library Modal */}
         {showPromptLibrary && (
           <div className="modal-overlay" onClick={() => setShowPromptLibrary(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div ref={promptLibraryModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={promptLibraryTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
               <div className="modal-header">
-                <h2>Prompt Library</h2>
-                <button className="modal-close" onClick={() => setShowPromptLibrary(false)}>&times;</button>
+                <h2 id={promptLibraryTitleId}>Prompt Library</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowPromptLibrary(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>

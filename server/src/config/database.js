@@ -13,8 +13,8 @@ if (process.env.DATABASE_URL) {
     logging: false,
     dialect: 'postgres',
     pool: {
-      max: 5,
-      min: 0,
+      max: parseInt(process.env.DB_POOL_MAX, 10) || 20,
+      min: parseInt(process.env.DB_POOL_MIN, 10) || 2,
       acquire: 30000,
       idle: 10000
     }
@@ -792,28 +792,7 @@ const connectDB = async (retries = 5, delay = 3000) => {
         logger.warn('Production mode: running sequelize.sync({ force: false }) to create missing tables');
         await sequelize.sync({ force: false });
         logger.info('Database synchronized');
-        
-        const isPostgres = sequelize.getDialect() === 'postgres';
-        const tagsColType = isPostgres ? 'JSON' : 'TEXT';
-        
-        try {
-          await sequelize.query(`ALTER TABLE integrations ADD COLUMN tags ${tagsColType} DEFAULT '[]'`, { type: sequelize.QueryTypes.RAW });
-          logger.info('Migration: added tags column to integrations');
-        } catch (e) {
-          if (!e.message.includes('already exists') && !e.message.includes('duplicate column name')) {
-            logger.warn({ err: e.message }, 'Migration: tags column on integrations');
-          }
-        }
-        
-        try {
-          await sequelize.query(`ALTER TABLE prompt_library ADD COLUMN tags ${tagsColType} DEFAULT '[]'`, { type: sequelize.QueryTypes.RAW });
-          logger.info('Migration: added tags column to prompt_library');
-        } catch (e) {
-          if (!e.message.includes('already exists') && !e.message.includes('duplicate column name')) {
-            logger.warn({ err: e.message }, 'Migration: tags column on prompt_library');
-          }
-        }
-        
+
         await runMigrations(sequelize);
       }
       
@@ -829,153 +808,6 @@ const connectDB = async (retries = 5, delay = 3000) => {
   }
   
   try {
-    // Create tool_calls table if it doesn't exist
-    try {
-      await sequelize.query(`
-        CREATE TABLE IF NOT EXISTS tool_calls (
-          id TEXT PRIMARY KEY,
-          "toolId" UUID NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
-          "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          "integrationId" UUID NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
-          "callerId" VARCHAR(255),
-          "callerType" VARCHAR(20) DEFAULT 'unknown',
-          method VARCHAR(10) NOT NULL,
-          path VARCHAR(1000) NOT NULL,
-          "requestHeaders" TEXT DEFAULT '{}',
-          "requestBody" TEXT DEFAULT '{}',
-          "queryParams" TEXT DEFAULT '{}',
-          "responseStatus" INTEGER,
-          "responseBody" TEXT DEFAULT '{}',
-          "responseTime" INTEGER,
-          "errorMessage" TEXT,
-          success BOOLEAN DEFAULT true,
-          "ipAddress" VARCHAR(45),
-          "userAgent" VARCHAR(500),
-          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS "idx_tool_calls_toolId" ON tool_calls("toolId");
-        CREATE INDEX IF NOT EXISTS "idx_tool_calls_userId" ON tool_calls("userId");
-        CREATE INDEX IF NOT EXISTS "idx_tool_calls_integrationId" ON tool_calls("integrationId");
-        CREATE INDEX IF NOT EXISTS "idx_tool_calls_createdAt" ON tool_calls("createdAt");
-        CREATE INDEX IF NOT EXISTS "idx_tool_calls_success" ON tool_calls(success);
-        CREATE INDEX IF NOT EXISTS "idx_tool_calls_callerType" ON tool_calls("callerType");
-        CREATE INDEX IF NOT EXISTS "idx_tool_calls_userId_createdAt" ON tool_calls("userId", "createdAt");
-        CREATE INDEX IF NOT EXISTS "idx_tool_calls_integrationId_success" ON tool_calls("integrationId", success);
-      `);
-      logger.info('Tool calls table ready');
-    } catch (e) {
-      logger.warn('Tool calls table may already exist or error:', e.message);
-    }
-
-    // Create user_integration_credentials table
-    try {
-      await sequelize.query(`
-        CREATE TABLE IF NOT EXISTS user_integration_credentials (
-          id TEXT PRIMARY KEY,
-          "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          "integrationId" UUID NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
-          credentials TEXT NOT NULL,
-          "isActive" BOOLEAN DEFAULT true,
-          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE("userId", "integrationId")
-        );
-        CREATE INDEX IF NOT EXISTS "idx_uic_userId" ON user_integration_credentials("userId");
-        CREATE INDEX IF NOT EXISTS "idx_uic_integrationId" ON user_integration_credentials("integrationId");
-      `);
-      logger.info('User credentials table ready');
-    } catch (e) {
-      logger.warn('User credentials table may already exist or error:', e.message);
-    }
-
-    try {
-      await sequelize.query(`
-        CREATE TABLE IF NOT EXISTS external_mcp_servers (
-          id TEXT PRIMARY KEY,
-          "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          name VARCHAR(255) NOT NULL,
-          runtime VARCHAR(20) DEFAULT 'node',
-          "transportType" VARCHAR(20) DEFAULT 'http',
-          url VARCHAR(500),
-          command VARCHAR(500),
-          args VARCHAR(1000),
-          env VARCHAR(2000),
-          "authType" VARCHAR(20) DEFAULT 'none',
-          "authToken" VARCHAR(1000),
-          "authHeader" VARCHAR(100),
-          "isActive" BOOLEAN DEFAULT true,
-          "lastFetchedAt" TIMESTAMP,
-          "lastFetchError" VARCHAR(500),
-          metadata TEXT DEFAULT '{}',
-          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS "idx_ems_userId" ON external_mcp_servers("userId");
-        CREATE INDEX IF NOT EXISTS "idx_ems_isActive" ON external_mcp_servers("isActive");
-        CREATE INDEX IF NOT EXISTS "idx_ems_userId_isActive" ON external_mcp_servers("userId", "isActive");
-      `);
-      logger.info('External MCP servers table ready');
-    } catch (e) {
-      logger.warn('External MCP servers table may already exist or error:', e.message);
-    }
-
-    // Create prompt_library table if it doesn't exist
-    try {
-      await sequelize.query(`
-        CREATE TABLE IF NOT EXISTS prompt_library (
-          id TEXT PRIMARY KEY,
-          "userId" UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          name VARCHAR(255) NOT NULL,
-          description TEXT,
-          inputs TEXT DEFAULT '[]',
-          prompt TEXT NOT NULL,
-          "isDefault" BOOLEAN DEFAULT false,
-          "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-        CREATE INDEX IF NOT EXISTS "idx_pl_userId" ON prompt_library("userId");
-      `);
-      logger.info('Prompt library table ready');
-    } catch (e) {
-      logger.warn('Prompt library table may already exist or error:', e.message);
-    }
-    
-    // Create system_settings table if it doesn't exist
-    try {
-      await sequelize.query(`
-        CREATE TABLE IF NOT EXISTS system_settings (
-          key VARCHAR(100) PRIMARY KEY,
-          value TEXT DEFAULT '{}',
-          description VARCHAR(500)
-        );
-      `);
-      logger.info('System settings table ready');
-    } catch (e) {
-      logger.warn('System settings table may already exist or error:', e.message);
-    }
-
-    // Migration: remap auth.type from 'infisical' to 'bearer' for existing integrations
-    try {
-      const isPostgres = sequelize.getDialect() === 'postgres';
-      if (isPostgres) {
-        await sequelize.query(`
-          UPDATE integrations
-          SET config = jsonb_set(config, '{auth,type}', '"bearer"')
-          WHERE config->'auth'->>'type' = 'infisical'
-        `);
-      } else {
-        await sequelize.query(`
-          UPDATE integrations
-          SET config = JSON_SET(config, '$.auth.type', 'bearer')
-          WHERE JSON_EXTRACT(config, '$.auth.type') = 'infisical'
-        `);
-      }
-      logger.info('Migration: remapped infisical auth type to bearer');
-    } catch (e) {
-      logger.warn('Migration may have already run:', e.message);
-    }
-    
     await createDefaultUser();
     await createDefaultTool();
   } catch (error) {

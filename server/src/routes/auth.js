@@ -1,5 +1,6 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
 const crypto = require('crypto');
 const Joi = require('joi');
 const User = require('../models/User');
@@ -32,6 +33,11 @@ const loginSchema = Joi.object({
 
 const changePasswordSchema = Joi.object({
   currentPassword: Joi.string().required(),
+  newPassword: Joi.string().min(6).required()
+});
+
+const adminResetSchema = Joi.object({
+  email: Joi.string().email().required(),
   newPassword: Joi.string().min(6).required()
 });
 
@@ -95,11 +101,13 @@ router.post('/login', authLimiter, async (req, res) => {
 
     const user = await User.findOne({ where: { email } });
     if (!user) {
+      logger.warn({ email, ip: req.ip }, 'Login failed: unknown email');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      logger.warn({ email, ip: req.ip }, 'Login failed: incorrect password');
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -151,12 +159,12 @@ router.post('/change-password', auth, async (req, res) => {
 
 router.post('/admin-reset', auth, requireAdmin, async (req, res) => {
   try {
-    const { email, newPassword } = req.body;
-    
-    if (!email || !newPassword) {
-      return res.status(400).json({ error: 'Email and newPassword required' });
+    const { error, value } = adminResetSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
     }
-    
+    const { email, newPassword } = value;
+
     const user = await User.findOne({ where: { email } });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -271,28 +279,74 @@ const oauthStateStore = new Map();
 
 function generateOAuthState(provider) {
   const state = crypto.randomBytes(16).toString('hex');
-  oauthStateStore.set(state, { provider, createdAt: Date.now() });
+  // nonce is only meaningful for the oidc provider (echoed back in the ID
+  // token to prevent replay), but generating it unconditionally is harmless
+  // and keeps this function simple.
+  const nonce = crypto.randomBytes(16).toString('hex');
+  oauthStateStore.set(state, { provider, nonce, createdAt: Date.now() });
   setTimeout(() => oauthStateStore.delete(state), 10 * 60 * 1000);
-  return state;
+  return { state, nonce };
 }
 
 const oidcDiscoveryCache = {};
 
 async function getOidcEndpoints(issuerUrl) {
   if (oidcDiscoveryCache[issuerUrl]) return oidcDiscoveryCache[issuerUrl];
-  
+
   const res = await fetch(`${issuerUrl}/.well-known/openid-configuration`);
   if (!res.ok) throw new Error(`Failed to fetch OIDC discovery document from ${issuerUrl}`);
-  
+
   const config = await res.json();
   const endpoints = {
     authorizationEndpoint: config.authorization_endpoint,
     tokenEndpoint: config.token_endpoint,
-    userinfoEndpoint: config.userinfo_endpoint
+    userinfoEndpoint: config.userinfo_endpoint,
+    jwksUri: config.jwks_uri,
+    issuer: config.issuer
   };
-  
+
   oidcDiscoveryCache[issuerUrl] = endpoints;
   return endpoints;
+}
+
+const jwksClients = {};
+
+function getJwksClientFor(jwksUri) {
+  if (!jwksClients[jwksUri]) {
+    jwksClients[jwksUri] = jwksClient({ jwksUri, cache: true, rateLimit: true });
+  }
+  return jwksClients[jwksUri];
+}
+
+// Verifies an OIDC ID token's signature against the provider's published
+// JWKS (rather than trusting jwt.decode()'s unverified payload), and checks
+// iss/aud/exp plus the nonce echoed from the original auth request. The
+// algorithm allowlist prevents "alg: none" / algorithm-confusion attacks.
+function verifyOidcIdToken(idToken, endpoints, clientId) {
+  return new Promise((resolve, reject) => {
+    if (!endpoints.jwksUri) {
+      return reject(new Error('OIDC provider did not publish a jwks_uri'));
+    }
+    const client = getJwksClientFor(endpoints.jwksUri);
+    const getKey = (header, callback) => {
+      client.getSigningKey(header.kid, (err, key) => {
+        if (err) return callback(err);
+        callback(null, key.getPublicKey());
+      });
+    };
+    jwt.verify(idToken, getKey, {
+      issuer: endpoints.issuer,
+      audience: clientId,
+      algorithms: ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'PS256']
+    }, (err, decoded) => {
+      if (err) return reject(err);
+      resolve(decoded);
+    });
+  });
+}
+
+function isEmailUnverified(claims) {
+  return claims.email_verified === false || claims.email_verified === 'false';
 }
 
 router.get('/oauth-url/:provider', async (req, res) => {
@@ -318,14 +372,15 @@ router.get('/oauth-url/:provider', async (req, res) => {
 
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
   const redirectUri = `${clientUrl}/login`;
-  const state = generateOAuthState(provider);
+  const { state, nonce } = generateOAuthState(provider);
 
   const params = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: config.scope,
-    state
+    state,
+    nonce
   });
 
   res.json({ url: `${authUrl}?${params.toString()}`, state });
@@ -358,7 +413,7 @@ router.post('/oauth/:provider', async (req, res) => {
   try {
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
     const tokenData = await exchangeOAuthCode(provider, code, redirectUri || `${clientUrl}/login`);
-    const profile = await fetchOAuthProfile(provider, tokenData.access_token, tokenData);
+    const profile = await fetchOAuthProfile(provider, tokenData.access_token, tokenData, storedState.nonce);
 
     if (!profile.email) {
       return res.status(400).json({ error: 'OAuth provider did not return an email address' });
@@ -367,7 +422,14 @@ router.post('/oauth/:provider', async (req, res) => {
     let user = await User.findOne({ where: { email: profile.email } });
 
     if (!user) {
-      const crypto = require('crypto');
+      // OAuth/OIDC login must not be a side door around a closed registration
+      // policy - anyone who can complete a Google/GitHub login otherwise gets
+      // a full account regardless of ALLOW_REGISTRATION.
+      if (process.env.ALLOW_REGISTRATION !== 'true') {
+        return res.status(403).json({
+          error: 'No account found for this email. Registration is disabled - contact your administrator.'
+        });
+      }
       const randomPassword = crypto.randomBytes(32).toString('hex');
       user = await User.create({
         email: profile.email,
@@ -425,7 +487,7 @@ async function exchangeOAuthCode(provider, code, redirectUri) {
   return res.json();
 }
 
-async function fetchOAuthProfile(provider, accessToken, tokenData = {}) {
+async function fetchOAuthProfile(provider, accessToken, tokenData = {}, expectedNonce = null) {
   if (provider === 'google') {
     const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${accessToken}` }
@@ -458,17 +520,28 @@ async function fetchOAuthProfile(provider, accessToken, tokenData = {}) {
   }
 
   if (provider === 'oidc') {
+    const config = OAUTH_CONFIGS.oidc;
+    const endpoints = await getOidcEndpoints(config.issuerUrl);
+
     if (tokenData.id_token) {
-      const decoded = jwt.decode(tokenData.id_token);
-      if (decoded && decoded.email) {
+      // Verify the ID token's signature against the provider's JWKS (and
+      // iss/aud/exp) rather than trusting jwt.decode()'s unverified payload.
+      const decoded = await verifyOidcIdToken(tokenData.id_token, endpoints, config.clientId);
+
+      if (expectedNonce && decoded.nonce !== expectedNonce) {
+        throw new Error('OIDC ID token nonce mismatch - possible replay');
+      }
+      if (isEmailUnverified(decoded)) {
+        throw new Error('OIDC provider returned an unverified email address');
+      }
+      if (decoded.email) {
         return {
           email: decoded.email,
           name: decoded.name || decoded.preferred_username || decoded.email
         };
       }
     }
-    const config = OAUTH_CONFIGS.oidc;
-    const endpoints = await getOidcEndpoints(config.issuerUrl);
+
     const res = await fetch(endpoints.userinfoEndpoint, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
@@ -477,6 +550,9 @@ async function fetchOAuthProfile(provider, accessToken, tokenData = {}) {
       throw new Error(`Failed to fetch OIDC userinfo: ${res.status} ${body}`);
     }
     const data = await res.json();
+    if (isEmailUnverified(data)) {
+      throw new Error('OIDC provider returned an unverified email address');
+    }
     return {
       email: data.email,
       name: data.name || data.preferred_username || data.email
@@ -516,3 +592,8 @@ router.get('/config', async (req, res) => {
 });
 
 module.exports = router;
+// Exposed for unit testing (see __tests__/oidc-verification.test.js) - not
+// part of the route's public HTTP surface.
+module.exports.isEmailUnverified = isEmailUnverified;
+module.exports.verifyOidcIdToken = verifyOidcIdToken;
+module.exports.generateOAuthState = generateOAuthState;

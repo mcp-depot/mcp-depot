@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
 import { StyledSelect } from '../components/StyledSelect';
+import { Modal } from '../components/Modal';
+import { showSuccess } from '../utils/toast';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 function Monitoring() {
   const [stats, setStats] = useState(null);
@@ -18,6 +21,10 @@ function Monitoring() {
   const [replaying, setReplaying] = useState(null);
   const [liveMode, setLiveMode] = useState(false);
   const [testerModal, setTesterModal] = useState({ open: false, call: null, params: {}, result: null, testing: false });
+  const [replayResult, setReplayResult] = useState(null);
+  const testerTitleId = useId();
+  const closeTesterModal = () => setTesterModal({ open: false, call: null, params: {}, result: null, testing: false });
+  const testerModalRef = useModalA11y(closeTesterModal, testerModal.open);
 
   useEffect(() => {
     fetchStats();
@@ -81,9 +88,9 @@ function Monitoring() {
     setReplaying(callId);
     try {
       const res = await api.post(`/monitoring/replay/${callId}`);
-      alert(`Replay result: ${JSON.stringify(res.data, null, 2)}`);
+      setReplayResult({ data: res.data, error: null });
     } catch (err) {
-      alert(`Replay failed: ${err.response?.data?.error || err.message}`);
+      setReplayResult({ data: null, error: err.response?.data?.error || err.message });
     } finally {
       setReplaying(null);
     }
@@ -132,7 +139,7 @@ function Monitoring() {
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
-    alert('Copied to clipboard!');
+    showSuccess('Copied to clipboard!');
   };
 
   return (
@@ -213,7 +220,7 @@ function Monitoring() {
         )}
         
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '2rem' }}>Loading stats...</div>
+          <div className="loading-overlay"><div className="spinner"></div></div>
         ) : stats ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
@@ -322,7 +329,7 @@ function Monitoring() {
               </div>
 
               {history.length === 0 && historyLoading ? (
-                <div style={{ textAlign: 'center', padding: '2rem' }}>Loading history...</div>
+                <div className="loading-overlay"><div className="spinner"></div></div>
               ) : history.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>No calls recorded yet</div>
               ) : (
@@ -470,11 +477,11 @@ function Monitoring() {
         )}
 
         {testerModal.open && (
-          <div className="modal-overlay" onClick={() => setTesterModal({ open: false, call: null, params: {}, result: null, testing: false })}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+          <div className="modal-overlay" onClick={closeTesterModal}>
+            <div ref={testerModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={testerTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
               <div className="modal-header">
-                <h2>Test Tool: {testerModal.call?.toolId}</h2>
-                <button className="modal-close" onClick={() => setTesterModal({ open: false, call: null, params: {}, result: null, testing: false })}>&times;</button>
+                <h2 id={testerTitleId}>Test Tool: {testerModal.call?.toolId}</h2>
+                <button className="modal-close" aria-label="Close" onClick={closeTesterModal}>&times;</button>
               </div>
               <div className="modal-body" style={{ maxHeight: '70vh', overflow: 'auto' }}>
                 <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px' }}>
@@ -516,6 +523,18 @@ function Monitoring() {
               </div>
             </div>
           </div>
+        )}
+
+        {replayResult && (
+          <Modal title="Replay Result" onClose={() => setReplayResult(null)} size="lg">
+            {replayResult.error ? (
+              <p style={{ color: 'var(--danger)' }}>{replayResult.error}</p>
+            ) : (
+              <pre style={{ margin: 0, padding: '0.75rem', background: 'var(--surface-hover)', borderRadius: '6px', fontSize: '0.8rem', maxHeight: '60vh', overflow: 'auto' }}>
+                {JSON.stringify(replayResult.data, null, 2)}
+              </pre>
+            )}
+          </Modal>
         )}
       </div>
     </div>

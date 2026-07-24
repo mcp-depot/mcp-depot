@@ -3,6 +3,7 @@
 const { z } = require('zod/v3');
 const { loadModels } = require('../config/database');
 const { refreshToolsIfEnabled } = require('./server');
+const { slugify, computeExposedName } = require('../utils/slugify');
 const logger = require('../services/logger');
 
 const INTEGRATION_NAME = 'MCP Depot - AI Tools';
@@ -77,18 +78,42 @@ function registerMetaTools(server, toolsMap) {
 
   handlerMap.mcp_register_tool = wrapHandler(async (params) => {
     const { Integration, Tool, User } = loadModels();
-    const integration = await Integration.findOne({ where: { name: params.integration } });
-    if (!integration) {
-      return { content: [{ type: 'text', text: `Integration "${params.integration}" not found. Create it first with mcp_register_integration.` }], isError: true };
+    const { Op } = require('sequelize');
+    let integration;
+    if (params.integration) {
+      integration = await Integration.findOne({ where: { name: params.integration } });
+      if (!integration) {
+        return { content: [{ type: 'text', text: `Integration "${params.integration}" not found. Create it first with mcp_register_integration.` }], isError: true };
+      }
+    } else {
+      const BUILT_IN_NAMES = ['MCP Depot', 'MCP Depot Sessions', 'MCP Depot Agents', INTEGRATION_NAME];
+      const candidates = await Integration.findAll({
+        where: { isActive: true, name: { [Op.notIn]: BUILT_IN_NAMES } }
+      });
+      if (candidates.length === 0) {
+        return { content: [{ type: 'text', text: 'No integration found. Create one first with mcp_register_integration.' }], isError: true };
+      }
+      if (candidates.length === 1) {
+        integration = candidates[0];
+      } else {
+        const names = candidates.map(i => i.name).join(', ');
+        return { content: [{ type: 'text', text: `Multiple integrations found — specify one: ${names}` }], isError: true };
+      }
     }
     const existing = await Tool.findOne({ where: { integrationId: integration.id, name: params.name } });
     if (existing) {
-      return { content: [{ type: 'text', text: `Tool "${params.name}" already exists in integration "${params.integration}".` }], isError: true };
+      return { content: [{ type: 'text', text: `Tool "${params.name}" already exists in integration "${integration.name}".` }], isError: true };
     }
     let parsedParams = {};
     if (params.params) {
       try { parsedParams = JSON.parse(params.params); } catch {
         return { content: [{ type: 'text', text: `Invalid JSON in params parameter.` }], isError: true };
+      }
+    }
+    let parsedBody = null;
+    if (params.body) {
+      try { parsedBody = JSON.parse(params.body); } catch {
+        return { content: [{ type: 'text', text: `Invalid JSON in body parameter.` }], isError: true };
       }
     }
     let responseFields = null;
@@ -97,31 +122,54 @@ function registerMetaTools(server, toolsMap) {
         return { content: [{ type: 'text', text: `Invalid JSON in responseFields parameter.` }], isError: true };
       }
     }
+    const inputSchema = Object.keys(parsedParams).length > 0 ? {
+      type: 'object',
+      properties: Object.fromEntries(
+        Object.entries(parsedParams).map(([key, param]) => [
+          key,
+          {
+            type: (param && param.type) || 'string',
+            ...(param && param.description ? { description: param.description } : {})
+          }
+        ])
+      ),
+      required: Object.entries(parsedParams)
+        .filter(([, p]) => p && p.required)
+        .map(([key]) => key)
+    } : {};
     const admin = await User.findOne({ where: { role: 'admin' } });
+    const exposedName = computeExposedName(integration.slug || slugify(integration.name), params.name);
     const tool = await Tool.create({
       userId: admin ? admin.id : null, integrationId: integration.id, name: params.name,
       description: params.description,
       endpoint: {
         path: params.path, method: (params.method || 'GET').toUpperCase(),
-        params: parsedParams, headers: {}, body: null, responseFields
+        params: parsedParams, headers: {}, body: parsedBody, responseFields
       },
-      inputSchema: {}, outputSchema: {}, isActive: true, metadata: { source: 'ai-generated' }
+      inputSchema, outputSchema: {}, isActive: true, metadata: { source: 'ai-generated' },
+      exposedName
     });
     await refreshToolsIfEnabled();
     return {
       content: [{
         type: 'text',
-        text: `Tool "${params.name}" added to integration "${params.integration}" (ID: ${tool.id}). Run /mcp to reconnect and it will be available in this session.`
+        text: `Tool "${params.name}" added to integration "${integration.name}" (ID: ${tool.id}). Run /mcp to reconnect and it will be available in this session.`
       }]
     };
   });
 
   handlerMap.mcp_describe_tool = wrapHandler(async (params) => {
     const { Tool, Integration } = loadModels();
-    const tool = await Tool.findOne({
+    let tool = await Tool.findOne({
       where: { name: params.name, isActive: true },
       include: [{ model: Integration, as: 'integration' }]
     });
+    if (!tool) {
+      tool = await Tool.findOne({
+        where: { exposedName: params.name, isActive: true },
+        include: [{ model: Integration, as: 'integration' }]
+      });
+    }
     if (!tool) {
       return { content: [{ type: 'text', text: `Tool "${params.name}" not found.` }], isError: true };
     }

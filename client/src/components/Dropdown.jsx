@@ -45,10 +45,11 @@ export function DropdownMenu({ children, trigger }) {
   );
 }
 
-export function DropdownItem({ onClick, danger, children }) {
+export function DropdownItem({ onClick, danger, disabled, children }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -58,12 +59,13 @@ export function DropdownItem({ onClick, danger, children }) {
         border: 'none',
         background: 'none',
         textAlign: 'left',
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
         color: danger ? 'var(--danger)' : 'var(--text)',
         fontSize: '0.875rem'
       }}
       onMouseEnter={(e) => {
-        e.target.style.background = 'var(--surface-hover)';
+        if (!disabled) e.target.style.background = 'var(--surface-hover)';
       }}
       onMouseLeave={(e) => {
         e.target.style.background = 'none';

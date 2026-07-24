@@ -3,6 +3,8 @@ const Joi = require('joi');
 const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
 const { readableWhere } = require('../utils/queryHelpers');
+const audit = require('../services/audit');
+const logger = require('../services/logger');
 
 const router = express.Router();
 
@@ -138,6 +140,15 @@ router.delete('/:name', auth, async (req, res) => {
       return res.status(403).json({ error: 'You do not own this context' });
     }
     await ctx.destroy();
+
+    logger.warn({ userId: req.user.id, name: req.params.name }, 'Session context deleted');
+    await audit.log({
+      userId: req.user.id,
+      action: 'delete_session_context',
+      details: { name: req.params.name },
+      status: 'success'
+    });
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

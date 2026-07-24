@@ -42,7 +42,7 @@ describe('Encryption Service', () => {
     test('should encrypt an object', () => {
       const data = { username: 'admin', password: 'secret123' };
       const encrypted = encryption.encryptObject(data);
-      
+
       expect(encrypted).toBeDefined();
       expect(encrypted.username).not.toBe(data.username);
     });
@@ -51,8 +51,72 @@ describe('Encryption Service', () => {
       const data = { apiKey: 'sk-12345', secret: 'my-secret' };
       const encrypted = encryption.encryptObject(data);
       const decrypted = encryption.decryptObject(encrypted);
-      
+
       expect(decrypted).toEqual(data);
+    });
+  });
+
+  describe('ciphertext format', () => {
+    test('new ciphertext is versioned (v2:) and not the legacy CryptoJS format', () => {
+      const encrypted = encryption.encrypt('a-secret');
+      expect(encrypted.startsWith('v2:')).toBe(true);
+      expect(encrypted.startsWith('U2FsdGVk')).toBe(false);
+    });
+
+    test('tampering with ciphertext is detected (AEAD auth tag) instead of silently decrypting to garbage', () => {
+      const encrypted = encryption.encrypt('a-secret');
+      const tampered = encrypted.slice(0, -2) + (encrypted.slice(-2) === 'AA' ? 'BB' : 'AA');
+      expect(encryption.decrypt(tampered)).toBeNull();
+    });
+  });
+
+  describe('isEncrypted', () => {
+    test('recognizes current-format (v2:) ciphertext', () => {
+      expect(encryption.isEncrypted(encryption.encrypt('token'))).toBe(true);
+    });
+
+    test('recognizes legacy CryptoJS-format ciphertext by its U2FsdGVk prefix', () => {
+      const CryptoJS = require('crypto-js');
+      const legacy = CryptoJS.AES.encrypt('token', 'some-key').toString();
+      expect(encryption.isEncrypted(legacy)).toBe(true);
+    });
+
+    test('returns false for plaintext', () => {
+      expect(encryption.isEncrypted('plaintext-token')).toBe(false);
+      expect(encryption.isEncrypted('infisical://prod/JIRA_TOKEN')).toBe(false);
+    });
+
+    test('returns false for non-string values', () => {
+      expect(encryption.isEncrypted(null)).toBe(false);
+      expect(encryption.isEncrypted(undefined)).toBe(false);
+      expect(encryption.isEncrypted(12345)).toBe(false);
+    });
+  });
+
+  describe('legacy ciphertext backward compatibility', () => {
+    // Credentials encrypted before the AES-256-GCM migration must keep
+    // decrypting correctly under the current ENCRYPTION_KEY - this is the
+    // exact compatibility path relied on to recover from a real incident
+    // where the app was briefly run against a mismatched encryption key.
+    test('decrypts ciphertext produced by the legacy CryptoJS scheme under the same key', () => {
+      const CryptoJS = require('crypto-js');
+      const key = process.env.ENCRYPTION_KEY;
+      const legacy = CryptoJS.AES.encrypt('legacy-secret-value', key).toString();
+
+      expect(encryption.decrypt(legacy)).toBe('legacy-secret-value');
+    });
+
+    test('never returns the real secret when the legacy ciphertext was encrypted under a different key', () => {
+      // Legacy AES-CBC has no integrity check, so a wrong-key attempt can
+      // land on either null or (rarely) short UTF-8-looking garbage,
+      // depending on the random salt CryptoJS picks each call - assert the
+      // property that actually matters (never recovers the real secret)
+      // rather than a specific outcome, so this isn't flaky either way.
+      const CryptoJS = require('crypto-js');
+      for (let i = 0; i < 25; i++) {
+        const legacy = CryptoJS.AES.encrypt('legacy-secret-value', 'a-completely-different-key').toString();
+        expect(encryption.decrypt(legacy)).not.toBe('legacy-secret-value');
+      }
     });
   });
 });

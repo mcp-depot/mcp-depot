@@ -111,7 +111,7 @@ async function resolveSecret(secretRef) {
 
   try {
     const token = await getAccessToken();
-    logger.info({ tokenPreview: token?.substring(0, 20), siteUrl: config.siteUrl, projectId: config.workspaceId, env, folderPath, secretName }, 'Fetching secret from Infisical');
+    logger.debug({ siteUrl: config.siteUrl, projectId: config.workspaceId, env, folderPath, secretName }, 'Fetching secret from Infisical');
     
     // Use v3 secrets API: /api/v3/secrets/raw/{secretName}?workspaceId=<projectId>&environment=<env>&secretPath=<path>
     const url = `${config.siteUrl}/api/v3/secrets/raw/${encodeURIComponent(secretName)}` +
@@ -121,14 +121,14 @@ async function resolveSecret(secretRef) {
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
     });
 
-    logger.info({ status: response.status, statusText: response.statusText }, 'Infisical response');
+    logger.debug({ status: response.status, statusText: response.statusText }, 'Infisical response');
 
     if (!response.ok) {
       throw new Error(`Failed to fetch secret: ${response.status}`);
     }
 
     const data = await response.json();
-    logger.info({ dataKeys: Object.keys(data), hasSecret: !!data.secret, secretValueLength: data.secret?.secretValue?.length }, 'Infisical response parsed');
+    logger.debug({ hasSecret: !!data.secret, secretValueLength: data.secret?.secretValue?.length }, 'Infisical response parsed');
     return data.secret?.secretValue || null;
   } catch (error) {
     logger.error({ err: error.message, secretRef }, 'Failed to resolve secret');

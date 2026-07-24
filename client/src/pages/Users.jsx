@@ -5,6 +5,9 @@ import { Users as UsersIcon, Plus, Trash2, RotateCcw, X } from 'lucide-react';
 import { showSuccess, showError } from '../utils/toast';
 import { formatDate } from '../utils/date';
 import { getApiError } from '../utils/apiError';
+import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { useId } from 'react';
 
 function Users() {
   const { user: currentUser } = useAuth();
@@ -17,6 +20,15 @@ function Users() {
   const [tempPassword, setTempPassword] = useState(null);
   const [credentialInfo, setCredentialInfo] = useState(null);
   const [form, setForm] = useState({ email: '', name: '', role: 'user', password: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [resetting, setResetting] = useState(false);
+  const formTitleId = useId();
+  const formModalRef = useModalA11y(() => setShowModal(false), showModal);
+  const resetTitleId = useId();
+  const resetModalRef = useModalA11y(() => setShowResetModal(false), showResetModal);
+  const credentialTitleId = useId();
+  const credentialModalRef = useModalA11y(() => setCredentialInfo(null), !!credentialInfo);
 
   useEffect(() => {
     fetchUsers();
@@ -35,6 +47,7 @@ function Users() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
       if (editingUser) {
         const res = await api.put(`/users/${editingUser.id}`, form);
@@ -56,21 +69,28 @@ function Users() {
       setForm({ email: '', name: '', role: 'user', password: '' });
     } catch (err) {
       showError(`Failed to save user: ${getApiError(err)}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleDelete = async (user) => {
-    if (!confirm(`Delete user ${user.email}?`)) return;
+    const ok = await confirmDialog(`Delete user ${user.email}?`, { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+    setDeletingId(user.id);
     try {
       await api.delete(`/users/${user.id}`);
       setUsers(users.filter(u => u.id !== user.id));
       showSuccess('User deleted');
     } catch (err) {
       showError(`Failed to delete user: ${getApiError(err)}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const handleResetPassword = async () => {
+    setResetting(true);
     try {
       const res = await api.post(`/users/${resetUser.id}/reset-password`);
       setTempPassword(res.data.temporaryPassword);
@@ -78,6 +98,8 @@ function Users() {
       setCredentialInfo({ email: resetUser.email, password: res.data.temporaryPassword });
     } catch (err) {
       showError(`Failed to reset password: ${getApiError(err)}`);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -138,7 +160,7 @@ function Users() {
                         <RotateCcw size={14} />
                       </button>
                       {user.id !== currentUser?.id && (
-                        <button className="btn btn-small btn-danger" onClick={() => handleDelete(user)} title="Delete">
+                        <button className="btn btn-small btn-danger" onClick={() => handleDelete(user)} disabled={deletingId === user.id} title="Delete">
                           <Trash2 size={14} />
                         </button>
                       )}
@@ -156,10 +178,10 @@ function Users() {
 
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+          <div ref={formModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={formTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '450px' }}>
             <div className="modal-header">
-              <h2>{editingUser ? 'Edit User' : 'Add User'}</h2>
-              <button className="modal-close" onClick={() => setShowModal(false)}>&times;</button>
+              <h2 id={formTitleId}>{editingUser ? 'Edit User' : 'Add User'}</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setShowModal(false)}>&times;</button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
@@ -185,7 +207,7 @@ function Users() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">{editingUser ? 'Update' : 'Create'}</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Saving...' : (editingUser ? 'Update' : 'Create')}</button>
               </div>
             </form>
           </div>
@@ -194,10 +216,10 @@ function Users() {
 
       {showResetModal && (
         <div className="modal-overlay" onClick={() => setShowResetModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+          <div ref={resetModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={resetTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
             <div className="modal-header">
-              <h2>Reset Password</h2>
-              <button className="modal-close" onClick={() => setShowResetModal(false)}>&times;</button>
+              <h2 id={resetTitleId}>Reset Password</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setShowResetModal(false)}>&times;</button>
             </div>
             <div className="modal-body">
               <p>Reset password for <strong>{resetUser?.email}</strong>?</p>
@@ -205,7 +227,7 @@ function Users() {
             </div>
             <div className="modal-footer">
               <button type="button" className="btn btn-secondary" onClick={() => setShowResetModal(false)}>Cancel</button>
-              <button type="button" className="btn btn-primary" onClick={handleResetPassword}>Reset Password</button>
+              <button type="button" className="btn btn-primary" onClick={handleResetPassword} disabled={resetting}>{resetting ? 'Resetting...' : 'Reset Password'}</button>
             </div>
           </div>
         </div>
@@ -213,10 +235,10 @@ function Users() {
 
       {credentialInfo && (
         <div className="modal-overlay" onClick={() => setCredentialInfo(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+          <div ref={credentialModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={credentialTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
             <div className="modal-header">
-              <h2>Temporary Credentials</h2>
-              <button className="modal-close" onClick={() => setCredentialInfo(null)}>&times;</button>
+              <h2 id={credentialTitleId}>Temporary Credentials</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setCredentialInfo(null)}>&times;</button>
             </div>
             <div className="modal-body">
               <p style={{ marginBottom: '1rem', color: 'var(--text-light)', fontSize: '0.875rem' }}>

@@ -15,12 +15,14 @@ const logger = require('../services/logger');
 const { executeComposite, executeCompositeTool } = require('../services/compositeExecutor');
 const { refreshMcpTools } = require('../utils/mcpHelpers');
 const { ownerWhereId } = require('../utils/queryHelpers');
+const { slugify, computeExposedName } = require('../utils/slugify');
 
 const router = express.Router();
 
 const integrationSchema = Joi.object({
   type: Joi.string().required(),
   name: Joi.string().required(),
+  slug: Joi.string().allow('').optional(),
   description: Joi.string().allow('').optional(),
     config: Joi.object({
       baseUrl: Joi.string().uri().required(),
@@ -39,6 +41,11 @@ const integrationSchema = Joi.object({
 const toolSchema = Joi.object({
   name: Joi.string().required(),
   description: Joi.string().allow('').optional(),
+  title: Joi.string().allow('').optional(),
+  readOnlyHint: Joi.boolean().optional(),
+  destructiveHint: Joi.boolean().optional(),
+  idempotentHint: Joi.boolean().optional(),
+  openWorldHint: Joi.boolean().optional(),
   endpoint: Joi.object({
     path: Joi.string().required(),
     method: Joi.string().valid('GET', 'POST', 'PUT', 'PATCH', 'DELETE').default('GET'),
@@ -137,6 +144,7 @@ router.get('/', authWithApiKey, async (req, res) => {
         _id: i.id,
         type: i.type,
         name: i.name,
+        slug: i.slug,
         description: i.description,
         baseUrl: i.config.baseUrl,
         allowSelfSignedCerts: i.config?.allowSelfSignedCerts || false,
@@ -379,7 +387,8 @@ router.get('/:id', authWithApiKey, async (req, res) => {
 
     res.json({
       ...integration.toJSON(),
-      _id: integration.id
+      _id: integration.id,
+      slug: integration.slug
     });
   } catch (error) {
     logger.error({ err: error.message }, 'Get integration error');
@@ -394,21 +403,33 @@ router.post('/', authWithApiKey, async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    const { type, name, description, config, metadata, tags } = value;
+    const { type, name, description, config, metadata, tags, slug: userSlug } = value;
 
     let finalConfig = config;
     if (config && config.auth && config.auth.credentials && config.auth.type !== 'none') {
       const credentials = config.auth.credentials;
-      if (credentials.token && !credentials.token.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.token)) {
+      if (credentials.token && !encryption.isEncrypted(credentials.token) && !secretStore.isSecretRef(credentials.token)) {
         credentials.token = encryption.encrypt(credentials.token);
       }
-      if (credentials.username && !credentials.username.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.username)) {
+      if (credentials.username && !encryption.isEncrypted(credentials.username) && !secretStore.isSecretRef(credentials.username)) {
         credentials.username = encryption.encrypt(credentials.username);
       }
-      if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.apiKey)) {
+      if (credentials.apiKey && !encryption.isEncrypted(credentials.apiKey) && !secretStore.isSecretRef(credentials.apiKey)) {
         credentials.apiKey = encryption.encrypt(credentials.apiKey);
       }
       finalConfig = config;
+    }
+
+    let slugValue = userSlug ? slugify(userSlug) : slugify(name);
+    const existingWithSlug = await Integration.findOne({
+      where: { userId: req.user.id, slug: slugValue }
+    });
+    if (existingWithSlug) {
+      let counter = 1;
+      while (await Integration.findOne({ where: { userId: req.user.id, slug: slugValue + '_' + counter } })) {
+        counter++;
+      }
+      slugValue = slugValue + '_' + counter;
     }
 
     const integration = await Integration.create({
@@ -418,7 +439,8 @@ router.post('/', authWithApiKey, async (req, res) => {
       description,
       config: finalConfig,
       metadata,
-      tags
+      tags,
+      slug: slugValue
     });
 
     await audit.log({
@@ -458,27 +480,43 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    const { name, description, config, metadata, isActive, visibility, tags } = req.body;
+    const { name, description, config, metadata, isActive, visibility, tags, slug: newSlug } = req.body;
 
     if (name !== undefined) integration.name = name;
     if (description !== undefined) integration.description = description;
     if (metadata !== undefined) integration.metadata = metadata;
     if (isActive !== undefined) integration.isActive = isActive;
     if (tags !== undefined) integration.tags = tags;
-    if (visibility !== undefined && ['private', 'shared'].includes(visibility)) {
+    if (visibility !== undefined) {
+      if (!['private', 'shared'].includes(visibility)) {
+        return res.status(400).json({ error: 'Invalid visibility value' });
+      }
+      if (visibility === 'shared' && req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+      }
       integration.visibility = visibility;
+    }
+    if (newSlug !== undefined && newSlug !== integration.slug) {
+      const cleanSlug = slugify(newSlug);
+      const existing = await Integration.findOne({
+        where: { userId: req.user.id, slug: cleanSlug, id: { [Op.ne]: integration.id } }
+      });
+      if (existing) {
+        return res.status(409).json({ error: 'Slug already in use for this user' });
+      }
+      integration.slug = cleanSlug;
     }
     
     if (config !== undefined) {
       if (config.auth?.credentials && config.auth.type !== 'none') {
         const credentials = config.auth.credentials;
-        if (credentials.token && !credentials.token.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.token)) {
+        if (credentials.token && !encryption.isEncrypted(credentials.token) && !secretStore.isSecretRef(credentials.token)) {
           credentials.token = encryption.encrypt(credentials.token);
         }
-        if (credentials.username && !credentials.username.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.username)) {
+        if (credentials.username && !encryption.isEncrypted(credentials.username) && !secretStore.isSecretRef(credentials.username)) {
           credentials.username = encryption.encrypt(credentials.username);
         }
-        if (credentials.apiKey && !credentials.apiKey.startsWith('U2FsdGVk') && !secretStore.isSecretRef(credentials.apiKey)) {
+        if (credentials.apiKey && !encryption.isEncrypted(credentials.apiKey) && !secretStore.isSecretRef(credentials.apiKey)) {
           credentials.apiKey = encryption.encrypt(credentials.apiKey);
         }
       }
@@ -492,13 +530,36 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       };
     }
 
+    const slugChanged = integration.changed() && integration.changed().includes('slug');
+
     await integration.save();
+
+    if (slugChanged && integration.slug) {
+      const tools = await Tool.findAll({ where: { integrationId: integration.id } });
+      for (const tool of tools) {
+        const exposedName = computeExposedName(integration.slug, tool.name);
+        if (exposedName !== tool.exposedName) {
+          await tool.update({ exposedName });
+        }
+      }
+      refreshMcpTools();
+    }
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'update_integration',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      details: { name: integration.name },
+      status: 'success'
+    });
 
     res.json({
       _id: integration.id,
       type: integration.type,
       name: integration.name,
       description: integration.description,
+      slug: integration.slug,
       baseUrl: integration.config?.baseUrl,
       authType: integration.config?.auth?.type || 'none',
       isActive: integration.isActive,
@@ -528,17 +589,29 @@ router.delete('/:id', authWithApiKey, async (req, res) => {
     }
 
     // Delete associated tool_calls first (they reference tools)
-    await sequelize.query(`
-      DELETE FROM tool_calls WHERE "toolId" IN (SELECT id FROM tools WHERE "integrationId" = '${req.params.id}')
-    `);
-    
+    await sequelize.query(
+      `DELETE FROM tool_calls WHERE "toolId" IN (SELECT id FROM tools WHERE "integrationId" = :integrationId)`,
+      { replacements: { integrationId: req.params.id } }
+    );
+
     // Delete associated tools
     await Tool.destroy({ where: { integrationId: req.params.id } });
-    
+
+    const deletedInfo = { id: integration.id, type: integration.type, name: integration.name };
+
     // Delete the integration
     await integration.destroy();
 
     refreshMcpTools()
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'delete_integration',
+      integrationType: deletedInfo.type,
+      integrationId: deletedInfo.id,
+      details: { name: deletedInfo.name },
+      status: 'success'
+    });
 
     res.json({ message: 'Integration deleted' });
   } catch (error) {
@@ -579,8 +652,8 @@ router.post('/:id/test', authWithApiKey, async (req, res) => {
         authType: integration.config?.auth?.type || 'none',
         hasCredentials: !!(integration.config?.auth?.credentials),
         credentialsKeys: integration.config?.auth?.credentials ? Object.keys(integration.config.auth.credentials) : [],
-        credentialsAreEncrypted: integration.config?.auth?.credentials?.token 
-          ? integration.config.auth.credentials.token.startsWith('U2FsdGVk') 
+        credentialsAreEncrypted: integration.config?.auth?.credentials?.token
+          ? encryption.isEncrypted(integration.config.auth.credentials.token)
           : false
       },
       computedAuth: {
@@ -637,7 +710,7 @@ router.get('/:id/tools', authWithApiKey, async (req, res) => {
       where: { integrationId: req.params.id }
     });
 
-    res.json(tools.map(t => ({ ...t.toJSON(), _id: t.id })));
+    res.json(tools.map(t => ({ ...t.toJSON(), _id: t.id, exposedName: t.exposedName })));
   } catch (error) {
     res.status(500).json({ error: 'Failed to list tools' });
   }
@@ -681,6 +754,8 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
       enrichedEndpoint.params = allParams;
     }
 
+    const exposedName = computeExposedName(integration.slug || slugify(integration.name), value.name);
+
     const tool = await Tool.create({
       userId: req.user.id,
       integrationId: integration.id,
@@ -691,7 +766,13 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
       outputSchema: value.outputSchema,
       responseFields: value.responseFields,
       responseTransformer: value.responseTransformer,
-      responseLineFilter: value.responseLineFilter
+      responseLineFilter: value.responseLineFilter,
+      title: value.title,
+      readOnlyHint: value.readOnlyHint,
+      destructiveHint: value.destructiveHint,
+      idempotentHint: value.idempotentHint,
+      openWorldHint: value.openWorldHint,
+      exposedName
     });
 
     refreshMcpTools()
@@ -710,14 +791,15 @@ router.put('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
       : { id: req.params.toolId, integrationId: req.params.id, userId: req.user.id };
     
     const tool = await Tool.findOne({
-      where: whereClause
+      where: whereClause,
+      include: [{ model: Integration, as: 'integration' }]
     });
 
     if (!tool) {
       return res.status(404).json({ error: 'Tool not found' });
     }
 
-    const { name, description, endpoint, isActive, enabled, responseFields, responseTransformer, responseLineFilter } = req.body;
+    const { name, description, endpoint, isActive, enabled, responseFields, responseTransformer, responseLineFilter, title, readOnlyHint, destructiveHint, idempotentHint, openWorldHint } = req.body;
     const updates = {};
     
     if (name !== undefined) updates.name = name;
@@ -728,6 +810,16 @@ router.put('/:id/tools/:toolId', authWithApiKey, async (req, res) => {
     if (responseFields !== undefined) updates.responseFields = responseFields;
     if (responseTransformer !== undefined) updates.responseTransformer = responseTransformer;
     if (responseLineFilter !== undefined) updates.responseLineFilter = responseLineFilter;
+    if (title !== undefined) updates.title = title;
+    if (readOnlyHint !== undefined) updates.readOnlyHint = readOnlyHint;
+    if (destructiveHint !== undefined) updates.destructiveHint = destructiveHint;
+    if (idempotentHint !== undefined) updates.idempotentHint = idempotentHint;
+    if (openWorldHint !== undefined) updates.openWorldHint = openWorldHint;
+
+    if (name !== undefined || tool.exposedName == null) {
+      const intSlug = tool.integration?.slug || slugify(tool.integration?.name || '');
+      updates.exposedName = computeExposedName(intSlug, updates.name || tool.name);
+    }
 
     await tool.update(updates);
 
@@ -969,6 +1061,8 @@ router.post('/:id/import-tools', authWithApiKey, async (req, res) => {
           });
         }
         
+        const exposedName = computeExposedName(integration.slug || slugify(integration.name), toolName);
+
         const tool = await Tool.create({
           userId: req.user.id,
           integrationId: integration.id,
@@ -990,7 +1084,8 @@ router.post('/:id/import-tools', authWithApiKey, async (req, res) => {
             required: ep.body?.required || []
           } : {},
           outputSchema: {},
-          isActive: true
+          isActive: true,
+          exposedName
         });
         logger.info({ toolId: tool.id, name: tool.name }, 'Tool created');
         createdTools.push(tool);
@@ -1105,6 +1200,18 @@ router.post('/import', authWithApiKey, async (req, res) => {
           });
           integration = existingIntegration;
         } else {
+          let intSlug = slugify(intData.name);
+          const existingSlug = await Integration.findOne({
+            where: { userId: req.user.id, slug: intSlug }
+          });
+          if (existingSlug) {
+            let counter = 1;
+            while (await Integration.findOne({ where: { userId: req.user.id, slug: intSlug + '_' + counter } })) {
+              counter++;
+            }
+            intSlug = intSlug + '_' + counter;
+          }
+
           integration = await Integration.create({
             userId: req.user.id,
             name: intData.name,
@@ -1115,7 +1222,8 @@ router.post('/import', authWithApiKey, async (req, res) => {
               auth: intData.auth
             },
             metadata: intData.metadata,
-            isActive: true
+            isActive: true,
+            slug: intSlug
           });
         }
         
@@ -1123,13 +1231,15 @@ router.post('/import', authWithApiKey, async (req, res) => {
         if (includeTools && intData.tools && Array.isArray(intData.tools)) {
           for (const toolData of intData.tools) {
             try {
+              const exposedName = computeExposedName(integration.slug || slugify(integration.name), toolData.name);
               await Tool.create({
                 userId: req.user.id,
                 integrationId: integration.id,
                 name: toolData.name,
                 description: toolData.description || '',
                 endpoint: toolData.endpoint,
-                isActive: toolData.isActive !== false
+                isActive: toolData.isActive !== false,
+                exposedName
               });
               toolsImported++;
             } catch (te) {
@@ -1172,8 +1282,21 @@ router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
     if (!['private', 'shared'].includes(visibility)) {
       return res.status(400).json({ error: 'Invalid visibility value' });
     }
+    if (visibility === 'shared' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+    }
 
     await integration.update({ visibility });
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'update_visibility',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      details: { visibility },
+      status: 'success'
+    });
+
     res.json({ success: true, visibility: integration.visibility });
   } catch (error) {
     logger.error({ err: error.message }, 'Update visibility error');
@@ -1208,13 +1331,27 @@ router.patch('/:id/credentials', authWithApiKey, async (req, res) => {
       });
       
       logger.info({ userId: req.user.id, integrationId: integration.id }, 'User connected to shared integration');
+      await audit.log({
+        userId: req.user.id,
+        action: 'connect_shared_integration',
+        integrationType: integration.type,
+        integrationId: integration.id,
+        status: 'success'
+      });
       res.json({ success: true, message: 'Credentials saved successfully' });
     } else if (isOwnerOrAdmin) {
       const config = { ...integration.config };
-      config.auth.credentials = encryption.encryptCredentials(credentials);
+      config.auth.credentials = encryption.encryptObject(credentials);
       await integration.update({ config });
-      
+
       logger.info({ integrationId: integration.id }, 'Integration credentials updated');
+      await audit.log({
+        userId: req.user.id,
+        action: 'update_integration_credentials',
+        integrationType: integration.type,
+        integrationId: integration.id,
+        status: 'success'
+      });
       res.json({ success: true, message: 'Credentials updated successfully' });
     } else {
       return res.status(403).json({ error: 'Not authorized to update credentials for this integration' });
@@ -1244,8 +1381,15 @@ router.delete('/:id/credentials', authWithApiKey, async (req, res) => {
     await UserIntegrationCredentials.destroy({
       where: { userId: req.user.id, integrationId: integration.id }
     });
-    
+
     logger.info({ userId: req.user.id, integrationId: integration.id }, 'User disconnected from integration');
+    await audit.log({
+      userId: req.user.id,
+      action: 'delete_integration_credentials',
+      integrationType: integration.type,
+      integrationId: integration.id,
+      status: 'success'
+    });
     res.json({ success: true, message: 'Disconnected successfully' });
   } catch (error) {
     logger.error({ err: error.message }, 'Disconnect error');
@@ -1318,6 +1462,18 @@ router.post('/postman-import', authWithApiKey, async (req, res) => {
     }
     
     // Create the integration
+    let intSlug = slugify(name || 'postman-import');
+    const existingSlug = await Integration.findOne({
+      where: { userId: req.user.id, slug: intSlug }
+    });
+    if (existingSlug) {
+      let counter = 1;
+      while (await Integration.findOne({ where: { userId: req.user.id, slug: intSlug + '_' + counter } })) {
+        counter++;
+      }
+      intSlug = intSlug + '_' + counter;
+    }
+
     const integration = await Integration.create({
       userId: req.user.id,
       type: 'custom',
@@ -1329,12 +1485,14 @@ router.post('/postman-import', authWithApiKey, async (req, res) => {
         headers: {},
         timeout: 30000
       },
-      isActive: true
+      isActive: true,
+      slug: intSlug
     });
     
     // Create tools from Postman requests
     const createdTools = [];
     for (const toolDef of tools) {
+      const exposedName = computeExposedName(intSlug, toolDef.name);
       const tool = await Tool.create({
         userId: req.user.id,
         integrationId: integration.id,
@@ -1347,7 +1505,8 @@ router.post('/postman-import', authWithApiKey, async (req, res) => {
           headers: {},
           body: toolDef.body || null
         },
-        isActive: true
+        isActive: true,
+        exposedName
       });
       createdTools.push(tool);
     }

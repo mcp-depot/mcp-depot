@@ -87,7 +87,12 @@ const ExternalMcpServer = sequelize.define('ExternalMcpServer', {
     defaultValue: {}
   }
 }, {
-  tableName: 'external_mcp_servers'
+  tableName: 'external_mcp_servers',
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['isActive'] },
+    { fields: ['userId', 'isActive'] }
+  ]
 });
 
 module.exports = ExternalMcpServer;

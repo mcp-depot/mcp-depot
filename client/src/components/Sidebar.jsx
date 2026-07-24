@@ -1,13 +1,13 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { 
-  LayoutDashboard, 
-  Plug, 
-  Wrench, 
-  FileText, 
-  Activity, 
-  Settings, 
+import {
+  LayoutDashboard,
+  Plug,
+  Wrench,
+  FileText,
+  Activity,
+  Settings,
   ChevronLeft,
   Zap,
   ChevronRight,
@@ -19,9 +19,13 @@ import {
   Users,
   HeartPulse,
   Sun,
-  Moon
+  Moon,
+  Menu,
+  X
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+const MOBILE_QUERY = '(max-width: 768px)';
 
 function Sidebar() {
   const { user, logout, appConfig } = useAuth();
@@ -29,7 +33,31 @@ function Sidebar() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches
+  );
+  const [mobileOpen, setMobileOpen] = useState(false);
 
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const handleChange = (e) => {
+      setIsMobile(e.matches);
+      if (!e.matches) setMobileOpen(false);
+    };
+    mq.addEventListener('change', handleChange);
+    return () => mq.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [mobileOpen]);
+
+  const effectiveCollapsed = collapsed && !isMobile;
   const enabledFeatures = appConfig?.enabledFeatures;
 
   const isActive = (path) => location.pathname === path ? 'active' : '';
@@ -78,41 +106,56 @@ function Sidebar() {
   ];
 
   return (
-    <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+    <>
+      {isMobile && !mobileOpen && (
+        <button
+          className="sidebar-mobile-trigger"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open menu"
+        >
+          <Menu size={20} />
+        </button>
+      )}
+      {isMobile && mobileOpen && (
+        <div className="sidebar-backdrop" onClick={() => setMobileOpen(false)} />
+      )}
+      <div className={`sidebar ${effectiveCollapsed ? 'collapsed' : ''} ${isMobile && mobileOpen ? 'mobile-open' : ''}`}>
       <div className="sidebar-header">
         <Link to="/" className="sidebar-brand" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <img src="/logo-mark.svg" width="28" height="28" alt="MCP Depot" style={{ borderRadius: '7px', flexShrink: 0 }} />
-          {!collapsed && <span className="sidebar-brand-text">MCP Depot</span>}
+          {!effectiveCollapsed && <span className="sidebar-brand-text">MCP Depot</span>}
         </Link>
-        <button 
+        <button
           className="sidebar-toggle"
-          onClick={() => setCollapsed(!collapsed)}
-          title={collapsed ? 'Expand' : 'Collapse'}
+          onClick={() => isMobile ? setMobileOpen(false) : setCollapsed(!collapsed)}
+          title={isMobile ? 'Close menu' : (collapsed ? 'Expand' : 'Collapse')}
+          aria-label={isMobile ? 'Close menu' : (collapsed ? 'Expand sidebar' : 'Collapse sidebar')}
         >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          {isMobile ? <X size={16} /> : (collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />)}
         </button>
       </div>
 
       <nav className="sidebar-nav">
         {navItems.filter(section => section.items.length > 0).map((section, idx) => (
           <div key={section.section} className="sidebar-section">
-            {!collapsed && <div className="sidebar-section-title">{section.section}</div>}
+            {!effectiveCollapsed && <div className="sidebar-section-title">{section.section}</div>}
             {section.items.map((item) => (
-              <Link 
-                key={item.path} 
-                to={item.path} 
+              <Link
+                key={item.path}
+                to={item.path}
                 className={`sidebar-link ${isActive(item.path)}`}
-                title={collapsed ? item.label : undefined}
+                title={effectiveCollapsed ? item.label : undefined}
+                onClick={() => isMobile && setMobileOpen(false)}
               >
                 <item.icon size={18} />
-                {!collapsed && <span>{item.label}</span>}
+                {!effectiveCollapsed && <span>{item.label}</span>}
               </Link>
             ))}
           </div>
         ))}
       </nav>
 
-      <div className="sidebar-footer" style={{ flexDirection: collapsed ? 'column' : 'row', alignItems: 'center' }}>
+      <div className="sidebar-footer" style={{ flexDirection: effectiveCollapsed ? 'column' : 'row', alignItems: 'center' }}>
         <button
           onClick={toggleTheme}
           title={themeName === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
@@ -144,14 +187,14 @@ function Sidebar() {
               display: 'flex', 
               alignItems: 'center', 
               gap: '0.5rem',
-              justifyContent: collapsed ? 'center' : 'flex-start',
-              padding: collapsed ? '0.25rem 0' : '0.25rem 0.5rem'
+              justifyContent: effectiveCollapsed ? 'center' : 'flex-start',
+              padding: effectiveCollapsed ? '0.25rem 0' : '0.25rem 0.5rem'
             }}
           >
-            <div className="sidebar-user-avatar" style={{ width: collapsed ? '28px' : '32px', height: collapsed ? '28px' : '32px', fontSize: collapsed ? '0.75rem' : '0.875rem' }}>
+            <div className="sidebar-user-avatar" style={{ width: effectiveCollapsed ? '28px' : '32px', height: effectiveCollapsed ? '28px' : '32px', fontSize: effectiveCollapsed ? '0.75rem' : '0.875rem' }}>
               {user?.name?.charAt(0)}
             </div>
-            {!collapsed && (
+            {!effectiveCollapsed && (
               <>
                 <div className="sidebar-user-info">
                   <div className="sidebar-user-name">{user?.name}</div>
@@ -165,8 +208,8 @@ function Sidebar() {
             <div style={{
               position: 'absolute',
               bottom: '100%',
-              left: collapsed ? '-8px' : '0.5rem',
-              right: collapsed ? '-8px' : '0.5rem',
+              left: effectiveCollapsed ? '-8px' : '0.5rem',
+              right: effectiveCollapsed ? '-8px' : '0.5rem',
               background: 'var(--surface)',
               border: '1px solid var(--border)',
               borderRadius: '6px',
@@ -174,7 +217,7 @@ function Sidebar() {
               marginBottom: '0.5rem',
               boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
               zIndex: 1000,
-              minWidth: collapsed ? 'unset' : 'auto',
+              minWidth: effectiveCollapsed ? 'unset' : 'auto',
               whiteSpace: 'nowrap'
             }}>
               <button 
@@ -217,7 +260,8 @@ function Sidebar() {
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 

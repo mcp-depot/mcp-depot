@@ -7,13 +7,13 @@ replicaCount: 1
 
 image:
   server:
-    repository: mcphub-server
-    tag: "1.0.0"
-    pullPolicy: IfNotPresent
+    repository: ghcr.io/mcp-depot/mcp-depot-server
+    tag: "latest"
+    pullPolicy: Always
   client:
-    repository: mcphub-client
-    tag: "1.0.0"
-    pullPolicy: IfNotPresent
+    repository: ghcr.io/mcp-depot/mcp-depot-client
+    tag: "latest"
+    pullPolicy: Always
 
 imagePullSecrets: []
 nameOverride: ""
@@ -90,6 +90,22 @@ env:
   ALLOW_REGISTRATION: "false"
   API_BASE_URL: ""
 
+extraEnv: []
+# Example:
+# extraEnv:
+#   - name: OIDC_PROVIDER_URL
+#     value: "https://keycloak.example.com/realms/myrealm"
+#   - name: OIDC_CLIENT_ID
+#     value: "mcp-depot"
+#   - name: MCP_ENABLED
+#     value: "true"
+
+extraEnvFrom: []
+# Example:
+# extraEnvFrom:
+#   - secretRef:
+#       name: my-oidc-secret
+
 livenessProbe:
   enabled: true
   path: /health
@@ -98,6 +114,6 @@ livenessProbe:
 
 readinessProbe:
   enabled: true
-  path: /health
+  path: /ready
   initialDelaySeconds: 5
   periodSeconds: 5

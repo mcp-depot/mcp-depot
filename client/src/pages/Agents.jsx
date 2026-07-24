@@ -4,6 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import api from '../services/api';
 import { getApiError } from '../utils/apiError';
+import { showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { useId } from 'react';
 
 function stripMarkdown(text = '', maxLength = 120) {
   if (!text) return '';
@@ -26,6 +30,14 @@ function Agents() {
   const [editingAgent, setEditingAgent] = useState(null);
   const [form, setForm] = useState({ name: '', role: '', systemPrompt: '', description: '', isShared: false, tools: '', model: '' });
   const [viewingAgent, setViewingAgent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingName, setDeletingName] = useState(null);
+
+  const viewTitleId = useId();
+  const viewModalRef = useModalA11y(() => setViewingAgent(null), !!viewingAgent);
+  const formTitleId = useId();
+  const formModalRef = useModalA11y(() => { setShowModal(false); setEditingAgent(null); }, showModal);
 
   useEffect(() => {
     fetchAgents();
@@ -37,11 +49,14 @@ function Agents() {
       setAgents(res.data || []);
     } catch (err) {
       console.error('Failed to fetch agents:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
       const toolsArray = form.tools
         ? form.tools.split(',').map(t => t.trim()).filter(Boolean)
@@ -60,7 +75,9 @@ function Agents() {
       resetForm();
       fetchAgents();
     } catch (err) {
-      alert(getApiError(err));
+      showError(getApiError(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -86,12 +103,16 @@ function Agents() {
   };
 
   const handleDelete = async (name) => {
-    if (!confirm('Delete this agent?')) return;
+    const ok = await confirmDialog('Delete this agent?', { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+    setDeletingName(name);
     try {
       await api.delete(`/agents/${name}`);
       fetchAgents();
     } catch (err) {
-      alert(getApiError(err));
+      showError(getApiError(err));
+    } finally {
+      setDeletingName(null);
     }
   };
 
@@ -107,7 +128,9 @@ function Agents() {
         </button>
       </div>
 
-      {agents.length === 0 ? (
+      {loading ? (
+        <div className="loading-overlay"><div className="spinner"></div></div>
+      ) : agents.length === 0 ? (
         <div className="empty-state">
           <div style={{ fontSize: '3rem' }}>🤖</div>
           <h3>No agents yet</h3>
@@ -150,7 +173,9 @@ function Agents() {
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
                 <button className="btn btn-small btn-secondary" onClick={() => setViewingAgent(a)}>View</button>
                 <button className="btn btn-small btn-secondary" onClick={() => openEdit(a)}>Edit</button>
-                <button className="btn btn-small btn-danger" onClick={() => handleDelete(a.name)}>Delete</button>
+                <button className="btn btn-small btn-danger" onClick={() => handleDelete(a.name)} disabled={deletingName === a.name}>
+                  {deletingName === a.name ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </div>
           ))}
@@ -159,10 +184,10 @@ function Agents() {
 
       {viewingAgent && (
         <div className="modal-overlay" onClick={() => setViewingAgent(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+          <div ref={viewModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={viewTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
             <div className="modal-header">
-              <h2 style={{ margin: 0 }}>{viewingAgent.role}</h2>
-              <button className="modal-close" onClick={() => setViewingAgent(null)}>×</button>
+              <h2 id={viewTitleId} style={{ margin: 0 }}>{viewingAgent.role}</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setViewingAgent(null)}>×</button>
             </div>
             <div className="modal-body">
               <p style={{ color: '#8899aa', margin: '0 0 1rem' }}>{viewingAgent.name}{viewingAgent.isShared && ' · Shared'}</p>
@@ -187,10 +212,10 @@ function Agents() {
 
       {showModal && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); setEditingAgent(null); }}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+          <div ref={formModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={formTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '700px' }}>
             <div className="modal-header">
-              <h2 style={{ margin: 0 }}>{editingAgent ? 'Edit Agent' : 'New Agent'}</h2>
-              <button className="modal-close" onClick={() => { setShowModal(false); setEditingAgent(null); }}>×</button>
+              <h2 id={formTitleId} style={{ margin: 0 }}>{editingAgent ? 'Edit Agent' : 'New Agent'}</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => { setShowModal(false); setEditingAgent(null); }}>×</button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
@@ -231,7 +256,7 @@ function Agents() {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => { setShowModal(false); setEditingAgent(null); }}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Saving...' : 'Save'}</button>
               </div>
             </form>
           </div>

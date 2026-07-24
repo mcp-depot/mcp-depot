@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import themes from '../config/themes';
@@ -6,6 +6,8 @@ import api from '../services/api';
 import { StyledSelect } from '../components/StyledSelect';
 import { DropdownMenu, DropdownItem, DropdownSeparator } from '../components/Dropdown';
 import { showSuccess, showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { Copy, Trash2, Edit2, Wrench, Package, Link2, Compass } from 'lucide-react';
 
 function LoadingDots({ text = 'Loading' }) {
@@ -155,9 +157,14 @@ function Settings() {
   const [externalLoading, setExternalLoading] = useState(true);
   const [poolStatus, setPoolStatus] = useState([]);
   const [showServerModal, setShowServerModal] = useState(false);
+  const [deletingServerId, setDeletingServerId] = useState(null);
   const [showTestToolModal, setShowTestToolModal] = useState(false);
   const [testingTool, setTestingTool] = useState(null);
   const [testParams, setTestParams] = useState({});
+  const serverModalTitleId = useId();
+  const serverModalRef = useModalA11y(() => setShowServerModal(false), showServerModal);
+  const testToolModalTitleId = useId();
+  const testToolModalRef = useModalA11y(() => setShowTestToolModal(false), showTestToolModal);
   const [testResult, setTestResult] = useState(null);
   const [editingServer, setEditingServer] = useState(null);
   const [externalTab, setExternalTab] = useState('servers');
@@ -399,18 +406,22 @@ function Settings() {
       setShowServerModal(false);
       fetchExternalServers();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save external MCP server');
+      showError(err.response?.data?.error || 'Failed to save external MCP server');
     }
   }
 
   async function deleteExternalServer(id) {
-    if (!confirm('Are you sure you want to delete this external MCP server?')) return;
+    const ok = await confirmDialog('Are you sure you want to delete this external MCP server?', { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+    setDeletingServerId(id);
     try {
       await api.delete(`/external-mcp/${id}`);
       showSuccess('External MCP server deleted');
       fetchExternalServers();
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to delete');
+    } finally {
+      setDeletingServerId(null);
     }
   }
 
@@ -449,9 +460,9 @@ function Settings() {
   async function testExternalServer(id) {
     try {
       const res = await api.get(`/external-mcp/${id}/tools`);
-      alert(`Success! Found ${res.data.tools?.length || 0} tools`);
+      showSuccess(`Success! Found ${res.data.tools?.length || 0} tools`);
     } catch (err) {
-      alert('Failed to connect: ' + (err.response?.data?.error || err.message));
+      showError('Failed to connect: ' + (err.response?.data?.error || err.message));
     }
   }
 
@@ -498,17 +509,17 @@ function Settings() {
       }));
       
       if (tools.length === 0) {
-        alert('No tools found');
+        showError('No tools found');
         return;
       }
-      
+
       setTestingTool({ name: 'Multiple Tools', tools: tools, externalServerId: id });
       setShowTestToolModal(true);
     } catch (err) {
       if (err.name === 'AbortError' || err.name === 'CanceledError') {
         return;
       }
-      alert('Failed to fetch tools: ' + (err.response?.data?.error || err.message));
+      showError('Failed to fetch tools: ' + (err.response?.data?.error || err.message));
     } finally {
       setLoadingServerTools(null);
       delete abortControllers[id];
@@ -586,7 +597,7 @@ function Settings() {
                   )}
                   <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                     <button className="btn btn-primary" onClick={async () => { setApiKeyLoading(true); setApiKeyMessage(''); try { const res = await api.post('/auth/api-key/generate'); setGeneratedApiKey(res.data.apiKey); setApiKeyMessage(res.data.message); } catch (err) { setApiKeyMessage(err.response?.data?.error || 'Failed to generate API key'); } finally { setApiKeyLoading(false); } }} disabled={apiKeyLoading}>{apiKeyLoading ? <LoadingDots text="Generating" /> : 'Generate New Key'}</button>
-                    {user?.apiKeyEnabled && (<>                      <button className="btn btn-warning" onClick={async () => { if (!window.confirm('This will invalidate your current API key. Continue?')) return; setApiKeyLoading(true); setApiKeyMessage(''); setGeneratedApiKey(null); try { const res = await api.post('/auth/api-key/regenerate'); setGeneratedApiKey(res.data.apiKey); setApiKeyMessage(res.data.message); } catch (err) { setApiKeyMessage(err.response?.data?.error || 'Failed to regenerate API key'); } finally { setApiKeyLoading(false); } }} disabled={apiKeyLoading}>{apiKeyLoading ? <LoadingDots text="Regenerating" /> : 'Regenerate Key'}</button><button className="btn btn-danger" onClick={async () => { if (!window.confirm('This will disable and remove your API key. Continue?')) return; setApiKeyLoading(true); setApiKeyMessage(''); setGeneratedApiKey(null); try { await api.post('/auth/api-key/disable'); setApiKeyMessage('API key disabled and removed'); } catch (err) { setApiKeyMessage(err.response?.data?.error || 'Failed to disable API key'); } finally { setApiKeyLoading(false); } }} disabled={apiKeyLoading}>{apiKeyLoading ? <LoadingDots text="Disabling" /> : 'Disable Key'}</button></>)}
+                    {user?.apiKeyEnabled && (<>                      <button className="btn btn-warning" onClick={async () => { const ok = await confirmDialog('This will invalidate your current API key. Continue?', { danger: true, confirmLabel: 'Regenerate' }); if (!ok) return; setApiKeyLoading(true); setApiKeyMessage(''); setGeneratedApiKey(null); try { const res = await api.post('/auth/api-key/regenerate'); setGeneratedApiKey(res.data.apiKey); setApiKeyMessage(res.data.message); } catch (err) { setApiKeyMessage(err.response?.data?.error || 'Failed to regenerate API key'); } finally { setApiKeyLoading(false); } }} disabled={apiKeyLoading}>{apiKeyLoading ? <LoadingDots text="Regenerating" /> : 'Regenerate Key'}</button><button className="btn btn-danger" onClick={async () => { const ok = await confirmDialog('This will disable and remove your API key. Continue?', { danger: true, confirmLabel: 'Disable' }); if (!ok) return; setApiKeyLoading(true); setApiKeyMessage(''); setGeneratedApiKey(null); try { await api.post('/auth/api-key/disable'); setApiKeyMessage('API key disabled and removed'); } catch (err) { setApiKeyMessage(err.response?.data?.error || 'Failed to disable API key'); } finally { setApiKeyLoading(false); } }} disabled={apiKeyLoading}>{apiKeyLoading ? <LoadingDots text="Disabling" /> : 'Disable Key'}</button></>)}
                   </div>
                   {user?.apiKeyEnabled && !generatedApiKey && <p style={{ marginTop: '1rem', fontSize: '0.85rem', color: 'var(--success)' }}>API key is active</p>}
                 </div>
@@ -912,8 +923,8 @@ function Settings() {
                                   <DropdownItem onClick={() => { setEditingServer(server); const envPairs = server.env ? Object.entries(JSON.parse(server.env)).map(([key, value]) => ({ key, value: String(value) })) : [{ key: '', value: '' }]; setServerForm({ name: server.name, transportType: server.transportType || 'http', runtime: server.runtime || 'node', url: server.url || '', command: server.command || 'npx', args: server.args || '', env: server.env || '', envPairs, authType: server.authType || 'none', authToken: '', authHeader: server.authHeader || '' }); setShowServerModal(true); }}>
                                     <Edit2 size={14} /> Edit
                                   </DropdownItem>
-                                  <DropdownItem onClick={() => deleteExternalServer(server._id)} danger>
-                                    <Trash2 size={14} /> Delete
+                                  <DropdownItem onClick={() => deleteExternalServer(server._id)} disabled={deletingServerId === server._id} danger>
+                                    <Trash2 size={14} /> {deletingServerId === server._id ? 'Deleting...' : 'Delete'}
                                   </DropdownItem>
                                 </DropdownMenu>
                               </div>
@@ -1190,7 +1201,7 @@ function Settings() {
                         a.click();
                         window.URL.revokeObjectURL(url);
                       } catch (err) {
-                        alert('Export failed: ' + (err.response?.data?.error || err.message));
+                        showError('Export failed: ' + (err.response?.data?.error || err.message));
                       }
                     }}>
                       Export Selected
@@ -1206,7 +1217,7 @@ function Settings() {
                         <button className="btn btn-primary" onClick={async () => {
                           const file = document.getElementById('importFile').files[0];
                           if (!file) {
-                            alert('Please select a file first');
+                            showError('Please select a file first');
                             return;
                           }
                           const reader = new FileReader();
@@ -1223,7 +1234,7 @@ function Settings() {
                                 skills: (res.data.skills || []).map((_, i) => i)
                               });
                             } catch (err) {
-                              alert('Invalid JSON file: ' + (err.message || 'Failed to parse'));
+                              showError('Invalid JSON file: ' + (err.message || 'Failed to parse'));
                             }
                           };
                           reader.readAsText(file);
@@ -1322,11 +1333,11 @@ function Settings() {
                                 skills: selectedForImport.skills.map(i => importPreview.skills[i])
                               };
                               const res = await api.post('/system/import', payload);
-                              alert(`Import complete!\n\nImported:\n- External MCP: ${res.data.externalMcp || 0}\n- Integrations: ${res.data.integrations || 0}\n- Tools: ${res.data.tools || 0}\n- Workflows: ${res.data.workflows || 0}\n- Skills: ${res.data.skills || 0}`);
+                              showSuccess(`Import complete — External MCP: ${res.data.externalMcp || 0}, Integrations: ${res.data.integrations || 0}, Tools: ${res.data.tools || 0}, Workflows: ${res.data.workflows || 0}, Skills: ${res.data.skills || 0}`);
                               setImportPreview(null);
                               setSelectedForImport({ externalMcpServers: [], integrations: [], tools: [], workflows: [], skills: [] });
                             } catch (err) {
-                              alert('Import failed: ' + (err.response?.data?.error || err.message));
+                              showError('Import failed: ' + (err.response?.data?.error || err.message));
                             }
                           }} disabled={selectedForImport.externalMcpServers.length === 0 && selectedForImport.integrations.length === 0 && selectedForImport.tools.length === 0 && selectedForImport.workflows.length === 0}>
                             Import Selected
@@ -1441,10 +1452,10 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
 
       {showServerModal && (
         <div className="modal-overlay">
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div ref={serverModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={serverModalTitleId} tabIndex={-1} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{editingServer ? 'Edit' : 'Add'} External MCP Server</h2>
-              <button className="modal-close" onClick={() => setShowServerModal(false)}>&times;</button>
+              <h2 id={serverModalTitleId}>{editingServer ? 'Edit' : 'Add'} External MCP Server</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setShowServerModal(false)}>&times;</button>
             </div>
               <div className="modal-body">
               <div className="form-group"><label>Name</label><input type="text" value={serverForm.name} onChange={e => setServerForm({ ...serverForm, name: e.target.value })} placeholder="My External MCP" /></div>
@@ -1453,12 +1464,23 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
                 <StyledSelect
                   options={[
                     { value: 'http', label: 'HTTP' },
-                    { value: 'stdio', label: 'Stdio (process)' }
+                    // Stdio spawns a local process on the shared host, so only
+                    // admins may register/edit it - matches the server-side
+                    // gate in routes/external-mcp.js. Hidden here rather than
+                    // just left to fail on submit, since a non-admin can never
+                    // actually use it (they'd fill out the whole form only to
+                    // get a rejection at the end).
+                    ...(user?.role === 'admin' ? [{ value: 'stdio', label: 'Stdio (process)' }] : [])
                   ]}
                   value={{ value: serverForm.transportType, label: serverForm.transportType === 'http' ? 'HTTP' : 'Stdio (process)' }}
                   onChange={(opt) => setServerForm({ ...serverForm, transportType: opt?.value || 'http' })}
                   isSearchable={false}
                 />
+                {user?.role !== 'admin' && (
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                    Stdio (process) servers can only be added by an admin.
+                  </p>
+                )}
               </div>
               {serverForm.transportType === 'http' ? (
                 <div className="form-group"><label>URL</label><input type="text" value={serverForm.url} onChange={e => setServerForm({ ...serverForm, url: e.target.value })} placeholder="http://localhost:3001/api/mcp" /></div>
@@ -1582,10 +1604,10 @@ OAUTH_SLACK_REDIRECT_URI=https://your-domain.com/api/oauth/callback`}
 
       {showTestToolModal && testingTool && (
         <div className="modal-overlay" onClick={() => setShowTestToolModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+          <div ref={testToolModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={testToolModalTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
-              <h2>Test Tool</h2>
-              <button className="modal-close" onClick={() => setShowTestToolModal(false)}>&times;</button>
+              <h2 id={testToolModalTitleId}>Test Tool</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setShowTestToolModal(false)}>&times;</button>
             </div>
             <div className="modal-body">
               {testingTool.tools ? (

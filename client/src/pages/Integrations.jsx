@@ -10,6 +10,7 @@ import { EmptyState } from '../components/EmptyState';
 import { StatusBadge } from '../components/StatusBadge';
 import { Eye, EyeOff, Upload, Search, X, LayoutGrid, PanelLeft, List } from 'lucide-react';
 import { showSuccess, showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
 import { Drawer } from '../components/Drawer';
 import { ViewToggle } from '../components/ViewToggle';
 function Integrations() {
@@ -20,6 +21,11 @@ function Integrations() {
   const [showDiscoverModal, setShowDiscoverModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [connectTarget, setConnectTarget] = useState(null);
+  const [connectForm, setConnectForm] = useState({ username: '', password: '', token: '', apiKeyName: '', apiKeyValue: '' });
+  const [connectSubmitting, setConnectSubmitting] = useState(false);
+  const [savingIntegration, setSavingIntegration] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const [showAllUrls, setShowAllUrls] = useState(false);
   const [selectedForExport, setSelectedForExport] = useState([]);
   const [selectedForImport, setSelectedForImport] = useState([]);
@@ -61,11 +67,15 @@ function Integrations() {
   const [discovering, setDiscovering] = useState(false);
   const [discoveredEndpoints, setDiscoveredEndpoints] = useState([]);
   const [selectedEndpoints, setSelectedEndpoints] = useState([]);
+  const [endpointSearch, setEndpointSearch] = useState('');
   const [importing, setImporting] = useState(false);
+
+  const slugify = (str) => str.toLowerCase().replace(/[^a-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').substring(0, 32);
 
   const [form, setForm] = useState({
     type: 'custom',
     name: '',
+    slug: '',
     description: '',
     baseUrl: '',
     authType: 'none',
@@ -127,7 +137,7 @@ function Integrations() {
       
       setDiscoveredEndpoints(res.data.endpoints || []);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to discover API');
+      showError(err.response?.data?.error || 'Failed to discover API');
     } finally {
       setDiscovering(false);
     }
@@ -143,16 +153,25 @@ function Integrations() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedEndpoints.length === discoveredEndpoints.length) {
-      setSelectedEndpoints([]);
+    const visible = endpointSearch
+      ? discoveredEndpoints.filter(ep =>
+          ep.path.toLowerCase().includes(endpointSearch.toLowerCase()) ||
+          ep.method.toLowerCase().includes(endpointSearch.toLowerCase()) ||
+          (ep.operationId && ep.operationId.toLowerCase().includes(endpointSearch.toLowerCase()))
+        )
+      : discoveredEndpoints;
+    const allVisibleSelected = visible.length > 0 && visible.every(ep => selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method));
+    if (allVisibleSelected) {
+      setSelectedEndpoints(prev => prev.filter(e => !visible.some(v => v.path === e.path && v.method === e.method)));
     } else {
-      setSelectedEndpoints([...discoveredEndpoints]);
+      const toAdd = visible.filter(ep => !selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method));
+      setSelectedEndpoints(prev => [...prev, ...toAdd]);
     }
   };
 
   const handleImportTools = async () => {
     if (!form.name || !form.baseUrl) {
-      alert('Please enter a name and base URL for the integration');
+      showError('Please enter a name and base URL for the integration');
       return;
     }
     
@@ -183,7 +202,7 @@ function Integrations() {
       setSelectedEndpoints([]);
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create integration');
+      showError(err.response?.data?.error || 'Failed to create integration');
     } finally {
       setImporting(false);
     }
@@ -191,11 +210,12 @@ function Integrations() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSavingIntegration(true);
     try {
       let payload;
 
       if (editingId) {
-        payload = { name: form.name, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts };
+        payload = { name: form.name, slug: form.slug || undefined, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts };
         
         const hasNewCredentials = (form.authType === 'basic' && (form.username || form.token)) ||
           (form.authType === 'bearer' && form.bearerToken) ||
@@ -239,7 +259,7 @@ function Integrations() {
           config.auth.credentials = { key: form.apiKeyName, value: form.apiKey, addTo: form.apiKeyIn };
         }
 
-        payload = { type: form.type, name: form.name, description: form.description, config, tags: form.tags };
+        payload = { type: form.type, name: form.name, slug: form.slug || undefined, description: form.description, config, tags: form.tags };
       }
 
       if (editingId) {
@@ -255,6 +275,8 @@ function Integrations() {
       fetchIntegrations();
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to save integration');
+    } finally {
+      setSavingIntegration(false);
     }
   };
 
@@ -264,6 +286,7 @@ function Integrations() {
     setForm({
       type: integration.type,
       name: integration.name,
+      slug: integration.slug || '',
       description: integration.description || '',
       baseUrl: integration.baseUrl,
       authType: integration.authType || 'none',
@@ -296,79 +319,92 @@ function Integrations() {
       await api.patch(`/integrations/${id}/visibility`, { visibility: newVisibility });
       fetchIntegrations();
     } catch (err) {
-      alert('Failed to update visibility');
+      showError('Failed to update visibility');
     }
   };
 
-  const handleConnectShared = async (integration) => {
+  const handleConnectShared = (integration) => {
     const authType = integration.authType || 'none';
-    
-    let credentials = {};
-    
-    if (authType === 'basic') {
-      const username = prompt('Enter username:');
-      if (!username) return;
-      const password = prompt('Enter password:');
-      if (!password) return;
-      credentials = { username, token: password };
-    } else if (authType === 'bearer') {
-      const token = prompt('Enter bearer token:');
-      if (!token) return;
-      credentials = { token };
-    } else if (authType === 'apiKey') {
-      const key = prompt('Enter API key name (e.g., X-API-Key):');
-      if (!key) return;
-      const value = prompt('Enter API key value:');
-      if (!value) return;
-      credentials = { key, value, addTo: 'header' };
-    } else if (authType === 'oauth2') {
-      alert('OAuth2 connection requires the admin to configure OAuth first.');
+
+    if (authType === 'oauth2') {
+      showError('OAuth2 connection requires the admin to configure OAuth first.');
       return;
     }
-    
+
+    setConnectForm({ username: '', password: '', token: '', apiKeyName: '', apiKeyValue: '' });
+    setConnectTarget(integration);
+  };
+
+  const handleSubmitConnect = async (e) => {
+    e.preventDefault();
+    if (!connectTarget) return;
+    const authType = connectTarget.authType || 'none';
+
+    let credentials = {};
+    if (authType === 'basic') {
+      if (!connectForm.username || !connectForm.password) return;
+      credentials = { username: connectForm.username, token: connectForm.password };
+    } else if (authType === 'bearer') {
+      if (!connectForm.token) return;
+      credentials = { token: connectForm.token };
+    } else if (authType === 'apiKey') {
+      if (!connectForm.apiKeyName || !connectForm.apiKeyValue) return;
+      credentials = { key: connectForm.apiKeyName, value: connectForm.apiKeyValue, addTo: 'header' };
+    }
+
+    setConnectSubmitting(true);
     try {
-      await api.patch(`/integrations/${integration._id}/credentials`, { credentials });
+      await api.patch(`/integrations/${connectTarget._id}/credentials`, { credentials });
+      showSuccess('Credentials saved');
+      setConnectTarget(null);
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save credentials');
+      showError(err.response?.data?.error || 'Failed to save credentials');
+    } finally {
+      setConnectSubmitting(false);
     }
   };
 
   const handleDisconnectShared = async (id) => {
-    if (!confirm('Are you sure you want to disconnect? Your credentials will be removed.')) return;
-    
+    const ok = await confirmDialog('Are you sure you want to disconnect? Your credentials will be removed.', { danger: true, confirmLabel: 'Disconnect' });
+    if (!ok) return;
+
     try {
       await api.delete(`/integrations/${id}/credentials`);
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to disconnect');
+      showError(err.response?.data?.error || 'Failed to disconnect');
     }
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     const integration = integrations.find(i => i._id === id);
     const hasTools = integration?.metadata?.toolCount > 0;
-    
+
     let confirmMessage = 'Are you sure you want to delete this integration?';
     if (hasTools) {
       confirmMessage = `This integration has ${integration.metadata.toolCount} tool(s). Deleting will also remove all tools. Are you sure you want to proceed?`;
     }
-    
-    if (!confirm(confirmMessage)) return;
-    
+
+    const ok = await confirmDialog(confirmMessage, { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+
+    setDeletingId(id);
     api.delete(`/integrations/${id}`).then(() => {
       showSuccess('Integration deleted successfully');
       fetchIntegrations();
     }).catch(err => {
       showError(err.response?.data?.error || 'Failed to delete integration');
+    }).finally(() => {
+      setDeletingId(null);
     });
   };
 
   const resetForm = () => {
     setEditingId(null);
     setForm({
-      type: 'custom', name: '', description: '', baseUrl: '', authType: 'none',
-      username: '', token: '', apiKey: '', apiKeyName: '', apiKeyIn: 'header', bearerToken: '', tags: []
+      type: 'custom', name: '', slug: '', description: '', baseUrl: '', authType: 'none',
+      username: '', token: '', apiKey: '', apiKeyName: '', apiKeyIn: 'header', bearerToken: '', tags: [], allowSelfSignedCerts: false
     });
   };
 
@@ -391,7 +427,7 @@ function Integrations() {
       });
       
       if (!res.data?.integrations?.length) {
-        alert('No integrations found to export');
+        showError('No integrations found to export');
         return;
       }
       
@@ -405,7 +441,7 @@ function Integrations() {
       setShowExportModal(false);
     } catch (err) {
       console.error('Export error:', err);
-      alert(err.response?.data?.error || 'Export failed');
+      showError(err.response?.data?.error || 'Export failed');
     }
   };
 
@@ -418,27 +454,28 @@ function Integrations() {
       setImportData(data);
       setSelectedForImport(data.integrations.map((_, idx) => idx));
     } catch (err) {
-      alert('Invalid file');
+      showError('Invalid file');
     }
   };
 
   const handleImport = async () => {
     try {
-      const includeTools = window.confirm('Import tools as well?');
-      const mode = window.confirm('Update existing integrations?') ? 'update' : 'skip';
+      const includeTools = await confirmDialog('Import tools as well?', { confirmLabel: 'Yes', cancelLabel: 'No' });
+      const updateExisting = await confirmDialog('Update existing integrations?', { confirmLabel: 'Yes', cancelLabel: 'No' });
+      const mode = updateExisting ? 'update' : 'skip';
       const selectedIntegrations = selectedForImport.map(idx => importData.integrations[idx]);
-      const res = await api.post('/integrations/import', { 
-        integrations: selectedIntegrations, 
-        includeTools, 
-        mode 
+      const res = await api.post('/integrations/import', {
+        integrations: selectedIntegrations,
+        includeTools,
+        mode
       });
-      alert(`Imported: ${res.data.imported}, Skipped: ${res.data.skipped}`);
+      showSuccess(`Imported: ${res.data.imported}, Skipped: ${res.data.skipped}`);
       setShowImportModal(false);
       setImportData(null);
       setSelectedForImport([]);
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Import failed');
+      showError(err.response?.data?.error || 'Import failed');
     }
   };
 
@@ -522,7 +559,7 @@ function Integrations() {
       setPostmanSelected(new Set(requests.map((_, i) => i)));
       setPostmanStep(2);
     } catch (err) {
-      alert('Invalid Postman collection file');
+      showError('Invalid Postman collection file');
     }
   };
 
@@ -539,7 +576,7 @@ function Integrations() {
       }
       setPostmanVariables(variables);
     } catch (err) {
-      alert('Invalid environment file');
+      showError('Invalid environment file');
     }
   };
 
@@ -571,7 +608,7 @@ function Integrations() {
 
   const handlePostmanImport = async () => {
     if (postmanSelected.size === 0) {
-      alert('Select at least one request');
+      showError('Select at least one request');
       return;
     }
     
@@ -605,7 +642,7 @@ function Integrations() {
       resetPostmanImport();
       fetchIntegrations();
     } catch (err) {
-      alert(err.response?.data?.error || 'Import failed');
+      showError(err.response?.data?.error || 'Import failed');
     } finally {
       setPostmanImporting(false);
     }
@@ -891,12 +928,13 @@ function Integrations() {
                           Del
                         </span>
                       ) : (
-                        <button 
-                          className="btn btn-icon btn-danger" 
-                          onClick={() => handleDelete(integration._id)} 
+                        <button
+                          className="btn btn-icon btn-danger"
+                          onClick={() => handleDelete(integration._id)}
+                          disabled={deletingId === integration._id}
                           title="Delete integration"
                         >
-                          Del
+                          {deletingId === integration._id ? '...' : 'Del'}
                         </button>
                       )}
                     </>
@@ -909,15 +947,15 @@ function Integrations() {
 
         {/* Discover API Modal */}
         {showDiscoverModal && (
-          <Modal title="Discover API Endpoints" size="lg" onClose={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); }}
+          <Modal title="Discover API Endpoints" size="lg" onClose={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); setEndpointSearch(''); }}
             footer={
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                 {discoveredEndpoints.length > 0 && (
-                  <button className="btn btn-secondary" onClick={() => { setDiscoveredEndpoints([]); setSelectedEndpoints([]); }}>
+                  <button className="btn btn-secondary" onClick={() => { setDiscoveredEndpoints([]); setSelectedEndpoints([]); setEndpointSearch(''); }}>
                     Back
                   </button>
                 )}
-                <button className="btn btn-secondary" onClick={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); }}>
+                <button className="btn btn-secondary" onClick={() => { setShowDiscoverModal(false); setDiscoveredEndpoints([]); setSelectedEndpoints([]); setEndpointSearch(''); }}>
                   Cancel
                 </button>
                 {discoveredEndpoints.length > 0 && (
@@ -976,6 +1014,7 @@ function Integrations() {
                 <button type="submit" className="btn btn-primary" disabled={discovering} style={{ width: '100%' }}>
                   {discovering ? 'Discovering...' : 'Discover Endpoints'}
                 </button>
+                {discovering && <progress style={{ width: '100%', marginTop: '0.5rem' }} />}
               </form>
             ) : (
               <div>
@@ -983,14 +1022,21 @@ function Integrations() {
                   <strong>Found {discoveredEndpoints.length} endpoints</strong>
                 </div>
                 <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '1rem', border: '1px solid var(--border-light)' }}>
-                  <div style={{ padding: '0.5rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ padding: '0.5rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={selectedEndpoints.length === discoveredEndpoints.length} onChange={toggleSelectAll} />
+                      <input type="checkbox" checked={(() => { const v = endpointSearch ? discoveredEndpoints.filter(ep => ep.path.toLowerCase().includes(endpointSearch.toLowerCase()) || ep.method.toLowerCase().includes(endpointSearch.toLowerCase()) || (ep.operationId && ep.operationId.toLowerCase().includes(endpointSearch.toLowerCase()))) : discoveredEndpoints; return v.length > 0 && v.every(ep => selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method)); })()} onChange={toggleSelectAll} />
                       <strong>Select All</strong>
                     </label>
-                    <span>{selectedEndpoints.length} selected</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <input type="text" placeholder="Search endpoints..." value={endpointSearch} onChange={e => setEndpointSearch(e.target.value)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.85rem', width: '180px' }} />
+                      <span>{selectedEndpoints.length} selected</span>
+                    </div>
                   </div>
-                  {discoveredEndpoints.map((ep, idx) => (
+                  {(endpointSearch ? discoveredEndpoints.filter(ep =>
+                    ep.path.toLowerCase().includes(endpointSearch.toLowerCase()) ||
+                    ep.method.toLowerCase().includes(endpointSearch.toLowerCase()) ||
+                    (ep.operationId && ep.operationId.toLowerCase().includes(endpointSearch.toLowerCase()))
+                  ) : discoveredEndpoints).map((ep, idx) => (
                     <div key={idx} style={{ padding: '0.5rem', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <input type="checkbox" checked={selectedEndpoints.some(e => e.path === ep.path && e.method === ep.method)} onChange={() => toggleEndpoint(ep)} />
                       <span style={{ fontFamily: 'monospace', fontWeight: 'bold', color: ep.method === 'GET' ? '#28a745' : ep.method === 'POST' ? '#007bff' : ep.method === 'PUT' ? '#ffc107' : ep.method === 'DELETE' ? '#dc3545' : '#6c757d' }}>{ep.method}</span>
@@ -1025,7 +1071,9 @@ function Integrations() {
           footer={
             <>
               <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-              <button type="submit" form="integration-form" className="btn btn-primary">{editingId ? 'Update' : 'Create'} Integration</button>
+              <button type="submit" form="integration-form" className="btn btn-primary" disabled={savingIntegration}>
+                {savingIntegration ? 'Saving...' : `${editingId ? 'Update' : 'Create'} Integration`}
+              </button>
             </>
           }
         >
@@ -1050,12 +1098,20 @@ function Integrations() {
             <div className="form-row">
               <div className="form-group">
                 <label>Name</label>
-                <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="My API" required />
+                <input type="text" value={form.name} onChange={e => {
+                  const newName = e.target.value;
+                  setForm({ ...form, name: newName, slug: editingId ? form.slug : slugify(newName) });
+                }} placeholder="My API" required />
               </div>
               <div className="form-group">
-                <label>Description</label>
-                <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional description" />
+                <label>Slug</label>
+                <input type="text" value={form.slug} onChange={e => setForm({ ...form, slug: slugify(e.target.value) })}
+                  placeholder="my-api" pattern="[a-z0-9_-]+" title="Lowercase letters, numbers, underscores, hyphens" />
               </div>
+            </div>
+            <div className="form-group">
+              <label>Description</label>
+              <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional description" />
             </div>
             <div className="form-group">
               <label>Base URL</label>
@@ -1278,6 +1334,85 @@ function Integrations() {
               <button className="btn btn-secondary btn-small" onClick={() => setSelectedForExport(integrations.map(i => i._id))}>Select All</button>
               <button className="btn btn-secondary btn-small" onClick={() => setSelectedForExport([])}>Select None</button>
             </div>
+          </Modal>
+        )}
+
+        {connectTarget && (
+          <Modal title={`Connect to ${connectTarget.name}`} onClose={() => setConnectTarget(null)} size="sm">
+            <form onSubmit={handleSubmitConnect}>
+              {connectTarget.authType === 'basic' && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="connect-username">Username</label>
+                    <input
+                      id="connect-username"
+                      type="text"
+                      autoFocus
+                      value={connectForm.username}
+                      onChange={e => setConnectForm({ ...connectForm, username: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="connect-password">Password</label>
+                    <input
+                      id="connect-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={connectForm.password}
+                      onChange={e => setConnectForm({ ...connectForm, password: e.target.value })}
+                      required
+                    />
+                  </div>
+                </>
+              )}
+              {connectTarget.authType === 'bearer' && (
+                <div className="form-group">
+                  <label htmlFor="connect-token">Bearer Token</label>
+                  <input
+                    id="connect-token"
+                    type="password"
+                    autoFocus
+                    autoComplete="new-password"
+                    value={connectForm.token}
+                    onChange={e => setConnectForm({ ...connectForm, token: e.target.value })}
+                    required
+                  />
+                </div>
+              )}
+              {connectTarget.authType === 'apiKey' && (
+                <>
+                  <div className="form-group">
+                    <label htmlFor="connect-apikey-name">API Key Name (e.g. X-API-Key)</label>
+                    <input
+                      id="connect-apikey-name"
+                      type="text"
+                      autoFocus
+                      value={connectForm.apiKeyName}
+                      onChange={e => setConnectForm({ ...connectForm, apiKeyName: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="connect-apikey-value">API Key Value</label>
+                    <input
+                      id="connect-apikey-value"
+                      type="password"
+                      autoComplete="new-password"
+                      value={connectForm.apiKeyValue}
+                      onChange={e => setConnectForm({ ...connectForm, apiKeyValue: e.target.value })}
+                      required
+                    />
+                  </div>
+                </>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setConnectTarget(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={connectSubmitting}>
+                  {connectSubmitting ? 'Connecting...' : 'Connect'}
+                </button>
+              </div>
+            </form>
           </Modal>
         )}
 

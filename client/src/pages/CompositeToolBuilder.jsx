@@ -5,6 +5,7 @@ import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor } from '@
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SourceTree, DraggableField, InputDropTarget } from '../components/SourceTree';
+import { showError } from '../utils/toast';
 
 const SOURCE_TYPES = {
   INPUT: 'input',
@@ -290,14 +291,10 @@ function CompositeToolBuilder() {
       }
     }
 
-    // If there are missing params, prompt for them
+    // Missing params should be filled in via the test form above; don't run the step without them.
     if (missingParams.length > 0) {
-      for (const param of missingParams) {
-        // eslint-disable-next-line no-alert
-        const value = window.prompt(`Enter value for "${param}":`);
-        if (value === null) return; // User cancelled
-        setTestParams(prev => ({ ...prev, [param]: value }));
-      }
+      showError(`Fill in a value for: ${missingParams.join(', ')}`);
+      return;
     }
 
     const params = {};

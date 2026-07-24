@@ -7,21 +7,11 @@ const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
 const ExternalMcpTool = require('../models/ExternalMcpTool');
+const { isUrlSafe } = require('../utils/ssrfGuard');
+const audit = require('../services/audit');
 
 const router = express.Router();
 const pool = require('../services/mcp-connection-pool');
-
-function isBlockedUrl(urlString) {
-  try {
-    const url = new URL(urlString);
-    const blocked = ['localhost', '127.0.0.1', '0.0.0.0', '169.254.169.254', '::1'];
-    if (blocked.includes(url.hostname)) return true;
-    if (/^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/.test(url.hostname)) return true;
-    return false;
-  } catch {
-    return true;
-  }
-}
 
 const ALLOWED_STDIO_COMMANDS = ['node', 'python', 'python3', 'uvx', 'npx'];
 const SHELL_SAFE_ARGS = /^[a-zA-Z0-9_\-\.\/\\@:]+$/;
@@ -185,11 +175,17 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    if (value.url && isBlockedUrl(value.url)) {
-      return res.status(400).json({ error: 'URL points to a blocked internal address' });
+    if (value.url && !(await isUrlSafe(value.url))) {
+      return res.status(400).json({ error: 'URL points to a blocked or unresolvable internal address' });
     }
 
     if (value.transportType === 'stdio') {
+      // stdio servers run as a local child process on the shared host - this is
+      // equivalent to arbitrary code execution, so only admins may register them.
+      // http/sse servers stay self-service since they carry no RCE risk.
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins may register stdio-based MCP servers. Ask an admin to add it, or connect via http/sse instead.' });
+      }
       if (!ALLOWED_STDIO_COMMANDS.includes(value.command)) {
         return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
       }
@@ -197,7 +193,7 @@ router.post('/', auth, async (req, res) => {
         return res.status(400).json({ error: 'Arguments contain unsafe characters' });
       }
     }
-    
+
     const { ExternalMcpServer } = loadModels();
     
     let authToken = value.authToken;
@@ -219,6 +215,15 @@ router.post('/', auth, async (req, res) => {
         logger.warn({ serverId: server.id, err: err.message }, 'Background pre-connect failed')
       );
     }
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'create_external_mcp_server',
+      integrationType: `external-mcp:${server.transportType}`,
+      integrationId: server.id,
+      details: { name: server.name, transportType: server.transportType },
+      status: 'success'
+    });
 
     res.status(201).json({
       ...server.toJSON(),
@@ -249,11 +254,15 @@ router.put('/:id', auth, async (req, res) => {
       return res.status(400).json({ error: error.details[0].message });
     }
 
-    if (value.url && isBlockedUrl(value.url)) {
-      return res.status(400).json({ error: 'URL points to a blocked internal address' });
+    if (value.url && !(await isUrlSafe(value.url))) {
+      return res.status(400).json({ error: 'URL points to a blocked or unresolvable internal address' });
     }
 
-    if (value.transportType === 'stdio') {
+    const effectiveTransportType = value.transportType || server.transportType;
+    if (effectiveTransportType === 'stdio') {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins may configure stdio-based MCP servers.' });
+      }
       if (value.command && !ALLOWED_STDIO_COMMANDS.includes(value.command)) {
         return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
       }
@@ -261,7 +270,7 @@ router.put('/:id', auth, async (req, res) => {
         return res.status(400).json({ error: 'Arguments contain unsafe characters' });
       }
     }
-    
+
     const updates = { ...value };
     if (value.authToken) {
       updates.authToken = encryption.encrypt(value.authToken);
@@ -281,7 +290,16 @@ router.put('/:id', auth, async (req, res) => {
     }
 
     if (clearToolsCache) clearToolsCache();
-    
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'update_external_mcp_server',
+      integrationType: `external-mcp:${server.transportType}`,
+      integrationId: server.id,
+      details: { name: server.name },
+      status: 'success'
+    });
+
     res.json({
       ...server.toJSON(),
       _id: server.id,
@@ -306,12 +324,23 @@ router.delete('/:id', auth, async (req, res) => {
       return res.status(404).json({ error: 'External MCP server not found' });
     }
     
+    const deletedInfo = { name: server.name, transportType: server.transportType };
+
     await server.destroy();
-    
+
     pool.disconnect(req.params.id);
-    
+
     if (clearToolsCache) clearToolsCache();
-    
+
+    await audit.log({
+      userId: req.user.id,
+      action: 'delete_external_mcp_server',
+      integrationType: `external-mcp:${deletedInfo.transportType}`,
+      integrationId: req.params.id,
+      details: { name: deletedInfo.name },
+      status: 'success'
+    });
+
     res.json({ message: 'External MCP server deleted' });
   } catch (error) {
     logger.error({ error: error.message }, 'Delete external MCP server error');

@@ -1,10 +1,32 @@
 const express = require('express');
+const Joi = require('joi');
 const { Op } = require('sequelize');
 const { auth } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 
 const router = express.Router();
+
+const agentToolsSchema = Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string().allow(''));
+
+const createAgentSchema = Joi.object({
+  name: Joi.string().max(255).pattern(/^[a-zA-Z0-9_-]+$/).required(),
+  role: Joi.string().max(100).required(),
+  systemPrompt: Joi.string().required(),
+  description: Joi.string().allow('').optional(),
+  isShared: Joi.boolean().optional(),
+  tools: agentToolsSchema.optional(),
+  model: Joi.string().max(100).allow('', null).optional()
+});
+
+const updateAgentSchema = Joi.object({
+  role: Joi.string().max(100),
+  systemPrompt: Joi.string(),
+  description: Joi.string().allow(''),
+  isShared: Joi.boolean(),
+  tools: agentToolsSchema,
+  model: Joi.string().max(100).allow('', null)
+}).min(1);
 
 function normalizeTools(tools) {
   if (!tools || tools === '[]') return [];
@@ -154,10 +176,11 @@ ${agent.systemPrompt}`
 
 router.post('/', auth, async (req, res) => {
   try {
-    const { name, role, systemPrompt, description, isShared, tools, model } = req.body;
-    if (!name || !role || !systemPrompt) {
-      return res.status(400).json({ error: 'name, role, and systemPrompt are required' });
+    const { error, value } = createAgentSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
     }
+    const { name, role, systemPrompt, description, isShared, tools, model } = value;
     const { Agent } = loadModels();
     const [agent, created] = await Agent.findOrCreate({
       where: { name },
@@ -199,7 +222,11 @@ router.put('/:name', auth, async (req, res) => {
     if (!agent) {
       return res.status(404).json({ error: 'Agent not found or you do not own it' });
     }
-    const { role, systemPrompt, description, isShared, tools, model } = req.body;
+    const { error, value } = updateAgentSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ error: error.details[0].message });
+    }
+    const { role, systemPrompt, description, isShared, tools, model } = value;
     const updates = {};
     if (role !== undefined) updates.role = role;
     if (systemPrompt !== undefined) updates.systemPrompt = systemPrompt;

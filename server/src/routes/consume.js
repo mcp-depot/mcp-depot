@@ -188,9 +188,9 @@ router.post('/tools/:toolId/execute', optionalAuthWithApiKey, async (req, res) =
         const resolveIfNeeded = async (cred) => {
           for (const [key, value] of Object.entries(cred)) {
             if (typeof value === 'string' && secretStore.isSecretRef(value)) {
-              logger.info({ key, value }, 'Resolving Infisical secret');
+              logger.debug({ key }, 'Resolving Infisical secret');
               const resolved = await secretStore.resolveSecret(value);
-              logger.info({ key, resolved: resolved?.substring(0, 20), fullLength: resolved?.length }, 'Resolved Infisical secret');
+              logger.debug({ key, resolvedLength: resolved?.length ?? 0 }, 'Resolved Infisical secret');
               if (resolved) cred[key] = resolved;
             }
           }

@@ -3,6 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import api from '../services/api';
+import { showError } from '../utils/toast';
+import { confirmDialog } from '../utils/confirm';
+import { useModalA11y } from '../hooks/useModalA11y';
+import { useId } from 'react';
 
 function Workflows() {
   const { user } = useAuth();
@@ -23,6 +27,19 @@ function Workflows() {
   const [showCanvasModal, setShowCanvasModal] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [creatingFromTemplateId, setCreatingFromTemplateId] = useState(null);
+  const formTitleId = useId();
+  const formModalRef = useModalA11y(() => setShowModal(false), showModal);
+  const templatesTitleId = useId();
+  const templatesModalRef = useModalA11y(() => setShowTemplatesModal(false), showTemplatesModal);
+  const detailTitleId = useId();
+  const detailModalRef = useModalA11y(() => setShowDetailModal(false), showDetailModal);
+  const inputTitleId = useId();
+  const inputModalRef = useModalA11y(() => setShowInputModal(false), showInputModal);
+  const canvasTitleId = useId();
+  const canvasModalRef = useModalA11y(() => { setShowCanvasModal(false); setSelectedNode(null); }, showCanvasModal);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [hoveredNode, setHoveredNode] = useState(null);
@@ -53,6 +70,7 @@ function Workflows() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
       const payload = {
         name: form.name,
@@ -72,7 +90,9 @@ function Workflows() {
       resetForm();
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create workflow');
+      showError(err.response?.data?.error || 'Failed to create workflow');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -109,6 +129,7 @@ function Workflows() {
   };
 
   const handleCreateFromTemplate = async (template) => {
+    setCreatingFromTemplateId(template.id);
     try {
       await api.post('/workflows/from-template', {
         templateId: template.id,
@@ -118,7 +139,9 @@ function Workflows() {
       setShowTemplatesModal(false);
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create workflow from template');
+      showError(err.response?.data?.error || 'Failed to create workflow from template');
+    } finally {
+      setCreatingFromTemplateId(null);
     }
   };
 
@@ -141,12 +164,16 @@ function Workflows() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this workflow?')) return;
+    const ok = await confirmDialog('Are you sure you want to delete this workflow?', { danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+    setDeletingId(id);
     try {
       await api.delete(`/workflows/${id}`);
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete workflow');
+      showError(err.response?.data?.error || 'Failed to delete workflow');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -248,8 +275,8 @@ function Workflows() {
                   >
                     How it works
                   </button>
-                  <button className="btn btn-danger btn-small" onClick={() => handleDelete(wf.id)}>
-                    Delete
+                  <button className="btn btn-danger btn-small" onClick={() => handleDelete(wf.id)} disabled={deletingId === wf.id}>
+                    {deletingId === wf.id ? 'Deleting...' : 'Delete'}
                   </button>
                 </div>
               </div>
@@ -288,10 +315,10 @@ function Workflows() {
 
         {showModal && (
           <div className="modal-overlay" onClick={() => setShowModal(false)}>
-            <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
+            <div ref={formModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={formTitleId} tabIndex={-1} style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Create Workflow</h2>
-                <button className="modal-close" onClick={() => setShowModal(false)}>&times;</button>
+                <h2 id={formTitleId}>Create Workflow</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowModal(false)}>&times;</button>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="modal-body">
@@ -377,7 +404,7 @@ function Workflows() {
                 </div>
                 <div className="modal-footer">
                   <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary">Create Workflow</button>
+                  <button type="submit" className="btn btn-primary" disabled={submitting}>{submitting ? 'Creating...' : 'Create Workflow'}</button>
                 </div>
               </form>
             </div>
@@ -386,14 +413,14 @@ function Workflows() {
 
         {showTemplatesModal && (
           <div className="modal-overlay" onClick={() => setShowTemplatesModal(false)}>
-            <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+            <div ref={templatesModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={templatesTitleId} tabIndex={-1} style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Workflow Templates</h2>
-                <button className="modal-close" onClick={() => setShowTemplatesModal(false)}>&times;</button>
+                <h2 id={templatesTitleId}>Workflow Templates</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowTemplatesModal(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 {templatesLoading ? (
-                  <div style={{ textAlign: 'center', padding: '2rem' }}>Loading templates...</div>
+                  <div className="loading-overlay"><div className="spinner"></div></div>
                 ) : templates.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-light)' }}>
                     No templates available. Fetch templates first.
@@ -404,10 +431,16 @@ function Workflows() {
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {templates.map(template => (
-                      <div key={template.id} style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: 'var(--radius)', cursor: 'pointer' }} onClick={() => handleCreateFromTemplate(template)}>
+                      <div
+                        key={template.id}
+                        style={{ background: 'var(--surface-hover)', padding: '1rem', borderRadius: 'var(--radius)', cursor: creatingFromTemplateId ? 'default' : 'pointer', opacity: creatingFromTemplateId && creatingFromTemplateId !== template.id ? 0.6 : 1 }}
+                        onClick={() => { if (!creatingFromTemplateId) handleCreateFromTemplate(template); }}
+                      >
                         <h3 style={{ margin: 0 }}>{template.name}</h3>
                         <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginTop: '0.5rem' }}>{template.description}</p>
-                        <p style={{ color: 'var(--text-light)', fontSize: '0.8rem', marginTop: '0.5rem' }}>{template.actions?.length || 0} actions</p>
+                        <p style={{ color: 'var(--text-light)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                          {creatingFromTemplateId === template.id ? 'Creating...' : `${template.actions?.length || 0} actions`}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -423,10 +456,10 @@ function Workflows() {
 
         {showDetailModal && detailWorkflow && (
           <div className="modal-overlay" onClick={() => setShowDetailModal(false)}>
-            <div className="modal" style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
+            <div ref={detailModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={detailTitleId} tabIndex={-1} style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>{detailWorkflow.name}</h2>
-                <button className="modal-close" onClick={() => setShowDetailModal(false)}>&times;</button>
+                <h2 id={detailTitleId}>{detailWorkflow.name}</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowDetailModal(false)}>&times;</button>
               </div>
               <div className="modal-body">
                 <p style={{ color: 'var(--text-light)', marginBottom: '1.5rem' }}>{detailWorkflow.description}</p>
@@ -511,10 +544,10 @@ function Workflows() {
 
         {showInputModal && detailWorkflow && (
           <div className="modal-overlay" onClick={() => setShowInputModal(false)}>
-            <div className="modal" style={{ maxWidth: '700px', maxHeight: '80vh' }} onClick={e => e.stopPropagation()}>
+            <div ref={inputModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={inputTitleId} tabIndex={-1} style={{ maxWidth: '700px', maxHeight: '80vh' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>How Claude will call tools</h2>
-                <button className="modal-close" onClick={() => setShowInputModal(false)}>&times;</button>
+                <h2 id={inputTitleId}>How Claude will call tools</h2>
+                <button className="modal-close" aria-label="Close" onClick={() => setShowInputModal(false)}>&times;</button>
               </div>
               <div className="modal-body" style={{ overflowY: 'auto' }}>
                 <div style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--surface-hover)', borderRadius: 'var(--radius)' }}>
@@ -592,12 +625,12 @@ function Workflows() {
 
         {showCanvasModal && detailWorkflow && (
           <div className="modal-overlay" onClick={() => { setShowCanvasModal(false); setSelectedNode(null); }}>
-            <div className="modal" style={{ maxWidth: '1200px', width: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div ref={canvasModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={canvasTitleId} tabIndex={-1} style={{ maxWidth: '1200px', width: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>{detailWorkflow.name}</h2>
+                <h2 id={canvasTitleId}>{detailWorkflow.name}</h2>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button className="btn btn-ghost btn-small" onClick={() => setCanvasOffset({ x: 0, y: 0 })}>Reset View</button>
-                  <button className="modal-close" onClick={() => { setShowCanvasModal(false); setSelectedNode(null); }}>&times;</button>
+                  <button className="modal-close" aria-label="Close" onClick={() => { setShowCanvasModal(false); setSelectedNode(null); }}>&times;</button>
                 </div>
               </div>
               <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
