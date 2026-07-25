@@ -6,7 +6,7 @@ process.env.NODE_ENV = 'test';
 delete process.env.DATABASE_URL;
 
 const { sequelize, loadModels, createDefaultPolicyRules } = require('../src/config/database');
-const { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy } = require('../src/services/resource-policy');
+const { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy, checkGroupPolicy } = require('../src/services/resource-policy');
 
 describe('createDefaultPolicyRules', () => {
   let User, PolicyRule;
@@ -26,15 +26,15 @@ describe('createDefaultPolicyRules', () => {
     await sequelize.close();
   });
 
-  test('seeds exactly 10 rules and is idempotent on repeated calls', async () => {
+  test('seeds exactly 12 rules and is idempotent on repeated calls', async () => {
     await createDefaultPolicyRules();
     const afterFirst = await PolicyRule.count();
-    expect(afterFirst).toBe(10);
+    expect(afterFirst).toBe(12);
 
     await createDefaultPolicyRules();
     await createDefaultPolicyRules();
     const afterRepeat = await PolicyRule.count();
-    expect(afterRepeat).toBe(10);
+    expect(afterRepeat).toBe(12);
   });
 
   test('an admin bypasses session context ownership by default (manage_others allowed)', async () => {
@@ -96,5 +96,13 @@ describe('createDefaultPolicyRules', () => {
 
     const viewUsers = await checkIntegrationPolicy({ user, action: 'view_users', integrationId: 'int-x' });
     expect(viewUsers.decision).toBe('deny');
+  });
+
+  test('an admin bypasses group management by default; a regular user does not', async () => {
+    const adminResult = await checkGroupPolicy({ user: admin, action: 'manage_others', groupId: 'g-x' });
+    expect(adminResult.decision).toBe('allow');
+
+    const userResult = await checkGroupPolicy({ user, action: 'manage_others', groupId: 'g-x' });
+    expect(userResult.decision).toBe('deny');
   });
 });

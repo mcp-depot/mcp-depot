@@ -47,4 +47,17 @@ async function checkIntegrationPolicy({ user, action, integrationId }) {
   });
 }
 
-module.exports = { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy };
+async function checkGroupPolicy({ user, action, groupId }) {
+  if (!user?.id) {
+    return { decision: 'deny', reason: 'No authenticated user', matchedRuleId: null, error: true };
+  }
+  return checkPolicy({
+    user: { id: user.id, role: user.role },
+    resourceType: 'group',
+    resourceId: groupId,
+    action,
+    requestContext: { groupId }
+  });
+}
+
+module.exports = { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy, checkGroupPolicy };

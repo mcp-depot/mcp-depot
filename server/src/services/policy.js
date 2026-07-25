@@ -22,10 +22,11 @@ function matchesResource(resourceMatch, resourceId) {
   return resourceMatch === resourceId;
 }
 
-function matchesSubject(rule, user) {
+function matchesSubject(rule, user, userGroupIds) {
   if (rule.subjectType === '*') return true;
   if (rule.subjectType === 'role') return rule.subjectId === user.role;
   if (rule.subjectType === 'user') return rule.subjectId === user.id;
+  if (rule.subjectType === 'group') return userGroupIds.includes(rule.subjectId);
   return false;
 }
 
@@ -39,7 +40,10 @@ function specificity(rule) {
   else if (rule.resourceMatch.endsWith('*')) score += 20;
   else score += 40;
   score += rule.action === '*' ? 0 : 10;
+  // Specificity gradient from broadest to narrowest subject: everyone < role
+  // < group < one exact user.
   if (rule.subjectType === 'user') score += 4;
+  else if (rule.subjectType === 'group') score += 3;
   else if (rule.subjectType === 'role') score += 2;
   return score;
 }
@@ -142,7 +146,17 @@ async function checkPolicy({ user, resourceType, resourceId, action, requestCont
       }
     });
 
-    const matching = candidates.filter(r => matchesResource(r.resourceMatch, resourceId) && matchesSubject(r, user));
+    // Only queried when at least one candidate rule actually targets a
+    // group - keeps checkPolicy at its original single query for every
+    // resourceType/action pair that never uses group-scoped rules.
+    let userGroupIds = [];
+    if (candidates.some(r => r.subjectType === 'group')) {
+      const GroupMembership = require('../models/GroupMembership');
+      const memberships = await GroupMembership.findAll({ where: { userId: user.id }, attributes: ['groupId'], raw: true });
+      userGroupIds = memberships.map(m => m.groupId);
+    }
+
+    const matching = candidates.filter(r => matchesResource(r.resourceMatch, resourceId) && matchesSubject(r, user, userGroupIds));
 
     let decision = 'allow';
     let matchedRuleId = null;

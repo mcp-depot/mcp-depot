@@ -14,7 +14,7 @@ const createRuleSchema = Joi.object({
   resourceType: Joi.string().max(50).required(),
   resourceMatch: Joi.string().max(255).default('*'),
   action: Joi.string().max(50).default('*'),
-  subjectType: Joi.string().valid('user', 'role', '*').required(),
+  subjectType: Joi.string().valid('user', 'role', 'group', '*').required(),
   subjectId: Joi.string().max(255).allow(null, ''),
   effect: Joi.string().valid('allow', 'deny', 'limit').required(),
   limitConfig: Joi.object({
@@ -30,7 +30,7 @@ const updateRuleSchema = Joi.object({
   resourceType: Joi.string().max(50),
   resourceMatch: Joi.string().max(255),
   action: Joi.string().max(50),
-  subjectType: Joi.string().valid('user', 'role', '*'),
+  subjectType: Joi.string().valid('user', 'role', 'group', '*'),
   subjectId: Joi.string().max(255).allow(null, ''),
   effect: Joi.string().valid('allow', 'deny', 'limit'),
   limitConfig: Joi.object({
@@ -47,7 +47,7 @@ const updateRuleSchema = Joi.object({
 // PUT) so changing just one half of a pair can't leave the other stale.
 function validateRuleCrossFields(value) {
   if (value.subjectType !== '*' && !value.subjectId) {
-    return 'subjectId is required when subjectType is "user" or "role"';
+    return 'subjectId is required when subjectType is "user", "role", or "group"';
   }
   if (value.subjectType === '*' && value.subjectId) {
     return 'subjectId must be empty when subjectType is "*"';

@@ -11,6 +11,7 @@ import { confirmDialog } from '../utils/confirm';
 const SUBJECT_TYPE_OPTIONS = [
   { value: '*', label: 'Everyone' },
   { value: 'role', label: 'Role' },
+  { value: 'group', label: 'Group' },
   { value: 'user', label: 'Specific user' },
 ];
 
@@ -328,7 +329,11 @@ function RulesTab() {
             </div>
             {form.subjectType !== '*' && (
               <div className="form-group">
-                <label>{form.subjectType === 'role' ? 'Role name (e.g. user, admin)' : 'User ID'}</label>
+                <label>
+                  {form.subjectType === 'role' ? 'Role name (e.g. user, admin)'
+                    : form.subjectType === 'group' ? 'Group ID'
+                    : 'User ID'}
+                </label>
                 <input type="text" value={form.subjectId} onChange={e => setForm({ ...form, subjectId: e.target.value })} required />
               </div>
             )}

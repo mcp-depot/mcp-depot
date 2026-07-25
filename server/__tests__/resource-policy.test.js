@@ -6,7 +6,8 @@ process.env.NODE_ENV = 'test';
 delete process.env.DATABASE_URL;
 
 const { sequelize, loadModels } = require('../src/config/database');
-const { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy } = require('../src/services/resource-policy');
+const { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy, checkGroupPolicy } = require('../src/services/resource-policy');
+const { checkPolicy } = require('../src/services/policy');
 
 // Single sync/close for the whole file - sequelize is a shared singleton, so
 // each describe block below only loads its own fixtures in beforeAll, not a
@@ -125,5 +126,77 @@ describe('checkIntegrationPolicy', () => {
 
     const unaffectedAction = await checkIntegrationPolicy({ user, action: 'manage_others', integrationId: 'int-locked' });
     expect(unaffectedAction.decision).toBe('allow');
+  });
+});
+
+describe('checkGroupPolicy', () => {
+  let User;
+  let user;
+
+  beforeAll(async () => {
+    const models = loadModels();
+    User = models.User;
+    user = await User.create({ email: 'group-user@test.com', password: 'password123', name: 'GroupUser', role: 'user' });
+  });
+
+  test('fails closed when no user is provided', async () => {
+    const result = await checkGroupPolicy({ action: 'manage_others', groupId: 'g-1' });
+    expect(result.decision).toBe('deny');
+    expect(result.error).toBe(true);
+  });
+
+  test('default-allows a group action with no matching rule', async () => {
+    const result = await checkGroupPolicy({ user, action: 'manage_others', groupId: 'g-1' });
+    expect(result.decision).toBe('allow');
+  });
+});
+
+describe('subjectType: group matching in checkPolicy', () => {
+  let User, PolicyRule, Group, GroupMembership;
+  let user, otherUser, groupA, groupB;
+
+  beforeAll(async () => {
+    const models = loadModels();
+    User = models.User;
+    PolicyRule = models.PolicyRule;
+    Group = models.Group;
+    GroupMembership = models.GroupMembership;
+
+    user = await User.create({ email: 'in-group-a@test.com', password: 'password123', name: 'InGroupA', role: 'user' });
+    otherUser = await User.create({ email: 'in-group-b@test.com', password: 'password123', name: 'InGroupB', role: 'user' });
+
+    const createdGroupA = await Group.create({ name: 'Group A', createdBy: user.id });
+    const createdGroupB = await Group.create({ name: 'Group B', createdBy: otherUser.id });
+    groupA = createdGroupA.id;
+    groupB = createdGroupB.id;
+
+    await GroupMembership.create({ groupId: groupA, userId: user.id, role: 'member' });
+    await GroupMembership.create({ groupId: groupB, userId: otherUser.id, role: 'member' });
+
+    await PolicyRule.create({
+      resourceType: 'integration', resourceMatch: 'shared-with-group-a', action: 'read',
+      subjectType: 'group', subjectId: groupA, effect: 'allow', isActive: true,
+      description: 'group-scoped grant for this test'
+    });
+    await PolicyRule.create({
+      resourceType: 'integration', resourceMatch: '*', action: 'read',
+      subjectType: '*', subjectId: null, effect: 'deny', isActive: true,
+      description: 'deny everyone else by default for this test'
+    });
+  });
+
+  test('a user in the granted group is allowed', async () => {
+    const result = await checkPolicy({ user: { id: user.id, role: 'user' }, resourceType: 'integration', resourceId: 'shared-with-group-a', action: 'read' });
+    expect(result.decision).toBe('allow');
+  });
+
+  test('a user in a different group is denied', async () => {
+    const result = await checkPolicy({ user: { id: otherUser.id, role: 'user' }, resourceType: 'integration', resourceId: 'shared-with-group-a', action: 'read' });
+    expect(result.decision).toBe('deny');
+  });
+
+  test('group grant does not leak to a different resource', async () => {
+    const result = await checkPolicy({ user: { id: user.id, role: 'user' }, resourceType: 'integration', resourceId: 'not-shared', action: 'read' });
+    expect(result.decision).toBe('deny');
   });
 });

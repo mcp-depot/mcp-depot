@@ -287,6 +287,17 @@ describe('HTTP integration', () => {
       expect(res.status).toBe(400);
     });
 
+    test('accepts subjectType=group through the real REST API (regression: Joi schema previously rejected it after the engine already supported it)', async () => {
+      const res = await request(app)
+        .post('/api/v1/policy/rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ resourceType: 'integration', resourceMatch: 'some-integration-id', action: 'manage_others', subjectType: 'group', subjectId: 'some-group-id', effect: 'allow' });
+      expect(res.status).toBe(201);
+      expect(res.body.subjectType).toBe('group');
+
+      await request(app).delete(`/api/v1/policy/rules/${res.body.id}`).set('Authorization', `Bearer ${adminToken}`);
+    });
+
     test('lists policy decisions and confirms the chain verifies intact', async () => {
       const decisions = await request(app).get('/api/v1/policy/decisions').set('Authorization', `Bearer ${adminToken}`);
       expect(decisions.status).toBe(200);

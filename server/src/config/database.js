@@ -55,6 +55,8 @@ const loadModels = () => {
   const PolicyRule = require('../models/PolicyRule');
   const PolicyDecision = require('../models/PolicyDecision');
   const PolicyChainState = require('../models/PolicyChainState');
+  const Group = require('../models/Group');
+  const GroupMembership = require('../models/GroupMembership');
 
   if (!associationsDefined) {
     User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
@@ -84,10 +86,16 @@ const loadModels = () => {
     // matchedRuleId comment for why this must stay a soft reference.
     PolicyDecision.belongsTo(PolicyRule, { foreignKey: 'matchedRuleId', as: 'matchedRule', constraints: false });
 
+    Group.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+    Group.hasMany(GroupMembership, { foreignKey: 'groupId', as: 'members' });
+    GroupMembership.belongsTo(Group, { foreignKey: 'groupId', as: 'group' });
+    GroupMembership.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    GroupMembership.belongsTo(User, { foreignKey: 'addedBy', as: 'addedByUser' });
+
     associationsDefined = true;
   }
 
-  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent, PolicyRule, PolicyDecision, PolicyChainState };
+  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent, PolicyRule, PolicyDecision, PolicyChainState, Group, GroupMembership };
 };
 
 const generatePassword = () => {
@@ -839,6 +847,14 @@ const createDefaultPolicyRules = async () => {
     {
       resourceType: 'integration', action: 'view_users', subjectType: 'role', subjectId: 'admin', effect: 'allow',
       description: 'Admins may view integration connection lists (seeded rule)'
+    },
+    {
+      resourceType: 'group', action: 'manage_others', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may manage a group they are not a group-admin of by default (seeded rule)'
+    },
+    {
+      resourceType: 'group', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may manage any group regardless of membership (seeded rule)'
     }
   ];
 

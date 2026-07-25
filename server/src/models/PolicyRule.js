@@ -25,13 +25,13 @@ const PolicyRule = sequelize.define('PolicyRule', {
     comment: "Vocabulary is per-resourceType, e.g. tool: 'execute'; session_channel: 'post'|'read'|'clear'|'subscribe'"
   },
   subjectType: {
-    type: DataTypes.ENUM('user', 'role', '*'),
+    type: DataTypes.ENUM('user', 'role', 'group', '*'),
     allowNull: false
   },
   subjectId: {
     type: DataTypes.STRING(255),
     allowNull: true,
-    comment: "userId or role name ('admin'/'user'); null when subjectType is '*'"
+    comment: "userId, role name ('admin'/'user'), or groupId depending on subjectType; null when subjectType is '*'"
   },
   effect: {
     type: DataTypes.ENUM('allow', 'deny', 'limit'),
