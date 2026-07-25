@@ -4,7 +4,7 @@ const { z } = require('zod/v3');
 const { loadModels } = require('../config/database');
 const { refreshToolsIfEnabled } = require('./server');
 const { slugify, computeExposedName } = require('../utils/slugify');
-const { BUILT_IN_INTEGRATION_NAMES } = require('../utils/builtInIntegrations');
+const { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration } = require('../utils/builtInIntegrations');
 const logger = require('../services/logger');
 
 const INTEGRATION_NAME = 'MCP Depot - AI Tools';
@@ -85,6 +85,9 @@ function registerMetaTools(server, toolsMap) {
       integration = await Integration.findOne({ where: { name: params.integration } });
       if (!integration) {
         return { content: [{ type: 'text', text: `Integration "${params.integration}" not found. Create it first with mcp_register_integration.` }], isError: true };
+      }
+      if (isBuiltInIntegration(integration)) {
+        return { content: [{ type: 'text', text: `"${integration.name}" is a built-in integration and is system-managed - tools cannot be added to it.` }], isError: true };
       }
     } else {
       const candidates = await Integration.findAll({
@@ -194,6 +197,9 @@ function registerMetaTools(server, toolsMap) {
     const integration = await Integration.findOne({ where: { name: params.integration } });
     if (!integration) {
       return { content: [{ type: 'text', text: `Integration "${params.integration}" not found.` }], isError: true };
+    }
+    if (isBuiltInIntegration(integration)) {
+      return { content: [{ type: 'text', text: `"${integration.name}" is a built-in integration and is system-managed - its tools cannot be removed.` }], isError: true };
     }
     const tool = await Tool.findOne({ where: { integrationId: integration.id, name: params.name } });
     if (!tool) {
