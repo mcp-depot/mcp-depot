@@ -17,7 +17,7 @@ const app = require('../src/app');
 describe('Groups API (/api/v1/groups)', () => {
   let User;
   let ownerToken, memberToken, outsiderToken, adminToken;
-  let ownerId, memberId, outsiderId;
+  let ownerId, memberId, outsiderId, adminId;
 
   const signIn = (userId) => {
     const jwt = require('jsonwebtoken');
@@ -42,6 +42,7 @@ describe('Groups API (/api/v1/groups)', () => {
     ownerId = owner.id;
     memberId = member.id;
     outsiderId = outsider.id;
+    adminId = admin.id;
 
     ownerToken = signIn(owner.id);
     memberToken = signIn(member.id);
@@ -194,6 +195,23 @@ describe('Groups API (/api/v1/groups)', () => {
       .delete(`/api/v1/groups/${groupId}/members/${outsiderId}`)
       .set('Authorization', `Bearer ${memberToken}`);
     expect(res.status).toBe(200);
+  });
+
+  test('?memberUserId lets an admin see a specific user\'s groups with their role in each - powers the Users page group management view', async () => {
+    // ownerId was demoted back to a plain member earlier (delegated
+    // administration test) and is still in the group at this point.
+    const res = await request(app)
+      .get(`/api/v1/groups?memberUserId=${ownerId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.some(g => g.id === groupId && g.membershipRole === 'member')).toBe(true);
+  });
+
+  test('?memberUserId is admin-only', async () => {
+    const res = await request(app)
+      .get(`/api/v1/groups?memberUserId=${adminId}`)
+      .set('Authorization', `Bearer ${memberToken}`);
+    expect(res.status).toBe(403);
   });
 
   test('the group-admin can delete the group', async () => {

@@ -79,9 +79,26 @@ router.post('/', auth, async (req, res) => {
 // Admins see every group; everyone else sees only groups they belong to.
 // Plain membership-scoped list query, not policy-gated - consistent with
 // every other list endpoint in this app (no single resourceId to check).
+//
+// ?memberUserId=<id> is a separate, admin-only mode: which groups does a
+// SPECIFIC (possibly different) user belong to, with their role in each -
+// powers the "manage this person's groups" view from the Users page. Not
+// available to non-admins - it's a cross-user lookup, not "my own groups".
 router.get('/', auth, async (req, res) => {
   try {
     const { Group, GroupMembership } = loadModels();
+
+    if (req.query.memberUserId) {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin only' });
+      }
+      const memberships = await GroupMembership.findAll({
+        where: { userId: req.query.memberUserId },
+        include: [{ model: Group, as: 'group' }],
+        order: [['createdAt', 'ASC']]
+      });
+      return res.json(memberships.map(m => ({ ...m.group.toJSON(), membershipRole: m.role })));
+    }
 
     let groups;
     if (req.user.role === 'admin') {
