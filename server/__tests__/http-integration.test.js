@@ -343,4 +343,50 @@ describe('HTTP integration', () => {
       expect(verify.body.valid).toBe(true);
     });
   });
+
+  describe('PUT /api/v1/users/:id', () => {
+    let adminToken, targetUser;
+
+    beforeAll(async () => {
+      const { User } = loadModels();
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config/env');
+
+      const admin = await User.create({ email: 'useredit-admin@example.com', password: 'password123', name: 'Admin', role: 'admin', mustResetPassword: false });
+      adminToken = jwt.sign({ userId: admin.id }, config.jwtSecret, { expiresIn: config.jwtExpire });
+
+      targetUser = await User.create({ email: 'useredit-target@example.com', password: 'original-password', name: 'Target', role: 'user', mustResetPassword: false });
+    });
+
+    test('regression: the client always sends a password field (even blank) on every edit - this must not 400', async () => {
+      const res = await request(app)
+        .put(`/api/v1/users/${targetUser.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ email: targetUser.email, name: 'Target Renamed', role: 'user', password: '' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Target Renamed');
+      expect(res.body.password).toBeUndefined();
+    });
+
+    test('a blank password on edit does not touch the existing password', async () => {
+      const login = await request(app).post('/api/v1/auth/login').send({ email: targetUser.email, password: 'original-password' });
+      expect(login.status).toBe(200);
+    });
+
+    test('a non-blank password on edit sets a new password and clears mustResetPassword', async () => {
+      const res = await request(app)
+        .put(`/api/v1/users/${targetUser.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ password: 'a-brand-new-password' });
+      expect(res.status).toBe(200);
+      expect(res.body.mustResetPassword).toBe(false);
+
+      const oldPasswordRejected = await request(app).post('/api/v1/auth/login').send({ email: targetUser.email, password: 'original-password' });
+      expect(oldPasswordRejected.status).toBe(401);
+
+      const newPasswordAccepted = await request(app).post('/api/v1/auth/login').send({ email: targetUser.email, password: 'a-brand-new-password' });
+      expect(newPasswordAccepted.status).toBe(200);
+    });
+  });
 });
