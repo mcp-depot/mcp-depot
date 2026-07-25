@@ -87,7 +87,6 @@ function Sidebar() {
     { section: 'Common', items: filterItems([
       { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
       { path: '/integrations', icon: Plug, label: 'Integrations', feature: 'integrations' },
-      { path: '/groups', icon: Users2, label: 'Groups' },
     ])},
     { section: 'Tools', items: filterItems([
       { path: '/tools', icon: Wrench, label: 'Tools', feature: 'tools' },
@@ -102,8 +101,11 @@ function Sidebar() {
       { path: '/monitoring', icon: Activity, label: 'Monitoring', feature: 'monitoring' },
       { path: '/health', icon: HeartPulse, label: 'Health', feature: 'health' },
     ])},
-    { section: 'System', items: [
+    { section: 'Identity', items: [
+      { path: '/groups', icon: Users2, label: 'Groups' },
       ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users', feature: 'users' }] : []),
+    ]},
+    { section: 'System', items: [
       ...(user?.role === 'admin' ? [{ path: '/policy', icon: Shield, label: 'Policy' }] : []),
       { path: '/settings', icon: Settings, label: 'Settings' },
     ]},
