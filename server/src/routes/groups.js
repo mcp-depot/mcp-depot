@@ -33,10 +33,15 @@ const updateGroupSchema = Joi.object({
   description: Joi.string().allow('')
 }).min(1);
 
+// userId OR email - GET /users (the only user directory) is admin-only, so
+// a non-admin group-admin has no way to resolve a colleague's UUID
+// themselves. Accepting an email lets the add-member UI just take an email
+// address and resolve it server-side.
 const addMemberSchema = Joi.object({
-  userId: Joi.string().uuid().required(),
+  userId: Joi.string().uuid(),
+  email: Joi.string().email(),
   role: Joi.string().valid('member', 'admin').default('member')
-});
+}).xor('userId', 'email');
 
 const updateMemberSchema = Joi.object({
   role: Joi.string().valid('member', 'admin').required()
@@ -177,18 +182,20 @@ router.post('/:id/members', auth, async (req, res) => {
       return res.status(403).json({ error: 'You do not administer this group' });
     }
 
-    const targetUser = await User.findByPk(value.userId);
+    const targetUser = value.userId
+      ? await User.findByPk(value.userId)
+      : await User.findOne({ where: { email: value.email } });
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
 
     const [membership, created] = await GroupMembership.findOrCreate({
-      where: { groupId: group.id, userId: value.userId },
+      where: { groupId: group.id, userId: targetUser.id },
       defaults: { id: randomUUID(), role: value.role, addedBy: req.user.id }
     });
     if (!created) return res.status(409).json({ error: 'User is already a member of this group' });
 
-    await audit.log({ userId: req.user.id, action: 'add_group_member', details: { groupId: group.id, targetUserId: value.userId, role: value.role }, status: 'success' });
+    await audit.log({ userId: req.user.id, action: 'add_group_member', details: { groupId: group.id, targetUserId: targetUser.id, role: value.role }, status: 'success' });
 
-    res.status(201).json(membership);
+    res.status(201).json({ ...membership.toJSON(), user: { id: targetUser.id, name: targetUser.name, email: targetUser.email } });
   } catch (err) {
     logger.error({ err: err.message }, 'Add group member error');
     res.status(500).json({ error: 'Failed to add group member' });

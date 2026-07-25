@@ -71,6 +71,43 @@ describe('Groups API (/api/v1/groups)', () => {
     expect(view.body.members[0].role).toBe('admin');
   });
 
+  test('members can also be added by email (no admin-only user lookup required)', async () => {
+    const create = await request(app)
+      .post('/api/v1/groups')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Email Add Test' });
+    const emailGroupId = create.body.id;
+
+    const res = await request(app)
+      .post(`/api/v1/groups/${emailGroupId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: 'outsider@test.com' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.userId).toBe(outsiderId);
+    expect(res.body.user.email).toBe('outsider@test.com');
+  });
+
+  test('rejects a request supplying both userId and email, or neither', async () => {
+    const create = await request(app)
+      .post('/api/v1/groups')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Xor Validation Test' });
+    const xorGroupId = create.body.id;
+
+    const both = await request(app)
+      .post(`/api/v1/groups/${xorGroupId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ userId: outsiderId, email: 'outsider@test.com' });
+    expect(both.status).toBe(400);
+
+    const neither = await request(app)
+      .post(`/api/v1/groups/${xorGroupId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({});
+    expect(neither.status).toBe(400);
+  });
+
   test('an outsider (not a member) gets 404, not 403, on a group they cannot see', async () => {
     const res = await request(app).get(`/api/v1/groups/${groupId}`).set('Authorization', `Bearer ${outsiderToken}`);
     expect(res.status).toBe(404);

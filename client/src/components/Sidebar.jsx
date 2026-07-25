@@ -17,6 +17,7 @@ import {
   Layers,
   MessagesSquare,
   Users,
+  Users2,
   Shield,
   HeartPulse,
   Sun,
@@ -86,6 +87,7 @@ function Sidebar() {
     { section: 'Common', items: filterItems([
       { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
       { path: '/integrations', icon: Plug, label: 'Integrations', feature: 'integrations' },
+      { path: '/groups', icon: Users2, label: 'Groups' },
     ])},
     { section: 'Tools', items: filterItems([
       { path: '/tools', icon: Wrench, label: 'Tools', feature: 'tools' },
