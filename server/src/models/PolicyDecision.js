@@ -35,8 +35,16 @@ const PolicyDecision = sequelize.define('PolicyDecision', {
   matchedRuleId: {
     type: DataTypes.UUID,
     allowNull: true,
-    references: { model: 'policy_rules', key: 'id' },
-    comment: 'Null when no rule matched and the default (allow) applied'
+    // Deliberately NOT a real foreign key (no `references`) - this is a
+    // hash-chained, immutable record, and a rule an admin later deletes must
+    // not retroactively change what's already been written and hashed here.
+    // An enforced FK with Sequelize's default ON DELETE SET NULL did exactly
+    // that: deleting a PolicyRule silently nulled matchedRuleId on every
+    // PolicyDecision that had referenced it, breaking that record's hash and
+    // making ordinary rule cleanup indistinguishable from tampering. See
+    // migrations/20260725-drop-policy-decisions-matchedrule-fk.js for the
+    // matching fix on installs that already have the old constraint.
+    comment: 'Null when no rule matched and the default (allow) applied. Soft reference only - the referenced rule may no longer exist.'
   },
   reason: {
     type: DataTypes.STRING(255),

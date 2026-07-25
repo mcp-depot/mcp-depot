@@ -79,7 +79,10 @@ const loadModels = () => {
 
     PolicyRule.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
     PolicyDecision.belongsTo(User, { foreignKey: 'userId', as: 'user' });
-    PolicyDecision.belongsTo(PolicyRule, { foreignKey: 'matchedRuleId', as: 'matchedRule' });
+    // constraints: false - the association is for the /policy/decisions
+    // include (join) only. No DB-level FK: see PolicyDecision.js's
+    // matchedRuleId comment for why this must stay a soft reference.
+    PolicyDecision.belongsTo(PolicyRule, { foreignKey: 'matchedRuleId', as: 'matchedRule', constraints: false });
 
     associationsDefined = true;
   }
@@ -783,6 +786,56 @@ const createDefaultTool = async () => {
   }
 };
 
+// Seeds the default "only admins bypass ownership" rules for the two
+// resource types whose routes used to hardcode `role !== 'admin'` for this.
+// Runs on every boot (findOrCreate is idempotent per resourceType/action/
+// subjectType/subjectId), same as createDefaultUser/createDefaultTool -
+// this is what makes the admin-bypass behavior editable/auditable through
+// the Policy UI instead of a hardcoded JS comparison, while preserving the
+// exact prior behavior on the first boot after upgrade: nobody except
+// role=admin can act on another user's session context/channel, until an
+// admin edits or adds to these seeded rules.
+const createDefaultPolicyRules = async () => {
+  const PolicyRule = require('../models/PolicyRule');
+
+  const seeds = [
+    {
+      resourceType: 'session_context', action: 'manage_others', subjectType: '*', subjectId: null, effect: 'deny',
+      description: "Only admins may modify or delete another user's session context by default (seeded rule)"
+    },
+    {
+      resourceType: 'session_context', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins bypass session context ownership (seeded rule)'
+    },
+    {
+      resourceType: 'session_channel', action: 'manage_others', subjectType: '*', subjectId: null, effect: 'deny',
+      description: "Only admins may clear another user's session channel by default (seeded rule)"
+    },
+    {
+      resourceType: 'session_channel', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins bypass session channel ownership (seeded rule)'
+    }
+  ];
+
+  for (const seed of seeds) {
+    await PolicyRule.findOrCreate({
+      where: {
+        resourceType: seed.resourceType,
+        action: seed.action,
+        subjectType: seed.subjectType,
+        subjectId: seed.subjectId
+      },
+      defaults: {
+        resourceMatch: '*',
+        effect: seed.effect,
+        isActive: true,
+        priority: 0,
+        description: seed.description
+      }
+    });
+  }
+};
+
 const connectDB = async (retries = 5, delay = 3000) => {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -817,10 +870,11 @@ const connectDB = async (retries = 5, delay = 3000) => {
   try {
     await createDefaultUser();
     await createDefaultTool();
+    await createDefaultPolicyRules();
   } catch (error) {
     logger.fatal({ err: error.message }, 'Database setup error');
     process.exit(1);
   }
 };
 
-module.exports = { sequelize, connectDB, loadModels };
+module.exports = { sequelize, connectDB, loadModels, createDefaultPolicyRules };

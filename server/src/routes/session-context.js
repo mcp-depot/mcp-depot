@@ -97,8 +97,11 @@ router.post('/', auth, async (req, res) => {
     });
 
     if (!created) {
-      if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'You do not own this context' });
+      if (ctx.createdBy !== req.user.id && ctx.createdBy != null) {
+        const bypassResult = await checkSessionContextPolicy({ user: req.user, action: 'manage_others', name: value.name });
+        if (bypassResult.decision === 'deny') {
+          return res.status(403).json({ error: 'You do not own this context' });
+        }
       }
       const updateData = { content: value.content, isShared: value.shared };
       if (ttlProvided) updateData.ttlHours = ttlHours;
@@ -122,8 +125,11 @@ router.patch('/:name/share', auth, async (req, res) => {
       return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
-    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'You do not own this context' });
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null) {
+      const bypassResult = await checkSessionContextPolicy({ user: req.user, action: 'manage_others', name: req.params.name });
+      if (bypassResult.decision === 'deny') {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
     }
     const isShared = typeof req.body.shared === 'boolean' ? req.body.shared : !ctx.isShared;
     await ctx.update({ isShared });
@@ -144,8 +150,11 @@ router.patch('/:name', auth, async (req, res) => {
       return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
-    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'You do not own this context' });
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null) {
+      const bypassResult = await checkSessionContextPolicy({ user: req.user, action: 'manage_others', name: req.params.name });
+      if (bypassResult.decision === 'deny') {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
     }
     const updates = {};
     if (typeof req.body.shared === 'boolean') updates.isShared = req.body.shared;
@@ -168,8 +177,11 @@ router.delete('/:name', auth, async (req, res) => {
       return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
-    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'You do not own this context' });
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null) {
+      const bypassResult = await checkSessionContextPolicy({ user: req.user, action: 'manage_others', name: req.params.name });
+      if (bypassResult.decision === 'deny') {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
     }
     await ctx.destroy();
 

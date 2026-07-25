@@ -235,8 +235,11 @@ router.delete('/:channel', auth, async (req, res) => {
       return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
-    if (first.createdBy !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Forbidden' });
+    if (first.createdBy !== req.user.id) {
+      const bypassResult = await checkSessionChannelPolicy({ user: req.user, action: 'manage_others', channel: req.params.channel });
+      if (bypassResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
     const deleted = await SessionChannel.destroy({ where: { channel: req.params.channel } });
 
