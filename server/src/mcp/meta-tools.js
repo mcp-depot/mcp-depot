@@ -83,13 +83,17 @@ function registerMetaTools(server, toolsMap, mcpServerInstance) {
     if (existing) {
       return { content: [{ type: 'text', text: `Integration "${params.name}" already exists. Use mcp_register_tool to add tools to it.` }], isError: true };
     }
-    const admin = await User.findOne({ where: { role: 'admin' } });
+    // Attribute to the real caller when the session/REST request identifies
+    // one; fall back to an admin only when it can't be resolved (e.g. a
+    // stdio session with no API key/JWT), so headless setups keep working.
+    const caller = await resolveCallerUser(extra, mcpServerInstance);
+    const owner = caller || await User.findOne({ where: { role: 'admin' } });
     // Always created private first - sharing company-wide is a privileged
     // action gated by the same 'share' policy the REST visibility-toggle
     // route enforces, evaluated below against the real caller once the
     // integration (and therefore its id) exists.
     const integration = await Integration.create({
-      userId: admin ? admin.id : null, type: params.type || 'custom', name: params.name,
+      userId: owner ? owner.id : null, type: params.type || 'custom', name: params.name,
       description: params.description || '',
       config: { baseUrl: params.baseUrl, auth: { type: 'none' }, headers: {}, timeout: 30000 },
       metadata: { source: 'ai-generated' },
@@ -98,7 +102,6 @@ function registerMetaTools(server, toolsMap, mcpServerInstance) {
 
     let sharedNote = '';
     if (params.shared) {
-      const caller = await resolveCallerUser(extra, mcpServerInstance);
       if (!caller) {
         sharedNote = ' It was requested as company-wide shared, but the caller could not be identified from this session, so it was created private instead.';
       } else {
@@ -127,7 +130,7 @@ function registerMetaTools(server, toolsMap, mcpServerInstance) {
     };
   });
 
-  handlerMap.mcp_register_tool = wrapHandler(async (params) => {
+  handlerMap.mcp_register_tool = wrapHandler(async (params, extra) => {
     const { Integration, Tool, User } = loadModels();
     const { Op } = require('sequelize');
     let integration;
@@ -190,10 +193,11 @@ function registerMetaTools(server, toolsMap, mcpServerInstance) {
         .filter(([, p]) => p && p.required)
         .map(([key]) => key)
     } : {};
-    const admin = await User.findOne({ where: { role: 'admin' } });
+    const caller = await resolveCallerUser(extra, mcpServerInstance);
+    const owner = caller || await User.findOne({ where: { role: 'admin' } });
     const exposedName = computeExposedName(integration.slug || slugify(integration.name), params.name);
     const tool = await Tool.create({
-      userId: admin ? admin.id : null, integrationId: integration.id, name: params.name,
+      userId: owner ? owner.id : null, integrationId: integration.id, name: params.name,
       description: params.description,
       endpoint: {
         path: params.path, method: (params.method || 'GET').toUpperCase(),

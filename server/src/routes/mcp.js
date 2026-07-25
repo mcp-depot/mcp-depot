@@ -1036,7 +1036,7 @@ router.post('/register-tool', checkMcpAuth, async (req, res) => {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_tool');
     if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
-    const result = await entry.handler(req.body);
+    const result = await entry.handler(req.body, { user: req.user });
     const text = result.content?.[0]?.text || JSON.stringify(result);
     res.status(result.isError ? 400 : 201).json({ result: text });
   } catch (err) { res.status(500).json({ error: err.message }); }

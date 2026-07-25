@@ -63,6 +63,7 @@ describe('mcp_register_integration - shared:true is policy-gated, not a free pas
     expect(res.isError).toBeFalsy();
     const integration = await Integration.findOne({ where: { name: 'Admin Shared Tool' } });
     expect(integration.visibility).toBe('shared');
+    expect(integration.userId).toBe(admin.id);
 
     const decision = await PolicyDecision.findOne({ where: { userId: admin.id, resourceId: integration.id, action: 'share' } });
     expect(decision).not.toBeNull();
@@ -79,6 +80,9 @@ describe('mcp_register_integration - shared:true is policy-gated, not a free pas
 
     const integration = await Integration.findOne({ where: { name: 'Regular User Shared Tool' } });
     expect(integration.visibility).toBe('private');
+    // Denied the *share* request, but ownership attribution is a separate
+    // concern - it's still correctly attributed to the real caller.
+    expect(integration.userId).toBe(regularUser.id);
   });
 
   test('when the caller cannot be identified at all (no session, no REST user), shared:true still fails safe to private', async () => {
@@ -111,5 +115,57 @@ describe('mcp_register_integration - shared:true is policy-gated, not a free pas
     expect(res.isError).toBeFalsy();
     const integration = await Integration.findOne({ where: { name: 'Plain Private Tool' } });
     expect(integration.visibility).toBe('private');
+  });
+});
+
+describe('identity threading - chat-created resources are attributed to the real caller', () => {
+  test('an integration created via a regular (non-admin) session is owned by that user, not a hardcoded admin', async () => {
+    const res = await handlers.mcp_register_integration(
+      { name: 'Owned By Regular User', baseUrl: 'http://example.com' },
+      { sessionId: 'regular-session' }
+    );
+    expect(res.isError).toBeFalsy();
+    const integration = await Integration.findOne({ where: { name: 'Owned By Regular User' } });
+    expect(integration.userId).toBe(regularUser.id);
+  });
+
+  test('falls back to an admin owner when the caller cannot be identified at all', async () => {
+    const res = await handlers.mcp_register_integration(
+      { name: 'Owned By Fallback Admin', baseUrl: 'http://example.com' },
+      {}
+    );
+    expect(res.isError).toBeFalsy();
+    const integration = await Integration.findOne({ where: { name: 'Owned By Fallback Admin' } });
+    expect(integration.userId).toBe(admin.id);
+  });
+
+  test('a tool added via a regular session is attributed to that user, not a hardcoded admin', async () => {
+    await handlers.mcp_register_integration(
+      { name: 'Tool Ownership Target', baseUrl: 'http://example.com' },
+      { sessionId: 'regular-session' }
+    );
+    const res = await handlers.mcp_register_tool(
+      { integration: 'Tool Ownership Target', name: 'owned-tool', path: '/x', method: 'GET' },
+      { sessionId: 'regular-session' }
+    );
+    expect(res.isError).toBeFalsy();
+    const { Tool } = loadModels();
+    const tool = await Tool.findOne({ where: { name: 'owned-tool' } });
+    expect(tool.userId).toBe(regularUser.id);
+  });
+
+  test('a REST-resolved user (extra.user) owns the tool it registers, same as a session lookup', async () => {
+    await handlers.mcp_register_integration(
+      { name: 'REST Tool Ownership Target', baseUrl: 'http://example.com' },
+      { user: regularUser }
+    );
+    const res = await handlers.mcp_register_tool(
+      { integration: 'REST Tool Ownership Target', name: 'rest-owned-tool', path: '/x', method: 'GET' },
+      { user: regularUser }
+    );
+    expect(res.isError).toBeFalsy();
+    const { Tool } = loadModels();
+    const tool = await Tool.findOne({ where: { name: 'rest-owned-tool' } });
+    expect(tool.userId).toBe(regularUser.id);
   });
 });
