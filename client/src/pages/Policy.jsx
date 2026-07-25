@@ -14,6 +14,45 @@ const SUBJECT_TYPE_OPTIONS = [
   { value: 'user', label: 'Specific user' },
 ];
 
+// The engine itself treats resourceType/action as free strings on purpose
+// (see policy.js) so any future resource can adopt it with zero engine
+// changes. These lists are just the resource types/actions actually wired
+// into a call site today - scoping the dropdown to them prevents the
+// silent-no-op failure mode of a rule that never matches anything because
+// of a typo (e.g. "toooools"). CUSTOM_OPTION keeps the free-string
+// escape hatch available for a resource type added later but not yet
+// listed here.
+const RESOURCE_TYPE_OPTIONS = [
+  { value: 'tool', label: 'Tool' },
+  { value: 'session_context', label: 'Session Context' },
+  { value: 'session_channel', label: 'Session Channel' },
+  { value: '*', label: 'Everyone (all resource types)' },
+];
+
+const ACTIONS_BY_RESOURCE_TYPE = {
+  tool: ['execute'],
+  session_context: ['read', 'write', 'delete'],
+  session_channel: ['read', 'write', 'delete', 'subscribe'],
+};
+
+const CUSTOM_OPTION = { value: '__custom__', label: 'Other (custom)...' };
+
+function getActionOptions(resourceType) {
+  const known = resourceType === '*'
+    ? [...new Set(Object.values(ACTIONS_BY_RESOURCE_TYPE).flat())]
+    : (ACTIONS_BY_RESOURCE_TYPE[resourceType] || []);
+  return [{ value: '*', label: 'All actions' }, ...known.map(a => ({ value: a, label: a })), CUSTOM_OPTION];
+}
+
+// Whatever the current value is, show it as its matching known option, or
+// fall back to the custom sentinel - this is also what makes switching
+// resourceType safely self-correcting: if the current action doesn't apply
+// to the newly-picked resource type, it just reappears as "Other (custom)"
+// with its value intact, rather than being silently reset or hidden.
+function selectedOrCustom(options, value) {
+  return options.find(o => o.value === value) || CUSTOM_OPTION;
+}
+
 const EFFECT_OPTIONS = [
   { value: 'allow', label: 'Allow' },
   { value: 'deny', label: 'Deny' },
@@ -239,15 +278,44 @@ function RulesTab() {
           <form id="policy-rule-form" onSubmit={handleSubmit}>
             <div className="form-group">
               <label>Resource type</label>
-              <input type="text" value={form.resourceType} onChange={e => setForm({ ...form, resourceType: e.target.value })} placeholder="tool" required />
+              <StyledSelect
+                options={[...RESOURCE_TYPE_OPTIONS, CUSTOM_OPTION]}
+                value={selectedOrCustom(RESOURCE_TYPE_OPTIONS, form.resourceType)}
+                onChange={opt => setForm({ ...form, resourceType: opt.value === CUSTOM_OPTION.value ? '' : opt.value })}
+                isSearchable={false}
+              />
+              {selectedOrCustom(RESOURCE_TYPE_OPTIONS, form.resourceType).value === CUSTOM_OPTION.value && (
+                <input
+                  type="text"
+                  value={form.resourceType}
+                  onChange={e => setForm({ ...form, resourceType: e.target.value })}
+                  placeholder="custom_resource_type"
+                  required
+                  style={{ marginTop: '0.5rem' }}
+                />
+              )}
             </div>
             <div className="form-group">
               <label>Resource match (name, or * for all)</label>
               <input type="text" value={form.resourceMatch} onChange={e => setForm({ ...form, resourceMatch: e.target.value })} placeholder="*" />
             </div>
             <div className="form-group">
-              <label>Action (or * for all)</label>
-              <input type="text" value={form.action} onChange={e => setForm({ ...form, action: e.target.value })} placeholder="execute" />
+              <label>Action</label>
+              <StyledSelect
+                options={getActionOptions(form.resourceType)}
+                value={selectedOrCustom(getActionOptions(form.resourceType), form.action)}
+                onChange={opt => setForm({ ...form, action: opt.value === CUSTOM_OPTION.value ? '' : opt.value })}
+                isSearchable={false}
+              />
+              {selectedOrCustom(getActionOptions(form.resourceType), form.action).value === CUSTOM_OPTION.value && (
+                <input
+                  type="text"
+                  value={form.action}
+                  onChange={e => setForm({ ...form, action: e.target.value })}
+                  placeholder="custom_action"
+                  style={{ marginTop: '0.5rem' }}
+                />
+              )}
             </div>
             <div className="form-group">
               <label>Subject</label>
