@@ -5,6 +5,8 @@ const { loadModels } = require('../config/database');
 const { refreshToolsIfEnabled } = require('./server');
 const { slugify, computeExposedName } = require('../utils/slugify');
 const { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration } = require('../utils/builtInIntegrations');
+const { checkIntegrationPolicy } = require('../services/resource-policy');
+const audit = require('../services/audit');
 const logger = require('../services/logger');
 
 const INTEGRATION_NAME = 'MCP Depot - AI Tools';
@@ -18,15 +20,35 @@ async function guardIntegrationActive() {
   return null;
 }
 
+// Resolves who is actually calling a meta-tool, so actions like "share this
+// company-wide" can be policy-checked against the real caller instead of a
+// hardcoded admin. Two paths feed this: the live MCP session (stdio/SSE),
+// where the API key or JWT presented at connect time already resolved a
+// userId onto the session (see server.js's authenticateAndRun/_sessionClientMap
+// - the same mechanism ordinary tool calls use for policy checks), and the
+// REST convenience wrapper under /api/v1/mcp/*, which resolves req.user via
+// checkMcpAuth and passes it straight through as extra.user. Returns null
+// (never guesses) if neither source identifies a real user.
+async function resolveCallerUser(extra, mcpServerInstance) {
+  const { User } = loadModels();
+  if (extra?.user) return extra.user;
+  const sessionId = extra?.sessionId;
+  const sessionData = sessionId && mcpServerInstance?._sessionClientMap?.get(sessionId);
+  if (sessionData?.userId) {
+    return User.findByPk(sessionData.userId);
+  }
+  return null;
+}
+
 function wrapHandler(handler) {
-  return async (params) => {
+  return async (params, extra) => {
     const disabled = await guardIntegrationActive();
     if (disabled) return { content: [{ type: 'text', text: disabled }], isError: true };
-    return handler(params);
+    return handler(params, extra);
   };
 }
 
-function registerMetaTools(server, toolsMap) {
+function registerMetaTools(server, toolsMap, mcpServerInstance) {
   const handlerMap = {};
 
   handlerMap.mcp_list_integrations = wrapHandler(async () => {
@@ -55,24 +77,52 @@ function registerMetaTools(server, toolsMap) {
     };
   });
 
-  handlerMap.mcp_register_integration = wrapHandler(async (params) => {
+  handlerMap.mcp_register_integration = wrapHandler(async (params, extra) => {
     const { Integration, User } = loadModels();
     const existing = await Integration.findOne({ where: { name: params.name } });
     if (existing) {
       return { content: [{ type: 'text', text: `Integration "${params.name}" already exists. Use mcp_register_tool to add tools to it.` }], isError: true };
     }
     const admin = await User.findOne({ where: { role: 'admin' } });
+    // Always created private first - sharing company-wide is a privileged
+    // action gated by the same 'share' policy the REST visibility-toggle
+    // route enforces, evaluated below against the real caller once the
+    // integration (and therefore its id) exists.
     const integration = await Integration.create({
       userId: admin ? admin.id : null, type: params.type || 'custom', name: params.name,
       description: params.description || '',
       config: { baseUrl: params.baseUrl, auth: { type: 'none' }, headers: {}, timeout: 30000 },
       metadata: { source: 'ai-generated' },
-      visibility: params.shared ? 'shared' : 'private'
+      visibility: 'private'
     });
+
+    let sharedNote = '';
+    if (params.shared) {
+      const caller = await resolveCallerUser(extra, mcpServerInstance);
+      if (!caller) {
+        sharedNote = ' It was requested as company-wide shared, but the caller could not be identified from this session, so it was created private instead.';
+      } else {
+        const policyResult = await checkIntegrationPolicy({ user: { id: caller.id, role: caller.role }, action: 'share', integrationId: integration.id });
+        if (policyResult.decision === 'allow') {
+          await integration.update({ visibility: 'shared' });
+          await audit.log({
+            userId: caller.id,
+            action: 'update_visibility',
+            integrationType: integration.type,
+            integrationId: integration.id,
+            details: { visibility: 'shared', via: 'ai-chat' },
+            status: 'success'
+          });
+        } else {
+          sharedNote = ` It was requested as company-wide shared, but only admins can share an integration company-wide (${policyResult.reason || 'denied by policy'}), so it was created private instead.`;
+        }
+      }
+    }
+
     return {
       content: [{
         type: 'text',
-        text: `Integration "${params.name}" created (ID: ${integration.id}). Now call mcp_register_tool to add tools to it. Remember to configure credentials in the MCP Depot UI if the API requires authentication.`
+        text: `Integration "${params.name}" created (ID: ${integration.id}).${sharedNote} Now call mcp_register_tool to add tools to it. Remember to configure credentials in the MCP Depot UI if the API requires authentication.`
       }]
     };
   });

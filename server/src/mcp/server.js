@@ -633,7 +633,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   registerMetaTools() {
     const { registerMetaTools } = require('./meta-tools');
     // Always register — each handler checks isActive at call time
-    registerMetaTools(this.server, this.toolsMap);
+    registerMetaTools(this.server, this.toolsMap, this);
   }
 
   registerWatchUntilDone() {
