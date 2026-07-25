@@ -5,7 +5,7 @@ const { loadModels } = require('../config/database');
 const { readableWhere } = require('../utils/queryHelpers');
 const audit = require('../services/audit');
 const logger = require('../services/logger');
-const { checkSessionContextPolicy } = require('../services/session-policy');
+const { checkSessionContextPolicy } = require('../services/resource-policy');
 
 const router = express.Router();
 

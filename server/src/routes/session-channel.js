@@ -6,7 +6,7 @@ const { loadModels } = require('../config/database');
 const channelEmitter = require('../services/channel-events');
 const audit = require('../services/audit');
 const logger = require('../services/logger');
-const { checkSessionChannelPolicy } = require('../services/session-policy');
+const { checkSessionChannelPolicy } = require('../services/resource-policy');
 
 const router = express.Router();
 

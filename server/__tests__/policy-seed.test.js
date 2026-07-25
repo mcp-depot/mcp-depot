@@ -6,7 +6,7 @@ process.env.NODE_ENV = 'test';
 delete process.env.DATABASE_URL;
 
 const { sequelize, loadModels, createDefaultPolicyRules } = require('../src/config/database');
-const { checkSessionContextPolicy, checkSessionChannelPolicy } = require('../src/services/session-policy');
+const { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy } = require('../src/services/resource-policy');
 
 describe('createDefaultPolicyRules', () => {
   let User, PolicyRule;
@@ -26,15 +26,15 @@ describe('createDefaultPolicyRules', () => {
     await sequelize.close();
   });
 
-  test('seeds exactly 4 rules and is idempotent on repeated calls', async () => {
+  test('seeds exactly 10 rules and is idempotent on repeated calls', async () => {
     await createDefaultPolicyRules();
     const afterFirst = await PolicyRule.count();
-    expect(afterFirst).toBe(4);
+    expect(afterFirst).toBe(10);
 
     await createDefaultPolicyRules();
     await createDefaultPolicyRules();
     const afterRepeat = await PolicyRule.count();
-    expect(afterRepeat).toBe(4);
+    expect(afterRepeat).toBe(10);
   });
 
   test('an admin bypasses session context ownership by default (manage_others allowed)', async () => {
@@ -74,5 +74,27 @@ describe('createDefaultPolicyRules', () => {
 
     const result = await checkSessionContextPolicy({ user: admin, action: 'manage_others', name: 'x' });
     expect(result.decision).toBe('deny');
+  });
+
+  test('an admin may share, manage others\' credentials, and view users on an integration by default', async () => {
+    const share = await checkIntegrationPolicy({ user: admin, action: 'share', integrationId: 'int-x' });
+    expect(share.decision).toBe('allow');
+
+    const manageOthers = await checkIntegrationPolicy({ user: admin, action: 'manage_others', integrationId: 'int-x' });
+    expect(manageOthers.decision).toBe('allow');
+
+    const viewUsers = await checkIntegrationPolicy({ user: admin, action: 'view_users', integrationId: 'int-x' });
+    expect(viewUsers.decision).toBe('allow');
+  });
+
+  test('a regular user is denied share, manage_others, and view_users on an integration by default', async () => {
+    const share = await checkIntegrationPolicy({ user, action: 'share', integrationId: 'int-x' });
+    expect(share.decision).toBe('deny');
+
+    const manageOthers = await checkIntegrationPolicy({ user, action: 'manage_others', integrationId: 'int-x' });
+    expect(manageOthers.decision).toBe('deny');
+
+    const viewUsers = await checkIntegrationPolicy({ user, action: 'view_users', integrationId: 'int-x' });
+    expect(viewUsers.decision).toBe('deny');
   });
 });

@@ -16,6 +16,7 @@ const { executeComposite, executeCompositeTool } = require('../services/composit
 const { refreshMcpTools } = require('../utils/mcpHelpers');
 const { ownerWhereId } = require('../utils/queryHelpers');
 const { slugify, computeExposedName } = require('../utils/slugify');
+const { checkIntegrationPolicy } = require('../services/resource-policy');
 
 const router = express.Router();
 
@@ -491,8 +492,11 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       if (!['private', 'shared'].includes(visibility)) {
         return res.status(400).json({ error: 'Invalid visibility value' });
       }
-      if (visibility === 'shared' && req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+      if (visibility === 'shared') {
+        const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'share', integrationId: integration.id });
+        if (policyResult.decision === 'deny') {
+          return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+        }
       }
       integration.visibility = visibility;
     }
@@ -1282,8 +1286,11 @@ router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
     if (!['private', 'shared'].includes(visibility)) {
       return res.status(400).json({ error: 'Invalid visibility value' });
     }
-    if (visibility === 'shared' && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+    if (visibility === 'shared') {
+      const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'share', integrationId: integration.id });
+      if (policyResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+      }
     }
 
     await integration.update({ visibility });
@@ -1316,9 +1323,13 @@ router.patch('/:id/credentials', authWithApiKey, async (req, res) => {
       return res.status(400).json({ error: 'Credentials are required' });
     }
     
-    const isOwnerOrAdmin = integration.userId === req.user.id || req.user.role === 'admin';
+    let isOwnerOrAdmin = integration.userId === req.user.id;
+    if (!isOwnerOrAdmin) {
+      const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'manage_others', integrationId: integration.id });
+      isOwnerOrAdmin = policyResult.decision === 'allow';
+    }
     const isSharedForOthers = integration.visibility === 'shared' && !isOwnerOrAdmin;
-    
+
     if (isSharedForOthers) {
       const { UserIntegrationCredentials } = loadModels();
       const encryptedCreds = encryption.encrypt(JSON.stringify(credentials));
@@ -1370,8 +1381,12 @@ router.delete('/:id/credentials', authWithApiKey, async (req, res) => {
     }
     
     const { UserIntegrationCredentials } = loadModels();
-    const isOwnerOrAdmin = integration.userId === req.user.id || req.user.role === 'admin';
-    
+    let isOwnerOrAdmin = integration.userId === req.user.id;
+    if (!isOwnerOrAdmin) {
+      const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'manage_others', integrationId: integration.id });
+      isOwnerOrAdmin = policyResult.decision === 'allow';
+    }
+
     if (isOwnerOrAdmin) {
       const config = { ...integration.config };
       delete config.auth.credentials;
@@ -1399,7 +1414,8 @@ router.delete('/:id/credentials', authWithApiKey, async (req, res) => {
 
 router.get('/:id/users', authWithApiKey, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
+    const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'view_users', integrationId: req.params.id });
+    if (policyResult.decision === 'deny') {
       return res.status(403).json({ error: 'Admin only' });
     }
 
@@ -1408,12 +1424,12 @@ router.get('/:id/users', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    const { UserIntegrationCredentials, User } = loadModels();
     const userCreds = await UserIntegrationCredentials.findAll({
       where: { integrationId: req.params.id },
       attributes: ['userId', 'updatedAt']
     });
 
-    const { User } = loadModels();
     const users = await Promise.all(
       userCreds.map(async (uc) => {
         const user = await User.findByPk(uc.userId, { attributes: ['id', 'name', 'email'] });

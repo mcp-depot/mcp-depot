@@ -786,15 +786,16 @@ const createDefaultTool = async () => {
   }
 };
 
-// Seeds the default "only admins bypass ownership" rules for the two
-// resource types whose routes used to hardcode `role !== 'admin'` for this.
-// Runs on every boot (findOrCreate is idempotent per resourceType/action/
-// subjectType/subjectId), same as createDefaultUser/createDefaultTool -
-// this is what makes the admin-bypass behavior editable/auditable through
-// the Policy UI instead of a hardcoded JS comparison, while preserving the
-// exact prior behavior on the first boot after upgrade: nobody except
-// role=admin can act on another user's session context/channel, until an
-// admin edits or adds to these seeded rules.
+// Seeds the default rules for every resourceType/action pair whose route
+// used to hardcode a `role === 'admin'` comparison for something other than
+// find-scoping (find-scoping ones - e.g. "list only my own integrations" -
+// stay as plain JS; there's no single resourceId to hang a rule on). Runs on
+// every boot (findOrCreate is idempotent per resourceType/action/subjectType/
+// subjectId), same as createDefaultUser/createDefaultTool - this is what
+// makes the admin-only behavior editable/auditable through the Policy UI
+// instead of a hardcoded JS comparison, while preserving the exact prior
+// behavior on the first boot after upgrade: nobody except role=admin gets
+// through, until an admin edits or adds to these seeded rules.
 const createDefaultPolicyRules = async () => {
   const PolicyRule = require('../models/PolicyRule');
 
@@ -814,6 +815,30 @@ const createDefaultPolicyRules = async () => {
     {
       resourceType: 'session_channel', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
       description: 'Admins bypass session channel ownership (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'share', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may share an integration company-wide by default (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'share', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may share integrations company-wide (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'manage_others', subjectType: '*', subjectId: null, effect: 'deny',
+      description: "Only admins may manage another user's integration credentials by default (seeded rule)"
+    },
+    {
+      resourceType: 'integration', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins bypass integration credential ownership (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'view_users', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may view which users are connected to an integration by default (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'view_users', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may view integration connection lists (seeded rule)'
     }
   ];
 
