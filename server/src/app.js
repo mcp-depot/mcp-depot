@@ -23,6 +23,7 @@ const oauthRoutes = require('./routes/oauth');
 const agentsRoutes = require('./routes/agents');
 const healthRoutes = require('./routes/health');
 const usersRoutes = require('./routes/users');
+const policyRoutes = require('./routes/policy');
 
 const app = express();
 
@@ -100,6 +101,7 @@ v1Router.use('/agents', agentsRoutes);
 v1Router.use('/personas', agentsRoutes);
 v1Router.use('/health', healthRoutes);
 v1Router.use('/users', usersRoutes);
+v1Router.use('/policy', policyRoutes);
 
 app.use('/api/v1', v1Router);
 app.use('/api', v1Router); // Backward compatibility

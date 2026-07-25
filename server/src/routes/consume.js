@@ -11,6 +11,7 @@ const encryption = require('../services/encryption');
 const secretStore = require('../services/secret-store');
 const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
+const { checkToolPolicy } = require('../services/tool-policy');
 
 function coerceParam(value, paramDefs, key) {
   const type = paramDefs?.[key]?.type;
@@ -121,6 +122,11 @@ router.post('/tools/:toolId/execute', optionalAuthWithApiKey, async (req, res) =
 
     if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin') {
       return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const policyResult = await checkToolPolicy({ user: req.user, userId: req.apiKey?.userId, tool });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
     if (tool.type === 'composite') {

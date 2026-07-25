@@ -32,6 +32,14 @@ const jwtSecret = requireSecret('JWT_SECRET');
 const jwtRefreshSecret = requireSecret('JWT_REFRESH_SECRET');
 const encryptionKey = requireSecret('ENCRYPTION_KEY');
 
+// Signs the policy-decision hash chain (services/policy.js). Deliberately
+// NOT required like the secrets above - defaulting to a derived subkey
+// (domain-separated from the raw encryption key, not a reuse of it) means
+// this feature can't crash-loop any existing deployment that hasn't set a
+// dedicated key. Set POLICY_SIGNING_KEY explicitly for a fully independent key.
+const policySigningKey = process.env.POLICY_SIGNING_KEY
+  || crypto.createHash('sha256').update(`${encryptionKey}:policy-signing`).digest('hex');
+
 if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
   console.error('FATAL: DATABASE_URL env var is required in production');
   process.exit(1);
@@ -43,6 +51,7 @@ module.exports = {
   jwtExpire: process.env.JWT_EXPIRE || '15m',
   jwtRefreshExpire: process.env.JWT_REFRESH_EXPIRE || '7d',
   encryptionKey,
+  policySigningKey,
   port: process.env.PORT || 3000,
   databaseUrl: process.env.DATABASE_URL || 'postgres://admin:admin123@localhost:5432/mcpconnect',
   allowSelfSignedCerts: process.env.ALLOW_SELF_SIGNED_CERTS === 'true',

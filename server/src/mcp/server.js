@@ -11,6 +11,7 @@ const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
 const { checkRateLimit: checkToolRateLimit } = require('../services/rate-limiter');
+const { checkToolPolicy } = require('../services/tool-policy');
 const { filterFields } = require('../utils/fieldFilter');
 const { filterLines } = require('../utils/lineFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
@@ -292,6 +293,14 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           const currentTool = entry.tool;
 
           try {
+            const policyResult = await checkToolPolicy({ userId: sessionData.userId ?? null, tool: currentTool });
+            if (policyResult.decision === 'deny') {
+              return {
+                content: [{ type: 'text', text: `Access denied: ${policyResult.reason}` }],
+                isError: true
+              };
+            }
+
             const toolLimit = currentTool.rateLimit || 0;
             const intLimit = currentTool.Integration?.rateLimit || {};
             const integrationLimitRpm = intLimit.requestsPerMinute || 0;

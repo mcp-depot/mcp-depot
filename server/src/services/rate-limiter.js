@@ -129,6 +129,7 @@ function rateLimitMiddleware(req, res, next) {
 module.exports = {
   checkRateLimit,
   rateLimitMiddleware,
+  checkSlidingWindow,
   DEFAULT_RPM,
   DEFAULT_RPH
 };

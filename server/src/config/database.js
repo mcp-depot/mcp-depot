@@ -52,7 +52,10 @@ const loadModels = () => {
   const SessionContext = require('../models/SessionContext')(sequelize);
   const SessionChannel = require('../models/SessionChannel')(sequelize);
   const Agent = require('../models/Agent')(sequelize);
-  
+  const PolicyRule = require('../models/PolicyRule');
+  const PolicyDecision = require('../models/PolicyDecision');
+  const PolicyChainState = require('../models/PolicyChainState');
+
   if (!associationsDefined) {
     User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
     User.hasMany(Tool, { foreignKey: 'userId', as: 'tools' });
@@ -73,11 +76,15 @@ const loadModels = () => {
     SessionContext.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
     
     Agent.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
-    
+
+    PolicyRule.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+    PolicyDecision.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    PolicyDecision.belongsTo(PolicyRule, { foreignKey: 'matchedRuleId', as: 'matchedRule' });
+
     associationsDefined = true;
   }
-  
-  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent };
+
+  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent, PolicyRule, PolicyDecision, PolicyChainState };
 };
 
 const generatePassword = () => {

@@ -17,6 +17,7 @@ const config = require('../config/env');
 const INTERNAL_SECRET = config.internalSecret;
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
 const { checkRateLimit } = require('../services/rate-limiter');
+const { checkToolPolicy } = require('../services/tool-policy');
 const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
 const { isUrlSafe } = require('../utils/ssrfGuard');
@@ -1277,6 +1278,15 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
 
     if (!tool) {
       return res.status(404).json({ error: 'Tool not found' });
+    }
+
+    // Covers the composite/meta/simple branches below - all resolve to a
+    // local Tool row. Does NOT cover the isExternal branch above (tools
+    // proxied from an external MCP server have no local Tool row) - deferred
+    // as a known follow-up, see services/tool-policy.js.
+    const policyResult = await checkToolPolicy({ user: req.user, userId: req.apiKey?.userId, tool });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
     if (tool.type === 'composite') {
