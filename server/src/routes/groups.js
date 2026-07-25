@@ -1,6 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 const { randomUUID } = require('crypto');
+const { Op, fn, col, where: sequelizeWhere } = require('sequelize');
 const { auth } = require('../middleware/auth');
 const { loadModels } = require('../config/database');
 const { checkGroupPolicy } = require('../services/resource-policy');
@@ -8,6 +9,22 @@ const audit = require('../services/audit');
 const logger = require('../services/logger');
 
 const router = express.Router();
+
+// Group names are shown as the only distinguishing label in shared pickers
+// (the "Add to group" dropdown on the Users page, the Policy Rules
+// subjectType=group field) - two groups sharing a name would be
+// indistinguishable there, from potentially different creators, since
+// creating a group is open to everyone. Global, case-insensitive
+// uniqueness (LOWER() - a plain SQL function, portable across the
+// Postgres/SQLite dialects this app runs on) avoids that ambiguity, the
+// same way a Slack workspace or GitHub org doesn't allow two channels/
+// teams with the same name. excludeId lets a rename check against every
+// OTHER group without colliding with its own current name.
+async function findGroupByName(Group, name, excludeId) {
+  const clause = { [Op.and]: [sequelizeWhere(fn('LOWER', col('name')), name.toLowerCase())] };
+  if (excludeId) clause[Op.and].push({ id: { [Op.ne]: excludeId } });
+  return Group.findOne({ where: clause });
+}
 
 // Group-admin (membership.role === 'admin') or the system-wide admin bypass
 // (checkGroupPolicy's manage_others) may manage a group's settings/members.
@@ -53,6 +70,12 @@ router.post('/', auth, async (req, res) => {
     if (error) return res.status(400).json({ error: error.details[0].message });
 
     const { Group, GroupMembership } = loadModels();
+
+    const existing = await findGroupByName(Group, value.name);
+    if (existing) {
+      return res.status(409).json({ error: 'A group with this name already exists' });
+    }
+
     const group = await Group.create({
       name: value.name,
       description: value.description || null,
@@ -160,6 +183,13 @@ router.patch('/:id', auth, async (req, res) => {
 
     if (!(await canManageGroup(req.user, group.id))) {
       return res.status(403).json({ error: 'You do not administer this group' });
+    }
+
+    if (value.name) {
+      const existing = await findGroupByName(Group, value.name, group.id);
+      if (existing) {
+        return res.status(409).json({ error: 'A group with this name already exists' });
+      }
     }
 
     await group.update(value);

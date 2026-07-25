@@ -73,6 +73,40 @@ describe('Groups API (/api/v1/groups)', () => {
     expect(view.body.canManage).toBe(true);
   });
 
+  test('group names are unique, case-insensitively, regardless of creator', async () => {
+    const sameCase = await request(app)
+      .post('/api/v1/groups')
+      .set('Authorization', `Bearer ${memberToken}`)
+      .send({ name: 'Jira Team' });
+    expect(sameCase.status).toBe(409);
+
+    const differentCase = await request(app)
+      .post('/api/v1/groups')
+      .set('Authorization', `Bearer ${outsiderToken}`)
+      .send({ name: 'JIRA TEAM' });
+    expect(differentCase.status).toBe(409);
+  });
+
+  test('renaming a group to collide with another existing name is rejected, but renaming to its own current name is not', async () => {
+    const other = await request(app)
+      .post('/api/v1/groups')
+      .set('Authorization', `Bearer ${outsiderToken}`)
+      .send({ name: 'Some Other Group' });
+    expect(other.status).toBe(201);
+
+    const collide = await request(app)
+      .patch(`/api/v1/groups/${groupId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'some other group' });
+    expect(collide.status).toBe(409);
+
+    const noOp = await request(app)
+      .patch(`/api/v1/groups/${groupId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Jira Team', description: 'updated description' });
+    expect(noOp.status).toBe(200);
+  });
+
   test('members can also be added by email (no admin-only user lookup required)', async () => {
     const create = await request(app)
       .post('/api/v1/groups')
