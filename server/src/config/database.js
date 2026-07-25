@@ -877,6 +877,42 @@ const createDefaultPolicyRules = async () => {
   }
 };
 
+// Seeds a per-installation, ID-specific 'delete' deny rule for each actual
+// built-in integration found - dynamic (unlike the seeds above, which use
+// resourceMatch '*') because these ids are assigned at creation time by
+// createDefaultTool(), not known ahead of time. Must run after that
+// function has already created them. isSystemManaged so an admin can see
+// this in the Policy UI as documentation of the protection, but can't
+// delete the rule itself as a step toward bypassing the unconditional,
+// code-level block in routes/integrations.js - this rule is a second,
+// defense-in-depth layer, not the only thing enforcing this.
+const protectBuiltInIntegrations = async () => {
+  const PolicyRule = require('../models/PolicyRule');
+  const Integration = require('../models/Integration');
+  const { BUILT_IN_INTEGRATION_NAMES } = require('../utils/builtInIntegrations');
+
+  const builtIns = await Integration.findAll({ where: { name: BUILT_IN_INTEGRATION_NAMES } });
+
+  for (const integration of builtIns) {
+    await PolicyRule.findOrCreate({
+      where: {
+        resourceType: 'integration',
+        resourceMatch: integration.id,
+        action: 'delete',
+        subjectType: '*',
+        subjectId: null
+      },
+      defaults: {
+        effect: 'deny',
+        isActive: true,
+        priority: 0,
+        isSystemManaged: true,
+        description: `Built-in integration "${integration.name}" cannot be deleted (seeded, system-managed)`
+      }
+    });
+  }
+};
+
 const connectDB = async (retries = 5, delay = 3000) => {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -912,10 +948,11 @@ const connectDB = async (retries = 5, delay = 3000) => {
     await createDefaultUser();
     await createDefaultTool();
     await createDefaultPolicyRules();
+    await protectBuiltInIntegrations();
   } catch (error) {
     logger.fatal({ err: error.message }, 'Database setup error');
     process.exit(1);
   }
 };
 
-module.exports = { sequelize, connectDB, loadModels, createDefaultPolicyRules };
+module.exports = { sequelize, connectDB, loadModels, createDefaultPolicyRules, protectBuiltInIntegrations };

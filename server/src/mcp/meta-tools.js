@@ -4,6 +4,7 @@ const { z } = require('zod/v3');
 const { loadModels } = require('../config/database');
 const { refreshToolsIfEnabled } = require('./server');
 const { slugify, computeExposedName } = require('../utils/slugify');
+const { BUILT_IN_INTEGRATION_NAMES } = require('../utils/builtInIntegrations');
 const logger = require('../services/logger');
 
 const INTEGRATION_NAME = 'MCP Depot - AI Tools';
@@ -86,9 +87,8 @@ function registerMetaTools(server, toolsMap) {
         return { content: [{ type: 'text', text: `Integration "${params.integration}" not found. Create it first with mcp_register_integration.` }], isError: true };
       }
     } else {
-      const BUILT_IN_NAMES = ['MCP Depot', 'MCP Depot Sessions', 'MCP Depot Agents', INTEGRATION_NAME];
       const candidates = await Integration.findAll({
-        where: { isActive: true, name: { [Op.notIn]: BUILT_IN_NAMES } }
+        where: { isActive: true, name: { [Op.notIn]: BUILT_IN_INTEGRATION_NAMES } }
       });
       if (candidates.length === 0) {
         return { content: [{ type: 'text', text: 'No integration found. Create one first with mcp_register_integration.' }], isError: true };

@@ -21,6 +21,7 @@ const { checkToolPolicy } = require('../services/tool-policy');
 const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
 const { isUrlSafe } = require('../utils/ssrfGuard');
+const { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration } = require('../utils/builtInIntegrations');
 
 function getCallerId(req) {
   if (
@@ -750,7 +751,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
         model: Integration,
         as: 'integration',
         where: { isActive: true },
-        attributes: ['userId', 'visibility']
+        attributes: ['userId', 'visibility', 'name']
       }],
       attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type', 'exposedName', 'title']
     });
@@ -758,7 +759,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
     const visibleTools = tools.filter(t => {
       if (!t.integration) return false;
       if (role === 'admin') return true;
-      return t.integration.visibility === 'shared' || t.integration.userId === userId;
+      return t.integration.visibility === 'shared' || t.integration.userId === userId || isBuiltInIntegration(t.integration);
     });
 
     const localTools = visibleTools.map(t => {
@@ -1404,7 +1405,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       config.auth = { ...integration.config.auth, credentials: userCreds };
     }
     
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
+    if (BUILT_IN_INTEGRATION_NAMES.includes(integration.name)) {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {

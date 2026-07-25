@@ -233,24 +233,36 @@ function RulesTab() {
             <tbody>
               {rules.map(rule => (
                 <tr key={rule.id}>
-                  <td>{rule.resourceType}</td>
+                  <td>
+                    {rule.resourceType}
+                    {rule.isSystemManaged && <span className="badge badge-system" style={{ marginLeft: '0.4rem' }}>system</span>}
+                  </td>
                   <td><code>{rule.resourceMatch}</code></td>
                   <td><code>{rule.action}</code></td>
                   <td>{rule.subjectType === '*' ? 'Everyone' : `${rule.subjectType}: ${rule.subjectId}`}</td>
                   <td><span className={`badge ${EFFECT_BADGE_CLASS[rule.effect]}`}>{rule.effect}</span></td>
                   <td>{rule.priority}</td>
                   <td>
-                    <button className={`btn btn-small ${rule.isActive ? 'btn-secondary' : ''}`} onClick={() => toggleActive(rule)}>
+                    <button
+                      className={`btn btn-small ${rule.isActive ? 'btn-secondary' : ''}`}
+                      onClick={() => toggleActive(rule)}
+                      disabled={rule.isSystemManaged}
+                      title={rule.isSystemManaged ? 'System-managed rules cannot be changed' : ''}
+                    >
                       {rule.isActive ? 'Active' : 'Inactive'}
                     </button>
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button className="btn btn-small btn-secondary" onClick={() => openEdit(rule)}>Edit</button>
-                      <button className="btn btn-small btn-danger" onClick={() => handleDelete(rule)} disabled={deletingId === rule.id} title="Delete">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                    {rule.isSystemManaged ? (
+                      <span style={{ color: 'var(--text-light)', fontSize: '0.85rem' }} title="Seeded by the app - cannot be edited or deleted">Protected</span>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button className="btn btn-small btn-secondary" onClick={() => openEdit(rule)}>Edit</button>
+                        <button className="btn btn-small btn-danger" onClick={() => handleDelete(rule)} disabled={deletingId === rule.id} title="Delete">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

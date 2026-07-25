@@ -300,7 +300,12 @@ function Integrations() {
     setShowModal(true);
   };
 
-  const isBuiltIn = (integration) => integration.metadata?.source === 'built-in';
+  // Server-computed and authoritative (routes/integrations.js's
+  // isBuiltInIntegration()) - this used to check integration.metadata?.source
+  // === 'built-in' directly, which the seed code for "MCP Depot" and "MCP
+  // Depot Sessions" never actually set, so their Delete button rendered as
+  // if they were ordinary deletable integrations.
+  const isBuiltIn = (integration) => !!integration.isBuiltIn;
 
   const handleToggleActive = async (id, currentStatus) => {
     try {
@@ -798,7 +803,17 @@ function Integrations() {
                 <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
                   <Link to={`/integrations/${integration._id}/tools`} className="btn btn-sm">Tools</Link>
                   {integration.isOwner && (
-                    <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit" style={{ padding: '4px 6px', fontSize: '0.75rem' }}>Edit</button>
+                    isBuiltIn(integration) ? (
+                      <span
+                        className="btn btn-icon"
+                        title="Built-in integrations cannot be edited — use the toggle to enable/disable"
+                        style={{ padding: '4px 6px', fontSize: '0.75rem', opacity: 0.5, cursor: 'not-allowed', color: 'var(--text-dim)' }}
+                      >
+                        Edit
+                      </span>
+                    ) : (
+                      <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit" style={{ padding: '4px 6px', fontSize: '0.75rem' }}>Edit</button>
+                    )
                   )}
                 </div>
               </div>
@@ -914,12 +929,22 @@ function Integrations() {
                   )}
                   {integration.isOwner && (
                     <>
-                      <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit integration">
-                        Edit
-                      </button>
                       {isBuiltIn(integration) ? (
-                        <span 
-                          className="btn btn-icon" 
+                        <span
+                          className="btn btn-icon"
+                          title="Built-in integrations cannot be edited \u2014 use the toggle above to enable/disable"
+                          style={{ opacity: 0.5, cursor: 'not-allowed', color: 'var(--text-dim)' }}
+                        >
+                          Edit
+                        </span>
+                      ) : (
+                        <button className="btn btn-icon" onClick={() => handleEdit(integration)} title="Edit integration">
+                          Edit
+                        </button>
+                      )}
+                      {isBuiltIn(integration) ? (
+                        <span
+                          className="btn btn-icon"
                           title="Built-in integrations cannot be deleted \u2014 use the toggle above to disable"
                           style={{ opacity: 0.5, cursor: 'not-allowed', color: 'var(--text-dim)' }}
                         >

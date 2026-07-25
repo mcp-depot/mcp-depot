@@ -17,6 +17,7 @@ const { refreshMcpTools } = require('../utils/mcpHelpers');
 const { ownerWhereId } = require('../utils/queryHelpers');
 const { slugify, computeExposedName } = require('../utils/slugify');
 const { checkIntegrationPolicy, evaluateIntegrationPolicy } = require('../services/resource-policy');
+const { isBuiltInIntegration, BUILT_IN_INTEGRATION_NAMES } = require('../utils/builtInIntegrations');
 
 const router = express.Router();
 
@@ -82,7 +83,11 @@ router.get('/', authWithApiKey, async (req, res) => {
         where: {
           [Op.or]: [
             { userId: req.user.id },
-            { visibility: 'shared', userId: { [Op.in]: adminIds } }
+            { visibility: 'shared', userId: { [Op.in]: adminIds } },
+            // Built-ins are core platform resources, not a user's shareable
+            // asset - every user must see them regardless of who technically
+            // owns the row or what its visibility flag happens to be set to.
+            { name: { [Op.in]: BUILT_IN_INTEGRATION_NAMES } }
           ]
         },
         order: [['createdAt', 'DESC']]
@@ -161,11 +166,17 @@ router.get('/', authWithApiKey, async (req, res) => {
         hasIntegrationCredentials,
         canUse: !requiresCredentials || hasUserCredentials || hasIntegrationCredentials || req.user.role === 'admin',
         canShare: sharePreview.decision === 'allow',
+        isBuiltIn: isBuiltInIntegration(i),
         isActive: i.isActive,
         visibility: i.visibility || 'private',
         isOwner,
-        sharedByName: isShared ? (owner?.name || 'Admin') : null,
-        sharedByEmail: isShared ? (owner?.email || '') : null,
+        // Built-in integrations are attributed to whichever account happened
+        // to be the seed-time admin (an installation-specific accident, not
+        // a meaningful fact) - showing "Shared by <that person>" reads as if
+        // a colleague personally chose to share their own integration, when
+        // it's actually a permanent system resource nobody chose to share.
+        sharedByName: isShared && !isBuiltInIntegration(i) ? (owner?.name || 'Admin') : null,
+        sharedByEmail: isShared && !isBuiltInIntegration(i) ? (owner?.email || '') : null,
         metadata: {
           ...i.metadata,
           toolCount: toolCountMap[i.id] || 0
@@ -488,6 +499,18 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    // Built-in integrations may only have isActive toggled (the sanctioned
+    // "disable instead of delete" path) - everything else about them
+    // (name, config, tags, tools) is system-managed. Unconditional, same
+    // as the delete guard.
+    if (isBuiltInIntegration(integration)) {
+      const attemptedKeys = Object.keys(req.body);
+      const disallowed = attemptedKeys.filter(k => k !== 'isActive');
+      if (disallowed.length > 0) {
+        return res.status(403).json({ error: 'Built-in integrations cannot be edited. Use the active toggle to enable/disable instead.' });
+      }
+    }
+
     const { name, description, config, metadata, isActive, visibility, tags, slug: newSlug } = req.body;
 
     if (name !== undefined) integration.name = name;
@@ -595,8 +618,28 @@ router.delete('/:id', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    if (integration.metadata?.source === 'built-in') {
+    // Absolute, code-level block - unconditional, not overridable by any
+    // policy rule (a determined admin deleting the rule that "protects"
+    // this must not be enough to then delete the integration itself).
+    if (isBuiltInIntegration(integration)) {
+      logger.warn({ userId: req.user.id, integrationId: integration.id, name: integration.name }, 'Blocked attempt to delete a built-in integration');
+      await audit.log({
+        userId: req.user.id,
+        action: 'delete_integration_blocked',
+        integrationType: integration.type,
+        integrationId: integration.id,
+        details: { name: integration.name, reason: 'built-in' },
+        status: 'denied'
+      });
       return res.status(403).json({ error: 'Built-in integrations cannot be deleted. Use the active toggle to disable instead.' });
+    }
+
+    // Policy-editable layer for everything else - default-allow (owner/
+    // admin can delete their own as before) unless an admin writes a
+    // 'delete' deny rule for a specific integration.
+    const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'delete', integrationId: integration.id });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
     // Delete associated tool_calls first (they reference tools)
@@ -739,7 +782,7 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    if (integration.metadata?.source === 'built-in') {
+    if (isBuiltInIntegration(integration)) {
       return res.status(403).json({ error: 'Tools cannot be added to built-in integrations. Create a new integration instead.' });
     }
 
@@ -1287,6 +1330,10 @@ router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
     const integration = await Integration.findOne({ where: whereClause });
     if (!integration) {
       return res.status(404).json({ error: 'Integration not found' });
+    }
+
+    if (isBuiltInIntegration(integration)) {
+      return res.status(403).json({ error: 'Built-in integrations are always available to every user - visibility cannot be changed.' });
     }
 
     const { visibility } = req.body;

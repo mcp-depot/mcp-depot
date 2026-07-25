@@ -62,6 +62,12 @@ const PolicyRule = sequelize.define('PolicyRule', {
     type: DataTypes.UUID,
     allowNull: true,
     references: { model: 'users', key: 'id' }
+  },
+  isSystemManaged: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+    comment: 'Seeded by the app itself (e.g. protecting built-in integrations) - cannot be edited or deleted via the API, so a rule cannot be removed as a step toward bypassing the thing it protects'
   }
 }, {
   tableName: 'policy_rules',

@@ -97,6 +97,10 @@ router.put('/rules/:id', auth, requireAdmin, async (req, res) => {
     const rule = await PolicyRule.findByPk(req.params.id);
     if (!rule) return res.status(404).json({ error: 'Policy rule not found' });
 
+    if (rule.isSystemManaged) {
+      return res.status(403).json({ error: 'This rule is system-managed and cannot be edited' });
+    }
+
     const { error, value } = updateRuleSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.details[0].message });
 
@@ -118,6 +122,10 @@ router.delete('/rules/:id', auth, requireAdmin, async (req, res) => {
     const { PolicyRule } = loadModels();
     const rule = await PolicyRule.findByPk(req.params.id);
     if (!rule) return res.status(404).json({ error: 'Policy rule not found' });
+
+    if (rule.isSystemManaged) {
+      return res.status(403).json({ error: 'This rule is system-managed and cannot be deleted' });
+    }
 
     await rule.destroy();
     logger.info({ userId: req.user.id, ruleId: req.params.id }, 'Policy rule deleted');

@@ -12,6 +12,7 @@ const secretStore = require('../services/secret-store');
 const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 const { checkToolPolicy } = require('../services/tool-policy');
+const { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration } = require('../utils/builtInIntegrations');
 
 function coerceParam(value, paramDefs, key) {
   const type = paramDefs?.[key]?.type;
@@ -80,7 +81,7 @@ router.get('/integrations/:id', optionalAuthWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin') {
+    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin' && !isBuiltInIntegration(integration)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -120,7 +121,7 @@ router.post('/tools/:toolId/execute', optionalAuthWithApiKey, async (req, res) =
       return res.status(400).json({ error: 'Integration is not active' });
     }
 
-    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin') {
+    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin' && !isBuiltInIntegration(integration)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -205,7 +206,7 @@ router.post('/tools/:toolId/execute', optionalAuthWithApiKey, async (req, res) =
       }
     }
     
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
+    if (BUILT_IN_INTEGRATION_NAMES.includes(integration.name)) {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {
@@ -411,12 +412,12 @@ router.post('/trigger', optionalAuthWithApiKey, async (req, res) => {
       return res.status(400).json({ error: 'Integration is not active' });
     }
 
-    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin') {
+    if (integration.visibility !== 'shared' && integration.userId !== req.user?.id && req.user?.role !== 'admin' && !isBuiltInIntegration(integration)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     let config = { ...integration.config };
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
+    if (BUILT_IN_INTEGRATION_NAMES.includes(integration.name)) {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {
