@@ -6,6 +6,7 @@ const { loadModels } = require('../config/database');
 const channelEmitter = require('../services/channel-events');
 const audit = require('../services/audit');
 const logger = require('../services/logger');
+const { checkSessionChannelPolicy } = require('../services/session-policy');
 
 const router = express.Router();
 
@@ -23,6 +24,12 @@ function sseBroadcast(channel, data) {
 // GET /session-channels/:channel/stream — SSE endpoint for live channel updates
 router.get('/:channel/stream', auth, async (req, res) => {
   const channel = req.params.channel;
+
+  const policyResult = await checkSessionChannelPolicy({ user: req.user, action: 'read', channel });
+  if (policyResult.decision === 'deny') {
+    return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+  }
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -59,6 +66,11 @@ router.get('/:channel/watch', auth, async (req, res) => {
   const channel = req.params.channel;
   const timeoutMs = Math.min(parseInt(req.query.timeout) || 25, 25) * 1000;
 
+  const policyResult = await checkSessionChannelPolicy({ user: req.user, action: 'read', channel });
+  if (policyResult.decision === 'deny') {
+    return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+  }
+
   try {
     const msg = await new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -90,6 +102,11 @@ router.get('/watch', auth, async (req, res) => {
   if (!channel) return res.status(400).json({ error: 'channel parameter is required' });
   const timeoutMs = Math.min(parseInt(req.query.timeout) || 25, 25) * 1000;
 
+  const policyResult = await checkSessionChannelPolicy({ user: req.user, action: 'read', channel });
+  if (policyResult.decision === 'deny') {
+    return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+  }
+
   try {
     const msg = await new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -115,7 +132,9 @@ router.get('/watch', auth, async (req, res) => {
   }
 });
 
-// GET /session-channels — list distinct channels with count and last activity
+// GET /session-channels — list distinct channels with count and last activity.
+// Not policy-gated: a list spans many channels with no single resourceId to
+// evaluate a rule against. Per-channel reads are gated at GET /:channel.
 router.get('/', auth, async (req, res) => {
   try {
     const { SessionChannel } = loadModels();
@@ -140,6 +159,11 @@ router.get('/', auth, async (req, res) => {
 
 // GET /session-channels/:channel — read messages, optional ?since=ISO timestamp
 router.get('/:channel', auth, async (req, res) => {
+  const policyResult = await checkSessionChannelPolicy({ user: req.user, action: 'read', channel: req.params.channel });
+  if (policyResult.decision === 'deny') {
+    return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+  }
+
   try {
     const { SessionChannel } = loadModels();
     const where = { channel: req.params.channel };
@@ -167,6 +191,11 @@ const appendSchema = Joi.object({
 router.post('/', auth, async (req, res) => {
   const { error, value } = appendSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
+
+  const policyResult = await checkSessionChannelPolicy({ user: req.user, action: 'write', channel: value.channel });
+  if (policyResult.decision === 'deny') {
+    return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+  }
 
   try {
     const { SessionChannel } = loadModels();
@@ -200,6 +229,12 @@ router.delete('/:channel', auth, async (req, res) => {
       order: [['createdAt', 'ASC']]
     });
     if (!first) return res.status(404).json({ error: 'Channel not found or already empty' });
+
+    const policyResult = await checkSessionChannelPolicy({ user: req.user, action: 'delete', channel: req.params.channel });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+    }
+
     if (first.createdBy !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -221,8 +256,14 @@ router.delete('/:channel', auth, async (req, res) => {
 
 // POST /session-channels/:channel/subscribe — subscribe to push notifications
 router.post('/:channel/subscribe', auth, async (req, res) => {
+  const channel = req.params.channel;
+
+  const policyResult = await checkSessionChannelPolicy({ user: req.user, action: 'subscribe', channel });
+  if (policyResult.decision === 'deny') {
+    return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+  }
+
   try {
-    const channel = req.params.channel;
     const mcpServer = require('../mcp/server');
     const sessionId = req.headers['x-session-id'] || req.body?.sessionId;
     if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
@@ -236,7 +277,10 @@ router.post('/:channel/subscribe', auth, async (req, res) => {
   }
 });
 
-// DELETE /session-channels/:channel/subscribe — unsubscribe from push notifications
+// DELETE /session-channels/:channel/subscribe — unsubscribe from push notifications.
+// Deliberately not policy-gated: a deny rule here would trap a subscriber
+// into permanently receiving notifications they can no longer opt out of,
+// which is actively harmful rather than merely restrictive.
 router.delete('/:channel/subscribe', auth, async (req, res) => {
   try {
     const channel = req.params.channel;
