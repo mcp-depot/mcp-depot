@@ -17,6 +17,7 @@ import {
   Layers,
   MessagesSquare,
   Users,
+  Shield,
   HeartPulse,
   Sun,
   Moon,
@@ -101,6 +102,7 @@ function Sidebar() {
     ])},
     { section: 'System', items: [
       ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users', feature: 'users' }] : []),
+      ...(user?.role === 'admin' ? [{ path: '/policy', icon: Shield, label: 'Policy' }] : []),
       { path: '/settings', icon: Settings, label: 'Settings' },
     ]},
   ];

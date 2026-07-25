@@ -20,6 +20,7 @@ import SessionContexts from './pages/SessionContexts';
 import SessionChannels from './pages/SessionChannels';
 import CompositeToolBuilder from './pages/CompositeToolBuilder';
 import Users from './pages/Users';
+import Policy from './pages/Policy';
 import SetupWizard from './pages/SetupWizard';
 import Layout from './components/Layout';
 
@@ -75,6 +76,7 @@ function AppRoutes() {
       <Route path="/monitoring" element={<PrivateRoute><Layout><Monitoring /></Layout></PrivateRoute>} />
       <Route path="/settings" element={<PrivateRoute><Layout><Settings /></Layout></PrivateRoute>} />
       <Route path="/users" element={<PrivateRoute><Layout><Users /></Layout></PrivateRoute>} />
+      <Route path="/policy" element={<PrivateRoute><Layout><Policy /></Layout></PrivateRoute>} />
       <Route path="/skills" element={<PrivateRoute><Layout><Skills /></Layout></PrivateRoute>} />
       <Route path="/agents" element={<PrivateRoute><Layout><Agents /></Layout></PrivateRoute>} />
       <Route path="/personas" element={<Navigate to="/agents" replace />} />
