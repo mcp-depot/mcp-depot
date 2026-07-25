@@ -148,6 +148,40 @@ describe('HTTP integration', () => {
 
       expect(res.status).toBe(401);
     });
+
+    test('canShare on each row reflects the policy engine (read-only preview), not a hardcoded role check', async () => {
+      const { User, Integration, PolicyRule } = loadModels();
+      // This file never calls createDefaultPolicyRules(), so without an
+      // explicit rule here 'share' would default-allow for everyone - the
+      // same deny-all/allow-admin pair createDefaultPolicyRules seeds at
+      // real boot, added directly here to keep this test self-contained.
+      await PolicyRule.create({
+        resourceType: 'integration', resourceMatch: '*', action: 'share',
+        subjectType: '*', subjectId: null, effect: 'deny', isActive: true
+      });
+      await PolicyRule.create({
+        resourceType: 'integration', resourceMatch: '*', action: 'share',
+        subjectType: 'role', subjectId: 'admin', effect: 'allow', isActive: true
+      });
+
+      await Integration.create({
+        userId: (await User.findOne({ where: { email: 'integrationstest@example.com' } })).id,
+        type: 'custom', name: 'canShare probe',
+        config: { baseUrl: 'http://localhost', auth: { type: 'none' } },
+        isActive: true, visibility: 'private'
+      });
+
+      const admin = await User.create({ email: 'canshare-admin@example.com', password: 'password123', name: 'Admin', role: 'admin', mustResetPassword: false });
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config/env');
+      const adminToken = jwt.sign({ userId: admin.id }, config.jwtSecret, { expiresIn: config.jwtExpire });
+
+      const asUser = await request(app).get('/api/v1/integrations').set('Authorization', `Bearer ${accessToken}`);
+      expect(asUser.body.every(i => i.canShare === false)).toBe(true);
+
+      const asAdmin = await request(app).get('/api/v1/integrations').set('Authorization', `Bearer ${adminToken}`);
+      expect(asAdmin.body.some(i => i.canShare === true)).toBe(true);
+    });
   });
 
   describe('POST /api/v1/mcp/execute - policy enforcement', () => {

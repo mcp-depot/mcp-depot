@@ -125,9 +125,11 @@ router.get('/:id', auth, async (req, res) => {
     if (!group) return res.status(404).json({ error: 'Group not found' });
 
     const membership = await GroupMembership.findOne({ where: { groupId: group.id, userId: req.user.id } });
-    if (!membership) {
-      const policyResult = await checkGroupPolicy({ user: req.user, action: 'manage_others', groupId: group.id });
-      if (policyResult.decision === 'deny') return res.status(404).json({ error: 'Group not found' });
+    // canManage doubles as the view-gate for non-members: viewing and
+    // managing are the same bar for someone who isn't in the group at all.
+    const canManage = await canManageGroup(req.user, group.id);
+    if (!membership && !canManage) {
+      return res.status(404).json({ error: 'Group not found' });
     }
 
     const members = await GroupMembership.findAll({
@@ -136,7 +138,11 @@ router.get('/:id', auth, async (req, res) => {
       order: [['createdAt', 'ASC']]
     });
 
-    res.json({ ...group.toJSON(), members });
+    // canManage is authoritative for the client - it must decide whether to
+    // show management controls (Add Member, Promote, Delete Group, etc.)
+    // from this flag, not by re-deriving its own role check, so the UI can
+    // never drift from what the API will actually allow.
+    res.json({ ...group.toJSON(), members, canManage });
   } catch (err) {
     logger.error({ err: err.message }, 'Get group error');
     res.status(500).json({ error: 'Failed to get group' });

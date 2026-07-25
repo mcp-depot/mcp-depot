@@ -36,13 +36,13 @@ function GroupDetail() {
 
   useEffect(() => { fetchGroup(); }, [fetchGroup]);
 
-  // Whether the current viewer administers this specific group - either
-  // through their own membership row, or the system-admin policy bypass
-  // (which the backend already applied to let this page load for a
-  // non-member admin in the first place, so any system admin who can see
-  // the group at all is also allowed to manage it).
-  const myMembership = group?.members?.find(m => m.userId === currentUser?.id);
-  const canManage = myMembership?.role === 'admin' || currentUser?.role === 'admin';
+  // Server-computed and authoritative (same canManageGroup() the API uses
+  // to actually gate every mutation below) - deriving this client-side
+  // from currentUser.role would drift the moment someone is granted
+  // manage_others via a group- or user-scoped policy rule instead of being
+  // a full system admin, showing the wrong controls for what the API will
+  // really allow.
+  const canManage = !!group?.canManage;
   const adminCount = group?.members?.filter(m => m.role === 'admin').length || 0;
 
   const openAdd = () => {

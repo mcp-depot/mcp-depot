@@ -16,7 +16,7 @@ const { executeComposite, executeCompositeTool } = require('../services/composit
 const { refreshMcpTools } = require('../utils/mcpHelpers');
 const { ownerWhereId } = require('../utils/queryHelpers');
 const { slugify, computeExposedName } = require('../utils/slugify');
-const { checkIntegrationPolicy } = require('../services/resource-policy');
+const { checkIntegrationPolicy, evaluateIntegrationPolicy } = require('../services/resource-policy');
 
 const router = express.Router();
 
@@ -132,7 +132,12 @@ router.get('/', authWithApiKey, async (req, res) => {
     }) : [];
     const ownerMap = owners.reduce((acc, o) => { acc[o.id] = o; return acc; }, {});
     
-    const sanitized = integrations.map(i => {
+    // canShare is a read-only preview (evaluateIntegrationPolicy, not the
+    // audited checkIntegrationPolicy) - it only decides whether the client
+    // shows the Share button, it never gates the actual PUT/PATCH that sets
+    // visibility=shared. Using the audited path here would write a policy
+    // decision record on every row of every list load.
+    const sanitized = await Promise.all(integrations.map(async i => {
       const authType = i.config.auth?.type || 'none';
       const requiresCredentials = authType !== 'none';
       const hasUserCredentials = !!userCredsMap[i.id];
@@ -140,7 +145,8 @@ router.get('/', authWithApiKey, async (req, res) => {
       const isOwner = i.userId === req.user.id;
       const isShared = i.visibility === 'shared' && !isOwner;
       const owner = ownerMap[i.userId];
-      
+      const sharePreview = await evaluateIntegrationPolicy({ user: req.user, action: 'share', integrationId: i.id });
+
       return {
         _id: i.id,
         type: i.type,
@@ -154,19 +160,20 @@ router.get('/', authWithApiKey, async (req, res) => {
         hasUserCredentials,
         hasIntegrationCredentials,
         canUse: !requiresCredentials || hasUserCredentials || hasIntegrationCredentials || req.user.role === 'admin',
+        canShare: sharePreview.decision === 'allow',
         isActive: i.isActive,
         visibility: i.visibility || 'private',
         isOwner,
         sharedByName: isShared ? (owner?.name || 'Admin') : null,
         sharedByEmail: isShared ? (owner?.email || '') : null,
-        metadata: { 
+        metadata: {
           ...i.metadata,
           toolCount: toolCountMap[i.id] || 0
         },
         createdAt: i.createdAt,
         updatedAt: i.updatedAt
       };
-    });
+    }));
 
     res.json(sanitized);
   } catch (error) {

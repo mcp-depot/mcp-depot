@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { getIntegrationIcon, getIntegrationColor } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';
@@ -14,7 +13,6 @@ import { confirmDialog } from '../utils/confirm';
 import { Drawer } from '../components/Drawer';
 import { ViewToggle } from '../components/ViewToggle';
 function Integrations() {
-  const { user } = useAuth();
   const [integrations, setIntegrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -905,8 +903,8 @@ function Integrations() {
                       Disconnect
                     </button>
                   )}
-                  {user?.role === 'admin' && (
-                    <button 
+                  {integration.canShare && (
+                    <button
                       className={`btn btn-icon ${integration.visibility === 'shared' ? 'btn-info' : ''}`}
                       onClick={() => handleToggleVisibility(integration._id, integration.visibility)}
                       title={integration.visibility === 'shared' ? 'Make private' : 'Share with users'}

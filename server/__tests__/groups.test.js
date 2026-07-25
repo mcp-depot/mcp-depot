@@ -70,6 +70,7 @@ describe('Groups API (/api/v1/groups)', () => {
     expect(view.status).toBe(200);
     expect(view.body.members).toHaveLength(1);
     expect(view.body.members[0].role).toBe('admin');
+    expect(view.body.canManage).toBe(true);
   });
 
   test('members can also be added by email (no admin-only user lookup required)', async () => {
@@ -138,6 +139,14 @@ describe('Groups API (/api/v1/groups)', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.role).toBe('member');
+  });
+
+  test('canManage on GET /:id matches what the API will actually allow - false for a plain member, true via the system-admin bypass', async () => {
+    const asMember = await request(app).get(`/api/v1/groups/${groupId}`).set('Authorization', `Bearer ${memberToken}`);
+    expect(asMember.body.canManage).toBe(false);
+
+    const asAdmin = await request(app).get(`/api/v1/groups/${groupId}`).set('Authorization', `Bearer ${adminToken}`);
+    expect(asAdmin.body.canManage).toBe(true);
   });
 
   test('a plain member cannot manage the group (add members, rename, delete)', async () => {

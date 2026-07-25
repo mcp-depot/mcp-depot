@@ -1,4 +1,4 @@
-const { checkPolicy } = require('./policy');
+const { checkPolicy, evaluatePolicy } = require('./policy');
 
 // Thin wrappers around the generic checkPolicy() for each resource type that
 // has migrated its hardcoded role checks onto the policy engine, mirroring
@@ -60,4 +60,20 @@ async function checkGroupPolicy({ user, action, groupId }) {
   });
 }
 
-module.exports = { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy, checkGroupPolicy };
+// Read-only preview for list rendering (e.g. "show the Share button on
+// this row?") across potentially many integrations at once - see
+// evaluatePolicy's comment in policy.js for why this must not be the
+// audited checkPolicy path. Never use this to gate an actual action.
+async function evaluateIntegrationPolicy({ user, action, integrationId }) {
+  if (!user?.id) {
+    return { decision: 'deny', reason: 'No authenticated user' };
+  }
+  return evaluatePolicy({
+    user: { id: user.id, role: user.role },
+    resourceType: 'integration',
+    resourceId: integrationId,
+    action
+  });
+}
+
+module.exports = { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy, checkGroupPolicy, evaluateIntegrationPolicy };

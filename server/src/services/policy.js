@@ -127,49 +127,45 @@ async function recordDecision(fields) {
   });
 }
 
-// The single entry point every call site uses, regardless of resourceType.
-// Defaults to 'allow' when no rule matches - this is the backward-
-// compatibility hinge: adopting this on a new resourceType changes nothing
-// until an admin actually writes a rule for it.
-//
-// Fails CLOSED (denies) if the check itself errors, including if the
-// decision record can't be written - the point of this gate is "no call
-// without a verifiable record," so silently allowing on infra failure would
-// defeat that guarantee exactly when it matters most (mid-incident).
-async function checkPolicy({ user, resourceType, resourceId, action, requestContext = {} }) {
-  try {
-    const candidates = await PolicyRule.findAll({
-      where: {
-        isActive: true,
-        resourceType: { [Op.in]: [resourceType, '*'] },
-        action: { [Op.in]: [action, '*'] }
-      }
-    });
-
-    // Only queried when at least one candidate rule actually targets a
-    // group - keeps checkPolicy at its original single query for every
-    // resourceType/action pair that never uses group-scoped rules.
-    let userGroupIds = [];
-    if (candidates.some(r => r.subjectType === 'group')) {
-      const GroupMembership = require('../models/GroupMembership');
-      const memberships = await GroupMembership.findAll({ where: { userId: user.id }, attributes: ['groupId'], raw: true });
-      userGroupIds = memberships.map(m => m.groupId);
+async function findMatchingRules({ user, resourceType, resourceId, action }) {
+  const candidates = await PolicyRule.findAll({
+    where: {
+      isActive: true,
+      resourceType: { [Op.in]: [resourceType, '*'] },
+      action: { [Op.in]: [action, '*'] }
     }
+  });
 
-    const matching = candidates.filter(r => matchesResource(r.resourceMatch, resourceId) && matchesSubject(r, user, userGroupIds));
+  // Only queried when at least one candidate rule actually targets a
+  // group - keeps this at a single query for every resourceType/action
+  // pair that never uses group-scoped rules.
+  let userGroupIds = [];
+  if (candidates.some(r => r.subjectType === 'group')) {
+    const GroupMembership = require('../models/GroupMembership');
+    const memberships = await GroupMembership.findAll({ where: { userId: user.id }, attributes: ['groupId'], raw: true });
+    userGroupIds = memberships.map(m => m.groupId);
+  }
 
-    let decision = 'allow';
-    let matchedRuleId = null;
-    let reason = 'No matching policy rule - default allow';
+  return candidates.filter(r => matchesResource(r.resourceMatch, resourceId) && matchesSubject(r, user, userGroupIds));
+}
 
-    if (matching.length > 0) {
-      const winner = pickWinningRule(matching);
-      matchedRuleId = winner.id;
+// consumeLimit controls whether a matched 'limit' effect rule actually
+// spends rate-limit quota (checkPolicy) or is only previewed (evaluatePolicy)
+// - see evaluatePolicy's comment for why a preview must never consume quota.
+function resolveDecision(matching, user, { consumeLimit }) {
+  let decision = 'allow';
+  let matchedRuleId = null;
+  let reason = 'No matching policy rule - default allow';
 
-      if (winner.effect === 'deny') {
-        decision = 'deny';
-        reason = winner.description || `Denied by rule ${winner.id}`;
-      } else if (winner.effect === 'limit') {
+  if (matching.length > 0) {
+    const winner = pickWinningRule(matching);
+    matchedRuleId = winner.id;
+
+    if (winner.effect === 'deny') {
+      decision = 'deny';
+      reason = winner.description || `Denied by rule ${winner.id}`;
+    } else if (winner.effect === 'limit') {
+      if (consumeLimit) {
         const limitResult = evaluateLimit(winner, user);
         decision = limitResult.allowed ? 'allow' : 'deny';
         reason = limitResult.allowed
@@ -177,9 +173,30 @@ async function checkPolicy({ user, resourceType, resourceId, action, requestCont
           : (limitResult.reason || `Rate limit exceeded for rule ${winner.id}`);
       } else {
         decision = 'allow';
-        reason = winner.description || `Allowed by rule ${winner.id}`;
+        reason = winner.description || `Within limit for rule ${winner.id} (not evaluated in preview)`;
       }
+    } else {
+      decision = 'allow';
+      reason = winner.description || `Allowed by rule ${winner.id}`;
     }
+  }
+
+  return { decision, matchedRuleId, reason };
+}
+
+// The single entry point every REAL enforcement call site uses, regardless
+// of resourceType. Defaults to 'allow' when no rule matches - this is the
+// backward-compatibility hinge: adopting this on a new resourceType changes
+// nothing until an admin actually writes a rule for it.
+//
+// Fails CLOSED (denies) if the check itself errors, including if the
+// decision record can't be written - the point of this gate is "no call
+// without a verifiable record," so silently allowing on infra failure would
+// defeat that guarantee exactly when it matters most (mid-incident).
+async function checkPolicy({ user, resourceType, resourceId, action, requestContext = {} }) {
+  try {
+    const matching = await findMatchingRules({ user, resourceType, resourceId, action });
+    const { decision, matchedRuleId, reason } = resolveDecision(matching, user, { consumeLimit: true });
 
     const record = await recordDecision({
       userId: user.id,
@@ -199,4 +216,23 @@ async function checkPolicy({ user, resourceType, resourceId, action, requestCont
   }
 }
 
-module.exports = { checkPolicy, canonicalize, computeHash };
+// Read-only variant for computing UI hints (e.g. "should this button even
+// be shown") across a list of resources. Deliberately does NOT call
+// checkPolicy: writing a PolicyDecision for every row of every list render
+// would drown the real audit trail - the record of decisions that actually
+// gated something - in noise, and a matched 'limit' rule must never spend
+// rate-limit quota just because a page was rendered. Real enforcement of
+// the same action still goes through checkPolicy when the user actually
+// attempts it; this only ever answers "what would happen," never gates
+// anything itself.
+async function evaluatePolicy({ user, resourceType, resourceId, action }) {
+  try {
+    const matching = await findMatchingRules({ user, resourceType, resourceId, action });
+    return resolveDecision(matching, user, { consumeLimit: false });
+  } catch (err) {
+    logger.error({ err: err.message, resourceType, resourceId, action, userId: user?.id }, 'Policy evaluation (read-only) failed - failing closed');
+    return { decision: 'deny', reason: 'Policy check failed', matchedRuleId: null, error: true };
+  }
+}
+
+module.exports = { checkPolicy, evaluatePolicy, canonicalize, computeHash };

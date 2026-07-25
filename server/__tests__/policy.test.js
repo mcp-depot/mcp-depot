@@ -6,7 +6,7 @@ process.env.NODE_ENV = 'test';
 delete process.env.DATABASE_URL;
 
 const { sequelize, loadModels } = require('../src/config/database');
-const { checkPolicy, canonicalize, computeHash } = require('../src/services/policy');
+const { checkPolicy, evaluatePolicy, canonicalize, computeHash } = require('../src/services/policy');
 
 describe('canonicalize', () => {
   test('sorts keys at every nesting level regardless of insertion order', () => {
@@ -179,5 +179,51 @@ describe('checkPolicy', () => {
     const rec2 = await PolicyDecision.findByPk(r2.decisionId);
     expect(rec2.previousHash).toBe(rec1.recordHash);
     expect(rec2.recordHash).not.toBe(rec1.recordHash);
+  });
+
+  describe('evaluatePolicy (read-only preview, used for UI hints)', () => {
+    test('matches checkPolicy\'s decision for a plain allow/deny rule, but writes no PolicyDecision', async () => {
+      const { PolicyDecision } = loadModels();
+      await PolicyRule.create({
+        resourceType: 'integration', resourceMatch: 'int-preview-1', action: 'share',
+        subjectType: 'role', subjectId: 'user', effect: 'deny', isActive: true
+      });
+
+      const before = await PolicyDecision.count();
+      const preview = await evaluatePolicy({ user: regularUser, resourceType: 'integration', resourceId: 'int-preview-1', action: 'share' });
+      const after = await PolicyDecision.count();
+
+      expect(preview.decision).toBe('deny');
+      expect(after).toBe(before);
+
+      const audited = await checkPolicy({ user: regularUser, resourceType: 'integration', resourceId: 'int-preview-1', action: 'share' });
+      expect(audited.decision).toBe('deny');
+      expect(await PolicyDecision.count()).toBe(before + 1);
+    });
+
+    test('never consumes rate-limit quota for a matched limit rule - previews stay optimistic (allow)', async () => {
+      await PolicyRule.create({
+        resourceType: 'tool', resourceMatch: 'preview_rate_limited_tool', action: 'execute',
+        subjectType: '*', subjectId: null, effect: 'limit', limitConfig: { maxPerHour: 1 }, isActive: true
+      });
+
+      // Call the preview many times - none of these may burn the quota.
+      for (let i = 0; i < 5; i++) {
+        const preview = await evaluatePolicy({ user: regularUser, resourceType: 'tool', resourceId: 'preview_rate_limited_tool', action: 'execute' });
+        expect(preview.decision).toBe('allow');
+      }
+
+      // The real, audited check still has its full quota available.
+      const real = await checkPolicy({ user: regularUser, resourceType: 'tool', resourceId: 'preview_rate_limited_tool', action: 'execute' });
+      expect(real.decision).toBe('allow');
+    });
+
+    test('fails closed if evaluation itself errors', async () => {
+      const brokenFind = jest.spyOn(PolicyRule, 'findAll').mockRejectedValueOnce(new Error('db down'));
+      const preview = await evaluatePolicy({ user: regularUser, resourceType: 'tool', resourceId: 'x', action: 'execute' });
+      expect(preview.decision).toBe('deny');
+      expect(preview.error).toBe(true);
+      brokenFind.mockRestore();
+    });
   });
 });
