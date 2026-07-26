@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import api from '../services/api';
 import { getIntegrationIcon, getIntegrationColor } from '../utils/integrationIcons';
 import { StyledSelect } from '../components/StyledSelect';

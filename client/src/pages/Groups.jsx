@@ -1,5 +1,5 @@
 import { useState, useEffect, useId } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import api from '../services/api';
 import { Modal } from '../components/Modal';
 import { Users2, Plus } from 'lucide-react';

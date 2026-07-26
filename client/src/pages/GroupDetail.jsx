@@ -1,5 +1,5 @@
 import { useState, useEffect, useId, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Modal } from '../components/Modal';
