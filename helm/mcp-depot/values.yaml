@@ -14,6 +14,10 @@ image:
     repository: ghcr.io/mcp-depot/mcp-depot-client
     tag: "latest"
     pullPolicy: Always
+  mcpRunner:
+    repository: ghcr.io/mcp-depot/mcp-depot-mcp-runner
+    tag: "latest"
+    pullPolicy: Always
 
 imagePullSecrets: []
 nameOverride: ""
@@ -54,6 +58,23 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 3
   targetCPUUtilizationPercentage: 70
+
+mcpRunner:
+  # Stdio external MCP servers (arbitrary local process spawning + package
+  # installs) run in this sidecar container instead of the server container -
+  # it has no DATABASE_URL/JWT_SECRET/ENCRYPTION_KEY to leak if a spawned
+  # command misbehaves. Runs in the same pod as the server (not a separate
+  # Deployment/Service - no need for one, they only ever talk to each other
+  # over localhost within the pod's shared network namespace).
+  enabled: true
+  port: 9500
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
 
 mcpPackages:
   # Persists packages installed via the External MCP Servers "install"
@@ -100,6 +121,12 @@ secrets:
   jwtSecret: ""
   sessionSecret: ""
   encryptionKey: ""
+  # Shared secret between the server and mcp-runner containers - auto-
+  # generated if left blank (see templates/secret.yaml). Both containers
+  # are in the same pod, so this mainly guards against another workload
+  # in the same namespace/cluster reaching the sidecar's WS/HTTP port
+  # directly, not against anything crossing the pod boundary normally.
+  mcpRunnerToken: ""
   existingSecret: ""
 
 env:

@@ -75,9 +75,35 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources.server | nindent 12 }}
+          {{- if not .Values.mcpRunner.enabled }}
           volumeMounts:
             - name: mcp-packages
               mountPath: /opt/mcp-packages
+          {{- end }}
+        {{- if .Values.mcpRunner.enabled }}
+        - name: mcp-runner
+          image: "{{ .Values.image.mcpRunner.repository }}:{{ .Values.image.mcpRunner.tag }}"
+          imagePullPolicy: {{ .Values.image.mcpRunner.pullPolicy }}
+          ports:
+            - name: mcp-runner
+              containerPort: {{ .Values.mcpRunner.port }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.mcpRunner.port | quote }}
+            - name: MCP_PACKAGES_PATH
+              value: "/opt/mcp-packages"
+            - name: MCP_RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "mcp-depot.fullname" .)) }}
+                  key: MCP_RUNNER_TOKEN
+          resources:
+            {{- toYaml .Values.mcpRunner.resources | nindent 12 }}
+          volumeMounts:
+            - name: mcp-packages
+              mountPath: /opt/mcp-packages
+        {{- end }}
       volumes:
         - name: mcp-packages
           {{- if .Values.mcpPackages.enabled }}
