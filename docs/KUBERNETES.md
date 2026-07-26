@@ -151,7 +151,9 @@ externalDatabase:
 
 ### Scaling beyond one replica
 
-`replicaCount > 1` and `autoscaling.enabled: true` are supported, but note that all server replicas share a **single** `mcp-packages` PVC (unlike postgres, which gets one PVC per replica via `volumeClaimTemplates`). The default `mcpPackages.accessMode: ReadWriteOnce` only supports one pod reliably, so scaling past one replica requires `ReadWriteMany`:
+`replicaCount > 1` and `autoscaling.enabled: true` require `redis.enabled: true` first - rate limiting, the circuit breaker, and Session Channel/MCP session notifications are only correct per-pod without it. See [docs/HA-SCALING.md](./HA-SCALING.md) for the full picture (why, the trade-offs, and the equivalent Docker Compose setup). The chart fails the render with a clear error if you skip this.
+
+Separately, note that all server replicas share a **single** `mcp-packages` PVC (unlike postgres, which gets one PVC per replica via `volumeClaimTemplates`). The default `mcpPackages.accessMode: ReadWriteOnce` only supports one pod reliably, so scaling past one replica requires `ReadWriteMany`:
 
 ```yaml
 replicaCount: 3
@@ -192,6 +194,9 @@ mcpRunner:
 | `mcpRunner.enabled` | `true` | Run stdio External MCP Servers in an isolated sidecar container instead of the server container. `false` falls back to spawning directly in the server container (local debugging only) |
 | `mcpRunner.port` | `9500` | Port the sidecar listens on inside the pod (server reaches it at `http://localhost:<port>`) |
 | `secrets.mcpRunnerToken` | auto-generated | Shared token the server uses to authenticate to the mcp-runner sidecar |
+| `redis.enabled` | `false` | Required for `replicaCount > 1` / `autoscaling.enabled` - shares rate limits, circuit breaker state, and session notifications across replicas. See [docs/HA-SCALING.md](./HA-SCALING.md) |
+| `redis.bundled` | `true` | Deploy a chart-managed single-pod Redis. `false` to use `redis.externalUrl` instead - recommended for a real production HA deployment, since the bundled Redis is itself a single point of failure |
+| `redis.externalUrl` | `""` | External Redis connection string (used when `redis.bundled=false`) |
 | `postgres.enabled` | `true` | Deploy bundled PostgreSQL StatefulSet |
 | `postgres.image.tag` | `15-alpine` | PostgreSQL image tag |
 | `postgres.volume.size` | `1Gi` | PVC size for postgres data |
