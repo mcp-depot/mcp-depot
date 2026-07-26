@@ -1,6 +1,8 @@
 const express = require('express');
 const Joi = require('joi');
 const axios = require('axios');
+const path = require('path');
+const os = require('os');
 const { spawn, execSync } = require('child_process');
 const { auth, requireAdmin } = require('../middleware/auth');
 const logger = require('../services/logger');
@@ -17,6 +19,12 @@ const ALLOWED_STDIO_COMMANDS = ['node', 'python', 'python3', 'uvx', 'npx'];
 const SHELL_SAFE_ARGS = /^[a-zA-Z0-9_\-\.\/\\@:]+$/;
 
 const PACKAGE_NAME_RE = /^(@?[\w\-\.]+\/)?[\w\-\.]+(@[\w\.\-]+)?$/;
+
+// Same default as index.js's MCP_PACKAGES_PATH - installs must land here to
+// actually be found later (PATH/NODE_PATH/PYTHONPATH are all wired to this
+// exact location), and to survive a container rebuild when this is a
+// volume-mounted path (docker-compose.yml mounts mcp_packages here).
+const MCP_PACKAGES_PATH = process.env.MCP_PACKAGES_PATH || path.join(os.homedir(), '.mcphub', 'packages');
 
 function isCommandAvailable(cmd) {
   try {
@@ -403,32 +411,37 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
     if (runtime === 'python') {
       if (!isCommandAvailable('pip') && !isCommandAvailable('pip3')) {
         return res.status(422).json({
-          error: 'pip is not installed or not on PATH. Please install Python from https://python.org and restart MCP Depot.'
+          error: 'pip is not available on the machine running MCP Depot\'s server. If you don\'t manage that machine yourself (e.g. this is a Docker or Kubernetes deployment), ask your administrator to add Python/pip support to the image.'
         });
       }
     } else {
       if (!isCommandAvailable('npm')) {
         return res.status(422).json({
-          error: 'npm is not installed or not on PATH. Please install Node.js from https://nodejs.org and restart MCP Depot.'
+          error: 'npm is not available on the machine running MCP Depot\'s server. If you don\'t manage that machine yourself (e.g. this is a Docker or Kubernetes deployment), ask your administrator to add Node.js/npm support to the image.'
         });
       }
     }
-    
+
     const pkgName = packageName.trim();
 
     if (!PACKAGE_NAME_RE.test(pkgName)) {
       return res.status(400).json({ error: 'Invalid package name format' });
     }
-    
+
     return new Promise((resolve, reject) => {
       let cmd, args;
-      
+
+      // Install into MCP_PACKAGES_PATH, not npm/pip's own default global
+      // location - that's what index.js's PATH/NODE_PATH/PYTHONPATH wiring
+      // actually points at, and (in the Docker deployment) what
+      // docker-compose.yml mounts as a persistent volume, so an install
+      // survives a container rebuild instead of silently vanishing.
       if (runtime === 'python') {
         cmd = 'pip3';
-        args = ['install', '--break-system-packages', pkgName];
+        args = ['install', '--break-system-packages', '--target', path.join(MCP_PACKAGES_PATH, 'python'), pkgName];
       } else {
         cmd = 'npm';
-        args = ['install', '-g', pkgName];
+        args = ['install', '-g', '--prefix', path.join(MCP_PACKAGES_PATH, 'node'), pkgName];
       }
       
       const proc = spawn(cmd, args, {
@@ -446,22 +459,25 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
         stderr += data.toString();
       });
       
+      const timeoutHandle = setTimeout(() => {
+        try { proc.kill(); } catch (e) {}
+        reject(new Error('Installation timed out'));
+      }, 120000);
+
       proc.on('close', (code) => {
+        clearTimeout(timeoutHandle);
         if (code === 0) {
+          resolve();
           res.json({ success: true, message: `Successfully installed ${packageName}` });
         } else {
           reject(new Error(stderr || `Exit code ${code}`));
         }
       });
-      
+
       proc.on('error', (err) => {
+        clearTimeout(timeoutHandle);
         reject(err);
       });
-      
-      setTimeout(() => {
-        try { proc.kill(); } catch (e) {}
-        reject(new Error('Installation timed out'));
-      }, 120000);
     });
   } catch (error) {
     logger.error({ error: error.message }, 'Install npm package error');

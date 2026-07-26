@@ -15,6 +15,13 @@ const nodeBin = path.join(MCP_PACKAGES_PATH, 'node', 'bin');
 const pythonBin = path.join(MCP_PACKAGES_PATH, 'python', 'bin');
 process.env.PATH = `${nodeBin}${pathSep}${pythonBin}${pathSep}${process.env.PATH}`;
 process.env.NODE_PATH = path.join(MCP_PACKAGES_PATH, 'node', 'lib', 'node_modules');
+// Python packages are installed with `pip install --target` (routes/external-mcp.js),
+// a flat, version-independent layout - PYTHONPATH is what makes them importable via
+// `python3 -m <module>`, the way external MCP servers are normally invoked (PATH alone
+// only helps if a package happens to also ship a console-script binary).
+process.env.PYTHONPATH = process.env.PYTHONPATH
+  ? `${path.join(MCP_PACKAGES_PATH, 'python')}${pathSep}${process.env.PYTHONPATH}`
+  : path.join(MCP_PACKAGES_PATH, 'python');
 process.env.MCP_PACKAGES_PATH = MCP_PACKAGES_PATH;
 
 const { connectDB } = require('./config/database');
