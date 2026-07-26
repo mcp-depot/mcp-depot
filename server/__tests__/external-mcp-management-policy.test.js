@@ -70,7 +70,7 @@ describe('POST /api/v1/external-mcp - configure_stdio is deny-unless-admin by de
     const res = await request(app)
       .post('/api/v1/external-mcp')
       .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ name: 'stdio-server-1', transportType: 'stdio', command: 'node', args: '/app/script.js' });
+      .send({ name: 'stdio-server-1', transportType: 'stdio', command: 'node', args: '["/app/script.js"]' });
     expect(res.status).toBe(403);
   });
 
@@ -78,7 +78,7 @@ describe('POST /api/v1/external-mcp - configure_stdio is deny-unless-admin by de
     const res = await request(app)
       .post('/api/v1/external-mcp')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'stdio-server-2', transportType: 'stdio', command: 'node', args: '/app/script.js' });
+      .send({ name: 'stdio-server-2', transportType: 'stdio', command: 'node', args: '["/app/script.js"]' });
     expect(res.status).toBe(201);
   });
 
@@ -92,7 +92,7 @@ describe('POST /api/v1/external-mcp - configure_stdio is deny-unless-admin by de
     const res = await request(app)
       .post('/api/v1/external-mcp')
       .set('Authorization', `Bearer ${otherToken}`)
-      .send({ name: 'stdio-server-3', transportType: 'stdio', command: 'node', args: '/app/script.js' });
+      .send({ name: 'stdio-server-3', transportType: 'stdio', command: 'node', args: '["/app/script.js"]' });
     expect(res.status).toBe(201);
 
     await PolicyRule.destroy({ where: { subjectId: otherUserId, action: 'configure_stdio' } });
@@ -114,7 +114,7 @@ describe('PUT /api/v1/external-mcp/:id - reconfiguring to stdio is also policy-g
     const res = await request(app)
       .put(`/api/v1/external-mcp/${httpServerId}`)
       .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ transportType: 'stdio', command: 'node', args: '/app/script.js' });
+      .send({ transportType: 'stdio', command: 'node', args: '["/app/script.js"]' });
     expect(res.status).toBe(403);
   });
 
@@ -122,7 +122,7 @@ describe('PUT /api/v1/external-mcp/:id - reconfiguring to stdio is also policy-g
     const res = await request(app)
       .put(`/api/v1/external-mcp/${httpServerId}`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ transportType: 'stdio', command: 'node', args: '/app/script.js' });
+      .send({ transportType: 'stdio', command: 'node', args: '["/app/script.js"]' });
     expect(res.status).toBe(200);
   });
 });

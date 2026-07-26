@@ -12,14 +12,53 @@ const ExternalMcpTool = require('../models/ExternalMcpTool');
 const { isUrlSafe } = require('../utils/ssrfGuard');
 const audit = require('../services/audit');
 const { checkExternalMcpPolicy } = require('../services/resource-policy');
+const mcpRunnerClient = require('../services/mcp-runner-client');
 
 const router = express.Router();
 const pool = require('../services/mcp-connection-pool');
 
 const ALLOWED_STDIO_COMMANDS = ['node', 'python', 'python3', 'uvx', 'npx'];
-const SHELL_SAFE_ARGS = /^[a-zA-Z0-9_\-\.\/\\@:]+$/;
+const SHELL_SAFE_ARG = /^[a-zA-Z0-9_\-\.\/\\@:]+$/;
+
+// args is stored (and sent by the UI, see client/src/pages/Settings.jsx) as a
+// JSON-encoded array string, e.g. '["-y", "bitbucket-mcp"]' - mirrors
+// mcp-connection-pool.js's _parseJson / normalizeArgs below. Each element is
+// checked against SHELL_SAFE_ARG individually so a legitimate multi-flag
+// argument list isn't rejected just for containing JSON's own [ ] " , syntax.
+function isSafeStdioArgs(value) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch (e) {
+    return false;
+  }
+  return Array.isArray(parsed) && parsed.every(arg => typeof arg === 'string' && SHELL_SAFE_ARG.test(arg));
+}
 
 const PACKAGE_NAME_RE = /^(@?[\w\-\.]+\/)?[\w\-\.]+(@[\w\.\-]+)?$/;
+
+// Mirrors mcp-connection-pool.js's _parseJson - args/env are stored as JSON
+// strings on the model, but mcp-runner's /register expects them already
+// parsed (an array / a plain object respectively).
+function normalizeArgs(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function normalizeEnv(value) {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
 
 // Same default as index.js's MCP_PACKAGES_PATH - installs must land here to
 // actually be found later (PATH/NODE_PATH/PYTHONPATH are all wired to this
@@ -211,7 +250,7 @@ router.post('/', auth, async (req, res) => {
       if (!ALLOWED_STDIO_COMMANDS.includes(value.command)) {
         return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
       }
-      if (value.args && !SHELL_SAFE_ARGS.test(value.args)) {
+      if (value.args && !isSafeStdioArgs(value.args)) {
         return res.status(400).json({ error: 'Arguments contain unsafe characters' });
       }
     }
@@ -230,6 +269,24 @@ router.post('/', auth, async (req, res) => {
     });
 
     if (clearToolsCache) clearToolsCache();
+
+    // Fire-and-forget: eagerly push this stdio server's spawn config to the
+    // mcp-runner sidecar. Not strictly required - the connection pool's
+    // reactive retry (see mcp-connection-pool.js's _connectStdioViaRunner)
+    // would register it on first failure anyway - but without this, the very
+    // first connect attempt below would always hit that failure path first,
+    // which is needless log noise for what's actually completely normal
+    // first-time registration.
+    if (server.transportType === 'stdio' && mcpRunnerClient.isEnabled()) {
+      mcpRunnerClient.registerServer({
+        serverId: server.id,
+        command: server.command,
+        args: normalizeArgs(server.args),
+        env: normalizeEnv(server.env)
+      }).catch(err =>
+        logger.warn({ serverId: server.id, err: err.message }, 'Eager mcp-runner registration failed (will retry on first connect)')
+      );
+    }
 
     // Fire-and-forget: pre-warm connection pool
     if (server.isActive) {
@@ -289,7 +346,7 @@ router.put('/:id', auth, async (req, res) => {
       if (value.command && !ALLOWED_STDIO_COMMANDS.includes(value.command)) {
         return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
       }
-      if (value.args && !SHELL_SAFE_ARGS.test(value.args)) {
+      if (value.args && !isSafeStdioArgs(value.args)) {
         return res.status(400).json({ error: 'Arguments contain unsafe characters' });
       }
     }
@@ -304,6 +361,20 @@ router.put('/:id', auth, async (req, res) => {
     await server.update(updates);
 
     pool.disconnect(server.id);
+
+    // Fire-and-forget: push the (possibly changed) spawn config to mcp-runner
+    // again - same rationale as the create route, and necessary here even if
+    // registered before, since command/args/env may have just changed.
+    if (server.transportType === 'stdio' && mcpRunnerClient.isEnabled()) {
+      mcpRunnerClient.registerServer({
+        serverId: server.id,
+        command: server.command,
+        args: normalizeArgs(server.args),
+        env: normalizeEnv(server.env)
+      }).catch(err =>
+        logger.warn({ serverId: server.id, err: err.message }, 'Eager mcp-runner re-registration failed (will retry on first connect)')
+      );
+    }
 
     // Fire-and-forget: re-connect with new config
     if (server.isActive) {
@@ -352,6 +423,10 @@ router.delete('/:id', auth, async (req, res) => {
     await server.destroy();
 
     pool.disconnect(req.params.id);
+
+    if (deletedInfo.transportType === 'stdio' && mcpRunnerClient.isEnabled()) {
+      mcpRunnerClient.unregisterServer(req.params.id);
+    }
 
     if (clearToolsCache) clearToolsCache();
 
@@ -430,6 +505,21 @@ router.post('/install', auth, async (req, res) => {
     const installPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'install_package', resourceId: packageName.trim() });
     if (installPolicyResult.decision === 'deny') {
       return res.status(403).json({ error: 'Access denied by policy', reason: installPolicyResult.reason });
+    }
+
+    // When mcp-runner is enabled, the install itself (and the npm/pip
+    // availability it depends on) happens over there instead of here - the
+    // whole point is that this container never needs to spawn arbitrary
+    // install commands locally. Response shape is preserved exactly
+    // (mcp-runner's http-api.js mirrors this route's original success/error
+    // JSON), so the client UI needs no changes either way.
+    if (mcpRunnerClient.isEnabled()) {
+      try {
+        const result = await mcpRunnerClient.installPackage({ packageName: packageName.trim(), runtime });
+        return res.status(200).json(result);
+      } catch (err) {
+        return res.status(err.status || 500).json({ error: err.message });
+      }
     }
 
     if (runtime === 'python') {

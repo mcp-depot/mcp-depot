@@ -3,7 +3,9 @@
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
+const { WebSocketClientTransport } = require('@modelcontextprotocol/sdk/client/websocket.js');
 const { isUrlSafe } = require('../utils/ssrfGuard');
+const mcpRunnerClient = require('./mcp-runner-client');
 const logger = require('./logger');
 
 const SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
@@ -55,13 +57,13 @@ class McpConnectionPool {
   async _connect(server) {
     logger.info({ serverId: server.id, name: server.name, transport: server.transportType }, 'Connecting to external MCP server');
 
-    const { client, transport } = await this._createClient(server);
-
-    const entry = { client, transport, lastUsedAt: Date.now(), state: 'connecting', toolsHash: null, tools: [] };
+    const entry = { client: null, transport: null, lastUsedAt: Date.now(), state: 'connecting', toolsHash: null, tools: [] };
     this._pool.set(server.id, entry);
 
     try {
-      await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `connect:${server.name}`);
+      const { client, transport } = await this._connectClient(server, `connect:${server.name}`);
+      entry.client = client;
+      entry.transport = transport;
       entry.state = 'connected';
       logger.info({ serverId: server.id }, 'External MCP server connected');
 
@@ -79,6 +81,50 @@ class McpConnectionPool {
     } catch (err) {
       this._pool.delete(server.id);
       throw new Error(`Failed to connect to ${server.name}: ${err.message}`);
+    }
+  }
+
+  // Single chokepoint for "build a client/transport pair and connect it" -
+  // branches to the mcp-runner sidecar for stdio servers when it's enabled,
+  // otherwise unchanged (_createClient handles http/sse and local-stdio
+  // identically to before). All three real call sites (_connect,
+  // _listToolsStateless, _callToolStateless) go through this instead of
+  // duplicating the connect-with-timeout pairing inline.
+  async _connectClient(server, label) {
+    if (server.transportType === 'stdio' && mcpRunnerClient.isEnabled()) {
+      return this._connectStdioViaRunner(server, label);
+    }
+    const built = await this._createClient(server);
+    await withTimeout(built.client.connect(built.transport), CONNECT_TIMEOUT_MS, label);
+    return built;
+  }
+
+  // The sidecar is stateless about which servers exist (routes/external-mcp.js
+  // pushes config eagerly on create/update, but a sidecar restart forgets
+  // everything). The SDK's WebSocketClientTransport also strips WS close
+  // codes before they reach onclose, so "the sidecar forgot us" can't be
+  // cleanly distinguished from any other connect failure - instead of
+  // fragile error-parsing, treat any failure here as "maybe forgotten,"
+  // re-register, and retry exactly once with a fresh client/transport pair
+  // (WebSocketClientTransport throws if connected twice on one instance).
+  async _connectStdioViaRunner(server, label) {
+    const args = this._parseJson(server.args, []);
+    const env = this._parseJson(server.env, {});
+
+    const attempt = async () => {
+      mcpRunnerClient.ensureWebSocketGlobal();
+      const client = new Client({ name: 'mcp-depot', version: '1.0.0' });
+      const transport = new WebSocketClientTransport(mcpRunnerClient.buildWsUrl(server.id));
+      await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, label);
+      return { client, transport };
+    };
+
+    try {
+      return await attempt();
+    } catch (err) {
+      logger.warn({ serverId: server.id, err: err.message }, 'stdio-via-runner connect failed, re-registering with mcp-runner and retrying once');
+      await mcpRunnerClient.registerServer({ serverId: server.id, command: server.command, args, env });
+      return attempt();
     }
   }
 
@@ -121,9 +167,8 @@ class McpConnectionPool {
   }
 
   async _listToolsStateless(server) {
-    const { client, transport } = await this._createClient(server);
+    const { client, transport } = await this._connectClient(server, `connect:${server.name}`);
     try {
-      await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `connect:${server.name}`);
       const result = await withTimeout(client.listTools(), LIST_TIMEOUT_MS, `listTools:${server.name}`);
       return result.tools || [];
     } finally {
@@ -148,9 +193,8 @@ class McpConnectionPool {
   }
 
   async _callToolStateless(server, toolName, toolArgs) {
-    const { client, transport } = await this._createClient(server);
+    const { client, transport } = await this._connectClient(server, `connect:${server.name}`);
     try {
-      await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `connect:${server.name}`);
       return await client.callTool({ name: toolName, arguments: toolArgs || {} });
     } finally {
       try { transport.close(); } catch {}
