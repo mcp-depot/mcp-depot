@@ -855,6 +855,22 @@ const createDefaultPolicyRules = async () => {
     {
       resourceType: 'group', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
       description: 'Admins may manage any group regardless of membership (seeded rule)'
+    },
+    {
+      resourceType: 'external_mcp_server', action: 'configure_stdio', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may register or reconfigure stdio-based external MCP servers by default (seeded rule) - stdio runs an arbitrary local command, equivalent to code execution'
+    },
+    {
+      resourceType: 'external_mcp_server', action: 'configure_stdio', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may register or reconfigure stdio-based external MCP servers (seeded rule)'
+    },
+    {
+      resourceType: 'external_mcp_server', action: 'install_package', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may install packages for external MCP servers by default (seeded rule)'
+    },
+    {
+      resourceType: 'external_mcp_server', action: 'install_package', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may install packages for external MCP servers (seeded rule)'
     }
   ];
 

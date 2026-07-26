@@ -4,13 +4,14 @@ const axios = require('axios');
 const path = require('path');
 const os = require('os');
 const { spawn, execSync } = require('child_process');
-const { auth, requireAdmin } = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
 const ExternalMcpTool = require('../models/ExternalMcpTool');
 const { isUrlSafe } = require('../utils/ssrfGuard');
 const audit = require('../services/audit');
+const { checkExternalMcpPolicy } = require('../services/resource-policy');
 
 const router = express.Router();
 const pool = require('../services/mcp-connection-pool');
@@ -187,12 +188,25 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ error: 'URL points to a blocked or unresolvable internal address' });
     }
 
+    // Registering a server at all is governed by policy too (default: no
+    // seeded rule, so it stays open/self-service unless an admin adds one) -
+    // but this is a real management action, not just tool execution, so it
+    // goes through the same governance as everything else, not a REST-only
+    // free-for-all.
+    const createPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'create', resourceId: value.name });
+    if (createPolicyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: createPolicyResult.reason });
+    }
+
     if (value.transportType === 'stdio') {
-      // stdio servers run as a local child process on the shared host - this is
-      // equivalent to arbitrary code execution, so only admins may register them.
-      // http/sse servers stay self-service since they carry no RCE risk.
-      if (req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'Only admins may register stdio-based MCP servers. Ask an admin to add it, or connect via http/sse instead.' });
+      // stdio servers run as a local child process on the shared host - this
+      // is equivalent to arbitrary code execution, so this is deny-unless-
+      // admin by default (see createDefaultPolicyRules) - policy-based now
+      // instead of a hardcoded role check, so an admin can delegate it to a
+      // specific group without granting full site-admin.
+      const stdioPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'configure_stdio', resourceId: value.name });
+      if (stdioPolicyResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Only admins may register stdio-based MCP servers by default. Ask an admin to add it, connect via http/sse instead, or have an admin grant this via a policy rule.', reason: stdioPolicyResult.reason });
       }
       if (!ALLOWED_STDIO_COMMANDS.includes(value.command)) {
         return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
@@ -268,8 +282,9 @@ router.put('/:id', auth, async (req, res) => {
 
     const effectiveTransportType = value.transportType || server.transportType;
     if (effectiveTransportType === 'stdio') {
-      if (req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'Only admins may configure stdio-based MCP servers.' });
+      const stdioPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'configure_stdio', resourceId: server.name });
+      if (stdioPolicyResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Only admins may configure stdio-based MCP servers by default.', reason: stdioPolicyResult.reason });
       }
       if (value.command && !ALLOWED_STDIO_COMMANDS.includes(value.command)) {
         return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
@@ -400,14 +415,23 @@ router.post('/:id/execute', auth, async (req, res) => {
   }
 });
 
-router.post('/install', auth, requireAdmin, async (req, res) => {
+router.post('/install', auth, async (req, res) => {
   try {
     const { packageName, runtime = 'node' } = req.body;
-    
+
     if (!packageName || !packageName.trim()) {
       return res.status(400).json({ error: 'Package name is required' });
     }
-    
+
+    // Was a hardcoded requireAdmin middleware - now policy-based (deny-
+    // unless-admin by default, see createDefaultPolicyRules) so an admin
+    // can delegate package installs to a specific group without granting
+    // full site-admin.
+    const installPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'install_package', resourceId: packageName.trim() });
+    if (installPolicyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: installPolicyResult.reason });
+    }
+
     if (runtime === 'python') {
       if (!isCommandAvailable('pip') && !isCommandAvailable('pip3')) {
         return res.status(422).json({

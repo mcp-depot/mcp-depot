@@ -6,7 +6,7 @@ process.env.NODE_ENV = 'test';
 delete process.env.DATABASE_URL;
 
 const { sequelize, loadModels, createDefaultPolicyRules } = require('../src/config/database');
-const { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy, checkGroupPolicy } = require('../src/services/resource-policy');
+const { checkSessionContextPolicy, checkSessionChannelPolicy, checkIntegrationPolicy, checkGroupPolicy, checkExternalMcpPolicy } = require('../src/services/resource-policy');
 
 describe('createDefaultPolicyRules', () => {
   let User, PolicyRule;
@@ -26,15 +26,15 @@ describe('createDefaultPolicyRules', () => {
     await sequelize.close();
   });
 
-  test('seeds exactly 12 rules and is idempotent on repeated calls', async () => {
+  test('seeds exactly 16 rules and is idempotent on repeated calls', async () => {
     await createDefaultPolicyRules();
     const afterFirst = await PolicyRule.count();
-    expect(afterFirst).toBe(12);
+    expect(afterFirst).toBe(16);
 
     await createDefaultPolicyRules();
     await createDefaultPolicyRules();
     const afterRepeat = await PolicyRule.count();
-    expect(afterRepeat).toBe(12);
+    expect(afterRepeat).toBe(16);
   });
 
   test('an admin bypasses session context ownership by default (manage_others allowed)', async () => {
@@ -104,5 +104,24 @@ describe('createDefaultPolicyRules', () => {
 
     const userResult = await checkGroupPolicy({ user, action: 'manage_others', groupId: 'g-x' });
     expect(userResult.decision).toBe('deny');
+  });
+
+  test('an admin may configure stdio external MCP servers and install packages by default; a regular user cannot', async () => {
+    const adminStdio = await checkExternalMcpPolicy({ user: admin, action: 'configure_stdio', resourceId: 'srv-x' });
+    expect(adminStdio.decision).toBe('allow');
+    const userStdio = await checkExternalMcpPolicy({ user, action: 'configure_stdio', resourceId: 'srv-x' });
+    expect(userStdio.decision).toBe('deny');
+
+    const adminInstall = await checkExternalMcpPolicy({ user: admin, action: 'install_package', resourceId: 'some-pkg' });
+    expect(adminInstall.decision).toBe('allow');
+    const userInstall = await checkExternalMcpPolicy({ user, action: 'install_package', resourceId: 'some-pkg' });
+    expect(userInstall.decision).toBe('deny');
+  });
+
+  test('create has no seeded rule for external MCP servers - open by default for both admin and regular users', async () => {
+    const adminCreate = await checkExternalMcpPolicy({ user: admin, action: 'create', resourceId: 'srv-x' });
+    expect(adminCreate.decision).toBe('allow');
+    const userCreate = await checkExternalMcpPolicy({ user, action: 'create', resourceId: 'srv-x' });
+    expect(userCreate.decision).toBe('allow');
   });
 });
