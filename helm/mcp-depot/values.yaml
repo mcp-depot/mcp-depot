@@ -18,6 +18,10 @@ image:
     repository: ghcr.io/mcp-depot/mcp-depot-mcp-runner
     tag: "latest"
     pullPolicy: Always
+  redis:
+    repository: valkey/valkey
+    tag: "8"
+    pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 nameOverride: ""
@@ -75,6 +79,37 @@ mcpRunner:
     requests:
       cpu: 100m
       memory: 128Mi
+
+redis:
+  # Rate limiting, the circuit breaker, and Session Channel/MCP session
+  # notifications are only correct per-pod without this - each replica
+  # would keep its own independent counters and never see another
+  # replica's events. Required whenever replicaCount > 1 or
+  # autoscaling.enabled (enforced by a {{ fail }} guard, same pattern as
+  # mcpPackages.accessMode's guard below) - a single pod never needs it.
+  enabled: false
+  # true: this chart deploys its own single-pod Redis (parity with
+  # postgres.enabled - lowest friction for a first HA deployment). false:
+  # bring your own via externalUrl.
+  #
+  # A single-pod bundled Redis has no HA of its own - it is itself a new
+  # single point of failure for an otherwise-HA deployment. It holds only
+  # a coordination cache (rate-limit counters, breaker state, pub/sub),
+  # not source-of-truth data, so losing it just resets counters and drops
+  # any in-flight notification, not real data - but if you need this
+  # deployment to survive a Redis pod restart without a blip in rate
+  # limiting/circuit breaking, point externalUrl at a managed Redis
+  # (e.g. ElastiCache, Memorystore) instead.
+  bundled: true
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  # Set when bundled: false, e.g. "redis://user:pass@my-redis-host:6379"
+  externalUrl: ""
 
 mcpPackages:
   # Persists packages installed via the External MCP Servers "install"

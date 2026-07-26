@@ -1,0 +1,55 @@
+{{- if and .Values.redis.enabled .Values.redis.bundled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mcp-depot.fullname" . }}-redis
+  labels:
+    {{- include "mcp-depot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  # A single replica, always - this is a coordination cache (rate-limit
+  # counters, circuit breaker state, pub/sub for cross-replica
+  # notifications), not source-of-truth data. Losing it resets counters and
+  # drops in-flight notifications, not real data, so it doesn't need its own
+  # HA (StatefulSet, PVC) the way postgres does - see the SPOF note on
+  # redis.bundled in values.yaml if this deployment needs to survive a
+  # Redis pod restart without a blip.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mcp-depot.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-depot.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+    spec:
+      containers:
+        - name: redis
+          image: "{{ .Values.image.redis.repository }}:{{ .Values.image.redis.tag }}"
+          imagePullPolicy: {{ .Values.image.redis.pullPolicy }}
+          ports:
+            - name: tcp-redis
+              containerPort: 6379
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mcp-depot.fullname" . }}-redis
+  labels:
+    {{- include "mcp-depot.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  ports:
+    - port: 6379
+      targetPort: tcp-redis
+      protocol: TCP
+      name: tcp-redis
+  selector:
+    {{- include "mcp-depot.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+{{- end }}
