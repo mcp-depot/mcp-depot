@@ -7,6 +7,15 @@ metadata:
     app.kubernetes.io/component: server
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if and .Values.mcpPackages.enabled (eq .Values.mcpPackages.accessMode "ReadWriteOnce") }}
+  # A ReadWriteOnce PVC can only be mounted by one pod at a time - the
+  # default RollingUpdate strategy tries to start the new pod before the
+  # old one releases the volume, which deadlocks. Recreate accepts a
+  # brief gap in availability during upgrades instead of a stuck rollout;
+  # not needed with ReadWriteMany, where both pods can mount at once.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mcp-depot.selectorLabels" . | nindent 6 }}
@@ -71,7 +80,12 @@ spec:
               mountPath: /opt/mcp-packages
       volumes:
         - name: mcp-packages
+          {{- if .Values.mcpPackages.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.mcpPackages.existingClaim | default (printf "%s-mcp-packages" (include "mcp-depot.fullname" .)) }}
+          {{- else }}
           emptyDir: {}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service

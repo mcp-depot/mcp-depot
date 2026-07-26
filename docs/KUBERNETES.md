@@ -146,6 +146,22 @@ externalDatabase:
   url: "postgres://user:password@your-db-host:5432/mcpconnect"
 ```
 
+### Scaling beyond one replica
+
+`replicaCount > 1` and `autoscaling.enabled: true` are supported, but note that all server replicas share a **single** `mcp-packages` PVC (unlike postgres, which gets one PVC per replica via `volumeClaimTemplates`). The default `mcpPackages.accessMode: ReadWriteOnce` only supports one pod reliably, so scaling past one replica requires `ReadWriteMany`:
+
+```yaml
+replicaCount: 3
+
+mcpPackages:
+  accessMode: ReadWriteMany
+  storageClassName: efs-sc   # or your cluster's RWX-capable class
+```
+
+`helm install`/`upgrade` fails immediately with a clear error if `replicaCount`/`autoscaling.maxReplicas` allow more than one pod while `accessMode` is still `ReadWriteOnce`, rather than leaving a pod stuck in `Pending`.
+
+If you don't have an RWX-capable StorageClass available and don't need External MCP Server package installs to persist, set `mcpPackages.enabled: false` (falls back to `emptyDir`, safe at any replica count) instead of forcing `ReadWriteOnce` with multiple replicas.
+
 ---
 
 ## Values Reference
@@ -161,6 +177,11 @@ externalDatabase:
 | `postgres.image.tag` | `15-alpine` | PostgreSQL image tag |
 | `postgres.volume.size` | `1Gi` | PVC size for postgres data |
 | `externalDatabase.url` | `""` | External DB connection string (used when `postgres.enabled=false`) |
+| `mcpPackages.enabled` | `true` | Persist External MCP Server package installs (npm -g / pip --target) in a PVC across restarts and upgrades. `false` falls back to an `emptyDir` (installs lost on every pod reschedule) |
+| `mcpPackages.size` | `1Gi` | PVC size for installed MCP packages |
+| `mcpPackages.storageClassName` | `""` | StorageClass for the PVC (`""` = cluster default) |
+| `mcpPackages.accessMode` | `ReadWriteOnce` | **Must be `ReadWriteMany`** (with an RWX-capable StorageClass - e.g. EFS, Filestore, Azure Files, NFS) if `replicaCount > 1` or `autoscaling.enabled: true` - every server replica mounts the same PVC. `helm template`/`install` fails fast with a clear error if this is misconfigured |
+| `mcpPackages.existingClaim` | `""` | Use a PVC you've already created instead of one created by this chart |
 | `secrets.jwtSecret` | auto-generated | JWT signing secret |
 | `secrets.sessionSecret` | auto-generated | Refresh token secret |
 | `secrets.encryptionKey` | auto-generated | Encryption key for credentials at rest |

@@ -1,0 +1,22 @@
+{{- if and .Values.mcpPackages.enabled (not .Values.mcpPackages.existingClaim) -}}
+{{- $replicas := int .Values.replicaCount -}}
+{{- $maxReplicas := ternary (int .Values.autoscaling.maxReplicas) $replicas .Values.autoscaling.enabled -}}
+{{- if and (gt (max $replicas $maxReplicas) 1) (eq .Values.mcpPackages.accessMode "ReadWriteOnce") -}}
+{{- fail "mcpPackages.accessMode is ReadWriteOnce but replicaCount/autoscaling.maxReplicas allow more than one server pod. Every replica mounts the same PVC (unlike postgres's per-replica volumeClaimTemplates), so set mcpPackages.accessMode: ReadWriteMany with an RWX-capable StorageClass, or pin replicaCount: 1 and autoscaling.enabled: false." -}}
+{{- end }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "mcp-depot.fullname" . }}-mcp-packages
+  labels:
+    {{- include "mcp-depot.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.mcpPackages.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.mcpPackages.size }}
+  {{- if .Values.mcpPackages.storageClassName }}
+  storageClassName: {{ .Values.mcpPackages.storageClassName }}
+  {{- end }}
+{{- end }}

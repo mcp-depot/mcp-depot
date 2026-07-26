@@ -55,6 +55,27 @@ autoscaling:
   maxReplicas: 3
   targetCPUUtilizationPercentage: 70
 
+mcpPackages:
+  # Persists packages installed via the External MCP Servers "install"
+  # button (npm -g / pip --target) across pod restarts and rolling
+  # upgrades. Without this, they live on an emptyDir and vanish the
+  # next time the pod is rescheduled - which happens far more often in
+  # Kubernetes than in a plain Docker Compose deployment.
+  enabled: true
+  size: 1Gi
+  storageClassName: ""
+  # ReadWriteOnce is fine at replicaCount: 1, but every replica of the
+  # server Deployment mounts the *same* PVC (unlike postgres's
+  # per-replica volumeClaimTemplates) - if replicaCount > 1 or
+  # autoscaling.enabled, this MUST be ReadWriteMany, which requires an
+  # RWX-capable StorageClass (e.g. EFS on AWS, Filestore on GCP, Azure
+  # Files, or an NFS provisioner) - most default cloud StorageClasses
+  # (EBS, GCE-PD) are ReadWriteOnce only.
+  accessMode: ReadWriteOnce
+  # Set to use a PVC you've already created yourself instead of one
+  # created by this chart.
+  existingClaim: ""
+
 postgres:
   enabled: true
   image:
