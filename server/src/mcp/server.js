@@ -11,6 +11,7 @@ const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
 const { checkRateLimit: checkToolRateLimit } = require('../services/rate-limiter');
+const notifyBus = require('../services/state/notify-bus');
 const { checkToolPolicy } = require('../services/tool-policy');
 const { isBuiltInIntegration } = require('../utils/builtInIntegrations');
 const { filterFields } = require('../utils/fieldFilter');
@@ -196,6 +197,16 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           }
         }
       }, 30_000);
+
+      // Cross-replica fan-out: routes/session-channel.js publishes here
+      // instead of calling _pushChannelNotification/_pushResourceUpdate
+      // directly, so every replica (each with its own locally-connected MCP
+      // sessions) delivers to its own subscribers - not just whichever
+      // replica happened to receive the original POST. In single-instance
+      // mode (no REDIS_URL) this is a same-process publish/subscribe
+      // indirection around the exact same call graph as before.
+      notifyBus.subscribe('channel-msg', (payload) => this._pushChannelNotification(payload.channel, payload.entry));
+      notifyBus.subscribe('resource-update', (payload) => this._pushResourceUpdate(payload.channel));
     }
 
     for (const tool of tools) {

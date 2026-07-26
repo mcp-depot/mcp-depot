@@ -7,6 +7,7 @@ const channelEmitter = require('../services/channel-events');
 const audit = require('../services/audit');
 const logger = require('../services/logger');
 const { checkSessionChannelPolicy } = require('../services/resource-policy');
+const notifyBus = require('../services/state/notify-bus');
 
 const router = express.Router();
 
@@ -20,6 +21,17 @@ function sseBroadcast(channel, data) {
     try { res.write(`event: message\ndata: ${payload}\n\n`); } catch { clients.delete(res); }
   }
 }
+
+// Cross-replica fan-out for this route's own SSE (/stream) and long-poll
+// (/watch) endpoints - same bug family as the MCP session notifications in
+// mcp/server.js: without this, a message posted while the POST request
+// lands on replica A never reached a /stream or /watch client parked on
+// replica B. Every replica subscribes at module-load time and delivers to
+// its own locally-connected clients only.
+notifyBus.subscribe('channel-msg', (payload) => {
+  channelEmitter.emit(payload.channel, payload.entry);
+  sseBroadcast(payload.channel, payload.entry);
+});
 
 // GET /session-channels/:channel/stream — SSE endpoint for live channel updates
 router.get('/:channel/stream', auth, async (req, res) => {
@@ -206,15 +218,12 @@ router.post('/', auth, async (req, res) => {
       createdBy: req.user.id
     });
     res.status(201).json(entry);
-    channelEmitter.emit(value.channel, entry);
-    sseBroadcast(value.channel, entry);
-    const mcpServer = require('../mcp/server');
-    if (mcpServer._pushChannelNotification) {
-      mcpServer._pushChannelNotification(value.channel, entry);
-    }
-    if (mcpServer._pushResourceUpdate) {
-      mcpServer._pushResourceUpdate(value.channel);
-    }
+    // One publish reaches every local delivery mechanism on every replica -
+    // this replica's own /watch, /stream, and MCP session subscribers
+    // included, via the subscriptions registered above and in
+    // mcp/server.js. See notify-bus.js for the memory-vs-Redis backend.
+    notifyBus.publish('channel-msg', { channel: value.channel, entry: entry.toJSON() });
+    notifyBus.publish('resource-update', { channel: value.channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

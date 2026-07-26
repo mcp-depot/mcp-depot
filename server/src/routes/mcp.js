@@ -18,6 +18,7 @@ const INTERNAL_SECRET = config.internalSecret;
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
 const { checkRateLimit } = require('../services/rate-limiter');
 const { checkToolPolicy } = require('../services/tool-policy');
+const notifyBus = require('../services/state/notify-bus');
 const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
 const { isUrlSafe } = require('../utils/ssrfGuard');
@@ -378,15 +379,12 @@ router.post('/session-channels', optionalAuth, async (req, res) => {
       message,
       createdBy: callerId
     });
-    const channelEmitter = require('../services/channel-events');
-    channelEmitter.emit(channel, entry.toJSON());
-    const mcpServer = require('../mcp/server');
-    if (mcpServer._pushChannelNotification) {
-      mcpServer._pushChannelNotification(channel, entry);
-    }
-    if (mcpServer._pushResourceUpdate) {
-      mcpServer._pushResourceUpdate(channel);
-    }
+    // One publish reaches every local delivery mechanism on every replica -
+    // this route's own channelEmitter listeners plus session-channel.js's
+    // /stream SSE and mcp/server.js's MCP session subscribers, all
+    // registered as notify-bus subscribers. See notify-bus.js.
+    notifyBus.publish('channel-msg', { channel, entry: entry.toJSON() });
+    notifyBus.publish('resource-update', { channel });
     res.json({ success: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
