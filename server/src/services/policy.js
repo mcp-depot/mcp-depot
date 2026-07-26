@@ -63,7 +63,7 @@ function pickWinningRule(candidates) {
   })[0];
 }
 
-function evaluateLimit(rule, user) {
+async function evaluateLimit(rule, user) {
   const cfg = rule.limitConfig || {};
   const key = `policy:${rule.id}:${user.id}`;
 
@@ -74,11 +74,11 @@ function evaluateLimit(rule, user) {
   // rate-limiter.js). Kept consistent rather than adding asymmetric rigor
   // to just this one caller.
   if (cfg.maxPerHour) {
-    const hourResult = checkSlidingWindow(`${key}:hour`, cfg.maxPerHour, 60 * 60 * 1000);
+    const hourResult = await checkSlidingWindow(`${key}:hour`, cfg.maxPerHour, 60 * 60 * 1000);
     if (!hourResult.allowed) return { allowed: false, reason: `Exceeded ${cfg.maxPerHour}/hour limit` };
   }
   if (cfg.maxPerDay) {
-    const dayResult = checkSlidingWindow(`${key}:day`, cfg.maxPerDay, 24 * 60 * 60 * 1000);
+    const dayResult = await checkSlidingWindow(`${key}:day`, cfg.maxPerDay, 24 * 60 * 60 * 1000);
     if (!dayResult.allowed) return { allowed: false, reason: `Exceeded ${cfg.maxPerDay}/day limit` };
   }
   return { allowed: true };
@@ -152,7 +152,7 @@ async function findMatchingRules({ user, resourceType, resourceId, action }) {
 // consumeLimit controls whether a matched 'limit' effect rule actually
 // spends rate-limit quota (checkPolicy) or is only previewed (evaluatePolicy)
 // - see evaluatePolicy's comment for why a preview must never consume quota.
-function resolveDecision(matching, user, { consumeLimit }) {
+async function resolveDecision(matching, user, { consumeLimit }) {
   let decision = 'allow';
   let matchedRuleId = null;
   let reason = 'No matching policy rule - default allow';
@@ -166,7 +166,7 @@ function resolveDecision(matching, user, { consumeLimit }) {
       reason = winner.description || `Denied by rule ${winner.id}`;
     } else if (winner.effect === 'limit') {
       if (consumeLimit) {
-        const limitResult = evaluateLimit(winner, user);
+        const limitResult = await evaluateLimit(winner, user);
         decision = limitResult.allowed ? 'allow' : 'deny';
         reason = limitResult.allowed
           ? (winner.description || `Within limit for rule ${winner.id}`)
@@ -196,7 +196,7 @@ function resolveDecision(matching, user, { consumeLimit }) {
 async function checkPolicy({ user, resourceType, resourceId, action, requestContext = {} }) {
   try {
     const matching = await findMatchingRules({ user, resourceType, resourceId, action });
-    const { decision, matchedRuleId, reason } = resolveDecision(matching, user, { consumeLimit: true });
+    const { decision, matchedRuleId, reason } = await resolveDecision(matching, user, { consumeLimit: true });
 
     const record = await recordDecision({
       userId: user.id,
@@ -228,7 +228,7 @@ async function checkPolicy({ user, resourceType, resourceId, action, requestCont
 async function evaluatePolicy({ user, resourceType, resourceId, action }) {
   try {
     const matching = await findMatchingRules({ user, resourceType, resourceId, action });
-    return resolveDecision(matching, user, { consumeLimit: false });
+    return await resolveDecision(matching, user, { consumeLimit: false });
   } catch (err) {
     logger.error({ err: err.message, resourceType, resourceId, action, userId: user?.id }, 'Policy evaluation (read-only) failed - failing closed');
     return { decision: 'deny', reason: 'Policy check failed', matchedRuleId: null, error: true };

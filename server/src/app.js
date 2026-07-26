@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const redisClient = require('./services/state/redis-client');
 const logger = require('./services/logger');
 const promClient = require('prom-client');
 const { middleware: metricsMiddleware } = require('./services/metrics');
@@ -53,7 +54,8 @@ app.use(express.urlencoded({ extended: true }));
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
-  message: { error: 'Too many requests, please try again later' }
+  message: { error: 'Too many requests, please try again later' },
+  store: redisClient.buildExpressRateLimitStore('global')
 });
 app.use('/api', limiter);
 app.use(metricsMiddleware);

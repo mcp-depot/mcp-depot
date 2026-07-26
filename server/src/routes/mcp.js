@@ -1416,7 +1416,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       const intLimit = integration.rateLimit || {};
       const integrationLimitRpm = intLimit.requestsPerMinute || 0;
       const integrationLimitRph = intLimit.requestsPerHour || 0;
-      const rateCheck = checkRateLimit(tool.id, userId, toolLimit, integrationLimitRpm, integrationLimitRph, integration.id);
+      const rateCheck = await checkRateLimit(tool.id, userId, toolLimit, integrationLimitRpm, integrationLimitRph, integration.id);
       if (!rateCheck.allowed) {
         return res.status(429).json({
           error: 'Rate limit exceeded',

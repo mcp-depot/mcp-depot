@@ -163,7 +163,7 @@ class DynamicAdapter {
   async makeRequest(method, path, data = null, options = {}) {
     const { params, headers, retries = 3 } = options;
 
-    if (circuitBreaker.isOpen(this.integrationId)) {
+    if (await circuitBreaker.isOpen(this.integrationId)) {
       throw new Error('Integration temporarily unavailable: too many recent failures (circuit breaker open), retry shortly');
     }
 
@@ -191,7 +191,7 @@ class DynamicAdapter {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const response = await this.client.request(config);
-        circuitBreaker.recordSuccess(this.integrationId);
+        await circuitBreaker.recordSuccess(this.integrationId);
         return {
           data: response.data,
           status: response.status,
@@ -218,7 +218,7 @@ class DynamicAdapter {
         // the integration being down - trip the breaker so the next caller
         // fails fast instead of piling on retries against a dead upstream.
         if (!status || status >= 500) {
-          circuitBreaker.recordFailure(this.integrationId);
+          await circuitBreaker.recordFailure(this.integrationId);
         }
 
         const errorDetail = error?.response?.data
@@ -229,7 +229,7 @@ class DynamicAdapter {
     }
 
     if (!lastError?.response?.status || lastError.response.status >= 500) {
-      circuitBreaker.recordFailure(this.integrationId);
+      await circuitBreaker.recordFailure(this.integrationId);
     }
     throw lastError;
   }
