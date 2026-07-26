@@ -12,6 +12,7 @@ const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
 const { checkRateLimit: checkToolRateLimit } = require('../services/rate-limiter');
 const { checkToolPolicy } = require('../services/tool-policy');
+const { isBuiltInIntegration } = require('../utils/builtInIntegrations');
 const { filterFields } = require('../utils/fieldFilter');
 const { filterLines } = require('../utils/lineFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
@@ -208,6 +209,11 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
 
     this.registerMetaTools();
 
+    // Meta-tools always register at least one tool, guaranteeing the SDK's
+    // default tools/list handler is installed by this point even on a
+    // fresh install with zero configured tools/skills yet.
+    this._installToolsListFilter();
+
     this.registerWatchUntilDone();
 
     logger.info({ toolCount: tools.length, skillCount: skills.length }, 'MCP Server initialized');
@@ -250,9 +256,9 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     }
 
-    const adapter = tool.Integration ? AdapterFactory.create(
-      tool.Integration.type,
-      { ...tool.Integration.config, integrationId: tool.Integration.id }
+    const adapter = tool.integration ? AdapterFactory.create(
+      tool.integration.type,
+      { ...tool.integration.config, integrationId: tool.integration.id }
     ) : null;
 
     this.toolsMap.set(toolName, { tool, adapter });
@@ -302,10 +308,10 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
             }
 
             const toolLimit = currentTool.rateLimit || 0;
-            const intLimit = currentTool.Integration?.rateLimit || {};
+            const intLimit = currentTool.integration?.rateLimit || {};
             const integrationLimitRpm = intLimit.requestsPerMinute || 0;
             const integrationLimitRph = intLimit.requestsPerHour || 0;
-            const rateCheck = checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph, currentTool.Integration?.id);
+            const rateCheck = checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph, currentTool.integration?.id);
             if (!rateCheck.allowed) {
               return {
                 content: [{
@@ -361,10 +367,27 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     }
 
     const endpoint = tool.endpoint || {};
-    const integration = tool.Integration;
-    
+    const integration = tool.integration;
+
     if (!integration) {
       throw new Error('Tool has no associated integration');
+    }
+
+    // Same ownership check the REST endpoints (routes/consume.js,
+    // routes/mcp.js) already enforce for their own tool-execute routes -
+    // the native MCP protocol path (this function) never had it, so any
+    // connected session could execute any other user's private tool, since
+    // checkToolPolicy only evaluates explicit allow/deny rules and has no
+    // inherent concept of ownership.
+    if (integration.visibility !== 'shared' && integration.userId !== callerUserId && !isBuiltInIntegration(integration)) {
+      let callerRole = null;
+      if (callerUserId) {
+        const caller = await User.findByPk(callerUserId);
+        callerRole = caller?.role ?? null;
+      }
+      if (callerRole !== 'admin') {
+        throw new Error('Access denied: you do not have permission to use this tool');
+      }
     }
 
     const secretStore = require('../services/secret-store');
@@ -670,6 +693,54 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     const { registerMetaTools } = require('./meta-tools');
     // Always register — each handler checks isActive at call time
     registerMetaTools(this.server, this.toolsMap, this);
+  }
+
+  // The MCP SDK's default tools/list handler (installed the first time
+  // .tool() is ever called) takes no request/session context at all - it
+  // unconditionally returns every tool ever registered, so a private,
+  // non-shared integration's tools (and non-shared skills) were visible to
+  // every connected client regardless of ownership. This wraps that default
+  // handler (retrieved once, the same way the SDK itself looks it up) with
+  // an ownership/visibility filter, using the same rules the REST /tools
+  // listing already applies - without needing to reimplement the SDK's own
+  // Zod-to-JSON-Schema conversion.
+  _installToolsListFilter() {
+    if (this._toolsListFilterInstalled) return;
+    const requestHandlers = this.server?.server?._requestHandlers;
+    const originalHandler = requestHandlers?.get('tools/list');
+    if (!originalHandler) return;
+
+    const { ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
+    this.server.server.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
+      const fullResult = await originalHandler(req, extra);
+
+      const sessionId = extra?.sessionId || 'stdio';
+      const sessionData = this._sessionClientMap.get(sessionId) ?? {};
+      const callerUserId = sessionData.userId ?? null;
+
+      let callerRole = null;
+      if (callerUserId) {
+        const caller = await User.findByPk(callerUserId);
+        callerRole = caller?.role ?? null;
+      }
+      if (callerRole === 'admin') return fullResult;
+
+      const visibleTools = (fullResult.tools || []).filter(t => {
+        const entry = this.toolsMap.get(t.name);
+        if (!entry) return true;
+        if (entry.type === 'skill') {
+          return !!entry.skill?.isShared || entry.skill?.userId === callerUserId;
+        }
+        if (entry.type === 'meta') return true;
+        const integration = entry.tool?.integration;
+        if (!integration) return true;
+        return integration.visibility === 'shared' || integration.userId === callerUserId || isBuiltInIntegration(integration);
+      });
+
+      return { ...fullResult, tools: visibleTools };
+    });
+
+    this._toolsListFilterInstalled = true;
   }
 
   registerWatchUntilDone() {
@@ -1083,6 +1154,11 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     }
 
     this.registerMetaTools();
+
+    // Meta-tools always register at least one tool, guaranteeing the SDK's
+    // default tools/list handler is installed by this point even on a
+    // fresh install with zero configured tools/skills yet.
+    this._installToolsListFilter();
 
     this.registerWatchUntilDone();
 

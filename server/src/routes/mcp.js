@@ -1402,6 +1402,15 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       return res.status(400).json({ error: 'Integration is not active' });
     }
 
+    // Mirrors the ownership check routes/consume.js already enforces for
+    // its own tool-execute endpoint - this parallel endpoint never had it,
+    // so a private, non-shared integration's tools were executable by any
+    // authenticated caller who supplied the toolId directly, bypassing the
+    // ownership filtering the /tools listing applies.
+    if (integration.visibility !== 'shared' && integration.userId !== userId && req.user?.role !== 'admin' && !isBuiltInIntegration(integration)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     if (userId) {
       const toolLimit = tool.rateLimit || 0;
       const intLimit = integration.rateLimit || {};
