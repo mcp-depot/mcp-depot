@@ -19,6 +19,7 @@ MCP Depot ships a Helm chart for Kubernetes deployments. The chart deploys the s
 ```bash
 docker build -t mcphub-server ./server
 docker build -t mcphub-client ./client
+docker build -t mcphub-mcp-runner ./mcp-runner
 ```
 
 If deploying to a remote cluster, tag and push to your registry:
@@ -26,11 +27,13 @@ If deploying to a remote cluster, tag and push to your registry:
 ```bash
 docker build -t your-registry/mcphub-server:latest ./server
 docker build -t your-registry/mcphub-client:latest ./client
+docker build -t your-registry/mcphub-mcp-runner:latest ./mcp-runner
 docker push your-registry/mcphub-server:latest
 docker push your-registry/mcphub-client:latest
+docker push your-registry/mcphub-mcp-runner:latest
 ```
 
-Then set `image.server.repository` and `image.client.repository` accordingly (see [Values reference](#values-reference)).
+Then set `image.server.repository`, `image.client.repository`, and `image.mcpRunner.repository` accordingly (see [Values reference](#values-reference)).
 
 ### 2. Install
 
@@ -46,13 +49,13 @@ helm install mcp-depot ./helm/mcp-depot \
 kubectl get pods -n mcp-depot
 ```
 
-All three pods should reach `Running` status within ~30 seconds:
+All three pods should reach `Running` status within ~30 seconds (`server` shows `2/2` - it runs the [mcp-runner sidecar](#the-mcp-runner-sidecar) alongside the main container):
 
 ```
 NAME                              READY   STATUS    RESTARTS   AGE
 mcp-depot-client-xxx              1/1     Running   0          30s
 mcp-depot-postgres-0              1/1     Running   0          30s
-mcp-depot-server-xxx              1/1     Running   0          30s
+mcp-depot-server-xxx              2/2     Running   0          30s
 ```
 
 ---
@@ -162,6 +165,17 @@ mcpPackages:
 
 If you don't have an RWX-capable StorageClass available and don't need External MCP Server package installs to persist, set `mcpPackages.enabled: false` (falls back to `emptyDir`, safe at any replica count) instead of forcing `ReadWriteOnce` with multiple replicas.
 
+### The mcp-runner sidecar
+
+Stdio-based External MCP Servers involve spawning arbitrary local processes and installing their packages (npm -g / pip --target). By default this runs in a second container, `mcp-runner`, in the same pod as `server` - not the server container itself, which holds `DATABASE_URL`, `JWT_SECRET`, and `ENCRYPTION_KEY`. The two containers only ever talk to each other over `localhost` within the pod's shared network namespace, so no extra Service is created for it.
+
+This is on by default (`mcpRunner.enabled: true`) and requires no configuration - a shared token (`MCP_RUNNER_TOKEN`) is auto-generated into the same Secret as the other credentials, following the same pattern as `JWT_SECRET`/`ENCRYPTION_KEY`. To disable it and fall back to spawning directly in the server container instead (not recommended - only useful for local debugging):
+
+```yaml
+mcpRunner:
+  enabled: false
+```
+
 ---
 
 ## Values Reference
@@ -172,7 +186,12 @@ If you don't have an RWX-capable StorageClass available and don't need External 
 | `image.server.tag` | `latest` | Server image tag |
 | `image.client.repository` | `mcphub-client` | Client image name |
 | `image.client.tag` | `latest` | Client image tag |
+| `image.mcpRunner.repository` | `mcphub-mcp-runner` | mcp-runner sidecar image name |
+| `image.mcpRunner.tag` | `latest` | mcp-runner sidecar image tag |
 | `replicaCount` | `1` | Number of server/client replicas |
+| `mcpRunner.enabled` | `true` | Run stdio External MCP Servers in an isolated sidecar container instead of the server container. `false` falls back to spawning directly in the server container (local debugging only) |
+| `mcpRunner.port` | `9500` | Port the sidecar listens on inside the pod (server reaches it at `http://localhost:<port>`) |
+| `secrets.mcpRunnerToken` | auto-generated | Shared token the server uses to authenticate to the mcp-runner sidecar |
 | `postgres.enabled` | `true` | Deploy bundled PostgreSQL StatefulSet |
 | `postgres.image.tag` | `15-alpine` | PostgreSQL image tag |
 | `postgres.volume.size` | `1Gi` | PVC size for postgres data |
@@ -213,6 +232,13 @@ helm upgrade mcp-depot ./helm/mcp-depot --namespace mcp-depot
 ```
 
 Secret values are preserved across upgrades — existing JWT secrets and the postgres password are read from the current secret and reused, so no sessions are invalidated and the database connection remains intact.
+
+**Upgrading a release created before the mcp-runner sidecar or the `mcpPackages` PVC existed:** Kubernetes rejects an in-place strategy change from `RollingUpdate` (with `rollingUpdate` parameters already set) to `Recreate` via a patch - `helm upgrade` fails with `spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy type is 'Recreate'`. If you hit this, delete just the Deployment object first (this does not touch the Postgres StatefulSet, its PVC, or the `mcp-packages` PVC) and let `helm upgrade` recreate it:
+
+```bash
+kubectl delete deployment mcp-depot-server --namespace mcp-depot
+helm upgrade mcp-depot ./helm/mcp-depot --namespace mcp-depot
+```
 
 ---
 
