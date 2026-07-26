@@ -559,6 +559,73 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     return name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 64);
   }
 
+  async invokeSkill(skillName, params, extra) {
+    try {
+      // Look up the current skill record, not whatever was passed at
+      // registration time - isShared/userId/prompt can all change after
+      // this tool was registered, and a stale closure would keep
+      // enforcing (or leaking) an outdated state.
+      const entry = this.toolsMap.get(skillName);
+      const currentSkill = entry?.skill;
+      if (!currentSkill) {
+        return { content: [{ type: 'text', text: `Skill "${skillName}" is not registered - run /mcp to reconnect` }], isError: true };
+      }
+
+      const sessionId = extra?.sessionId || 'stdio';
+      const sessionData = this._sessionClientMap.get(sessionId) ?? {};
+      const callerUserId = sessionData.userId ?? null;
+
+      let callerRole = null;
+      if (callerUserId) {
+        const caller = await User.findByPk(callerUserId);
+        callerRole = caller?.role ?? null;
+      }
+
+      if (!currentSkill.isShared && callerRole !== 'admin' && currentSkill.userId !== callerUserId) {
+        return {
+          content: [{ type: 'text', text: 'Access denied: this skill is private to another user' }],
+          isError: true
+        };
+      }
+
+      const skillForPolicy = { id: skillName, name: skillName, exposedName: null, integrationId: null };
+      const policyResult = await checkToolPolicy({ userId: callerUserId, tool: skillForPolicy });
+      if (policyResult.decision === 'deny') {
+        return {
+          content: [{ type: 'text', text: `Access denied: ${policyResult.reason}` }],
+          isError: true
+        };
+      }
+
+      const renderedPrompt = this.renderSkillPrompt(currentSkill, params);
+
+      let result;
+      if (currentSkill.outputFormat === 'json') {
+        try {
+          result = JSON.parse(renderedPrompt);
+        } catch {
+          result = { output: renderedPrompt };
+        }
+      } else if (currentSkill.outputFormat === 'markdown') {
+        result = { format: 'markdown', content: renderedPrompt };
+      } else {
+        result = renderedPrompt;
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+
   registerSkill(skill) {
     const skillName = 'skill_' + this.sanitizeToolName(skill.name);
     const schema = {};
@@ -576,7 +643,8 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     }
 
-    this.toolsMap.set(skillName, { skill, type: 'skill' });
+    const handler = (params, extra) => this.invokeSkill(skillName, params, extra);
+    this.toolsMap.set(skillName, { skill, type: 'skill', handler });
 
     const zodSchema = z.object(buildZodSchema(schema, required));
 
@@ -587,39 +655,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           description: skill.description || `Skill: ${skill.name}`,
           inputSchema: zodSchema
         },
-        async (params) => {
-          try {
-            const renderedPrompt = this.renderSkillPrompt(skill, params);
-            
-            let result;
-            if (skill.outputFormat === 'json') {
-              try {
-                result = JSON.parse(renderedPrompt);
-              } catch {
-                result = { output: renderedPrompt };
-              }
-            } else if (skill.outputFormat === 'markdown') {
-              result = { format: 'markdown', content: renderedPrompt };
-            } else {
-              result = renderedPrompt;
-            }
-
-            return {
-              content: [{
-                type: 'text',
-                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (error) {
-            return {
-              content: [{
-                type: 'text',
-                text: `Error: ${error.message}`
-              }],
-              isError: true
-            };
-          }
-        }
+        handler
       );
     } catch (e) {
       if (!e.message?.includes('already registered')) {

@@ -917,10 +917,21 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
   }
 });
 
-router.get('/skills', async (req, res) => {
+router.get('/skills', checkMcpAuth, async (req, res) => {
   try {
     const { PromptLibrary } = loadModels();
+    const { Op } = require('sequelize');
+    const userId = req.user?.id || null;
+    const role = req.user?.role || 'user';
+    // Skills carry the same private-by-default expectation as any other
+    // owned resource - listing every skill regardless of owner/isShared
+    // (including the full prompt text on the :name route below) leaked
+    // private prompts to anyone, authenticated or not.
+    const where = role === 'admin'
+      ? {}
+      : { [Op.or]: [{ isShared: true }, { userId }] };
     const skills = await PromptLibrary.findAll({
+      where,
       attributes: ['id', 'name', 'description', 'inputs', 'prompt', 'outputFormat', 'isShared', 'isDefault', 'userId']
     });
     
@@ -942,7 +953,7 @@ router.get('/skills', async (req, res) => {
   }
 });
 
-router.get('/skills/:name', async (req, res) => {
+router.get('/skills/:name', checkMcpAuth, async (req, res) => {
   try {
     const { PromptLibrary } = loadModels();
     const skill = await PromptLibrary.findOne({
@@ -950,6 +961,12 @@ router.get('/skills/:name', async (req, res) => {
     });
 
     if (!skill) {
+      return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
+    }
+
+    const userId = req.user?.id || null;
+    const role = req.user?.role || 'user';
+    if (role !== 'admin' && !skill.isShared && skill.userId !== userId) {
       return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
     }
 
@@ -978,15 +995,31 @@ router.get('/skills/:name', async (req, res) => {
   }
 });
 
-router.post('/skills/invoke/:id', async (req, res) => {
+router.post('/skills/invoke/:id', checkMcpAuth, async (req, res) => {
   try {
     const { PromptLibrary } = loadModels();
     const skill = await PromptLibrary.findByPk(req.params.id);
-    
+
     if (!skill) {
       return res.status(404).json({ error: 'Skill not found' });
     }
-    
+
+    const userId = req.user?.id || null;
+    const role = req.user?.role || 'user';
+    if (role !== 'admin' && !skill.isShared && skill.userId !== userId) {
+      return res.status(404).json({ error: 'Skill not found' });
+    }
+
+    // Same resourceId a policy rule would target via the MCP protocol path
+    // (server.js's registerSkill) - one rule governs both entry points.
+    const mcpServer = require('../mcp/server');
+    const skillToolName = 'skill_' + mcpServer.sanitizeToolName(skill.name);
+    const skillForPolicy = { id: skillToolName, name: skillToolName, exposedName: null, integrationId: null };
+    const policyResult = await checkToolPolicy({ user: req.user, userId, tool: skillForPolicy });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+    }
+
     const { inputs = {} } = req.body;
     const renderedPrompt = renderSkillPrompt(skill.prompt, inputs);
     
