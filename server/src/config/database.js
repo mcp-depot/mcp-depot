@@ -379,8 +379,8 @@ const createDefaultTool = async () => {
       },
       {
         name: 'get-agent',
-        description: 'Get a specific agent by name, optionally including an install config snippet for a given AI client format (claude-code, opencode, generic).',
-        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' }, clientType: { type: 'string', required: false, description: 'AI client format: claude-code, opencode, or generic' } }, headers: {} }
+        description: 'Get a specific agent by name. Returns a vendor-neutral agent definition (systemPrompt, tools, model) - translate it into your own client\'s local agent-file format yourself if your client supports installing agents locally.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' } }, headers: {} }
       },
       {
         name: 'create-agent',
@@ -603,7 +603,7 @@ const createDefaultTool = async () => {
       },
       {
         name: 'get-skill',
-        description: 'Get the full content of a skill by name so it can be installed locally. Works with any AI assistant. Returns the file content and exact install path.',
+        description: 'Get the full content of a skill by name. The skill is already callable as an MCP tool (no installation needed) for any AI client; the response also includes the prompt content in case your client separately supports installing local skill files by its own convention.',
         endpoint: {
           path: '/api/mcp/skills/{name}',
           method: 'GET',
@@ -657,8 +657,8 @@ const createDefaultTool = async () => {
       },
       {
         name: 'get-agent',
-        description: 'Get a specific agent by name, optionally including an install config snippet for a given AI client format (claude-code, opencode, generic).',
-        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' }, clientType: { type: 'string', required: false, description: 'AI client format: claude-code, opencode, or generic' } }, headers: {} }
+        description: 'Get a specific agent by name. Returns a vendor-neutral agent definition (systemPrompt, tools, model) - translate it into your own client\'s local agent-file format yourself if your client supports installing agents locally.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' } }, headers: {} }
       },
       {
         name: 'create-agent',

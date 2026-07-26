@@ -945,15 +945,23 @@ router.get('/skills/:name', async (req, res) => {
       return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
     }
 
+    const mcpServer = require('../mcp/server');
+    const mcpToolName = 'skill_' + mcpServer.sanitizeToolName(skill.name);
+
+    // MCP Depot is storage/transport, not a per-vendor file installer - the
+    // reliable, universal way to use a skill is to call it as a regular MCP
+    // tool (works identically for any MCP client). Saving a local SKILL.md
+    // is an optional convenience for clients that separately support that
+    // specific convention (e.g. Claude's Agent Skills feature); it is not
+    // something every AI client understands, so it's no longer presented
+    // as the primary or only way to use this skill.
     res.json({
       name:        skill.name,
       description: skill.description,
       content:     skill.prompt,
-      install: {
-        fileName:    'SKILL.md',
-        directory:   skill.name,
-        location:    'your global user-specific skills directory',
-        instructions: `Save the content field as a file named SKILL.md inside a sub-directory called "${skill.name}" in your global user-specific skills directory. Once saved the skill will be available as /${skill.name}.`
+      usage: {
+        mcpTool: mcpToolName,
+        note: `This skill is already callable as the MCP tool "${mcpToolName}" - no installation needed, and this works the same for any MCP client. If your AI client separately supports loading local skill files by its own convention (e.g. Claude's SKILL.md), you may optionally save the "content" field that way yourself - MCP Depot does not know or guess any particular client's local file format.`
       }
     });
   } catch (error) {
@@ -1885,32 +1893,16 @@ function serializeTools(tools) {
   return tools;
 }
 
-function generateInstallConfig(agent, clientType, tools) {
+// See the identical comment on this function in routes/agents.js - MCP
+// Depot is storage/transport only, so it always returns a vendor-neutral
+// agent definition rather than guessing at a client's own local file format.
+function generateInstallConfig(agent, tools) {
   const toolsList = normalizeTools(tools);
-  const toolsStr = toolsList.length ? toolsList.join(', ') : 'read, grep, bash';
-
-  if (clientType === 'claude-code') {
-    return {
-      clientType: 'claude-code',
-      installPath: `.claude/agents/${agent.name}/AGENT.md`,
-      content: `---
-description: ${agent.description || `${agent.role} agent`}
-tools: [${toolsStr}]
-model: ${agent.model || ''}
----
-${agent.systemPrompt}`
-    };
-  }
-
-  if (clientType === 'opencode') {
-    return {
-      clientType: 'opencode',
-      installPath: `.opencode/agents/${agent.name}.md`,
-      content: `# ${agent.name}\n\n${agent.systemPrompt}`
-    };
-  }
-
-  return { clientType: 'generic', agent: { ...agent.toJSON(), tools: toolsList } };
+  return {
+    clientType: 'generic',
+    agent: { ...agent.toJSON(), tools: toolsList },
+    note: 'MCP Depot returns a vendor-neutral agent definition (systemPrompt/tools/model), not a pre-formatted client file. If your AI client supports installing agents as local files (e.g. Claude Code\'s .claude/agents/*.md, OpenCode\'s .opencode/agents/*.md), translate this definition into your own client\'s format yourself - MCP Depot does not execute agents or guess at other vendors\' file conventions.'
+  };
 }
 
 router.get('/agents', optionalAuth, async (req, res) => {
@@ -1948,10 +1940,7 @@ router.get('/agents/:name', optionalAuth, async (req, res) => {
     }
     const response = agent.toJSON();
     response.tools = normalizeTools(agent.tools);
-    const clientType = req.query.clientType;
-    if (clientType) {
-      response.installConfig = generateInstallConfig(agent, clientType.toLowerCase(), response.tools);
-    }
+    response.installConfig = generateInstallConfig(agent, response.tools);
     res.json(response);
   } catch (error) {
     logger.error({ error: error.message }, 'Get agent error');
