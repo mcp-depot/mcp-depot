@@ -651,7 +651,15 @@ const fetchExternalMcpTools = async (userId, role) => {
   try {
     const { ExternalMcpServer, ExternalMcpTool } = loadModels();
 
-    const servers = await ExternalMcpServer.findAll({ where: { isActive: true } });
+    // External MCP servers are per-user (no visibility/sharing concept, unlike
+    // Integrations) - listing every user's servers here regardless of owner
+    // was a bug, not a design choice, and it's what made the servers callable
+    // by anyone who saw them in this list.
+    const where = { isActive: true };
+    if (role !== 'admin') {
+      where.userId = userId;
+    }
+    const servers = await ExternalMcpServer.findAll({ where });
 
     if (servers.length === 0) return [];
 
@@ -1253,8 +1261,27 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         return res.status(404).json({ error: 'External MCP server not found or inactive' });
       }
 
+      // External MCP servers are a per-user resource, same as any other
+      // private one - a 404 (not 403) so ownership of someone else's server
+      // isn't confirmed/denied by the response.
+      const callerId = req.user?.id || req.apiKey?.userId || null;
+      const callerRole = req.user?.role || 'user';
+      if (callerRole !== 'admin' && server.userId !== callerId) {
+        return res.status(404).json({ error: 'External MCP server not found or inactive' });
+      }
+
       // Strip namespace prefix to get original tool name for the server
       const originalToolName = externalToolName;
+
+      // External tools have no local Tool row, so build a minimal stand-in
+      // with the same shape checkToolPolicy/toolResourceId expect - this was
+      // previously skipped entirely, letting external tool calls bypass
+      // policy no matter what rules were configured.
+      const externalToolForPolicy = { id: toolId, name: toolId, exposedName: null, integrationId: null };
+      const policyResult = await checkToolPolicy({ user: req.user, userId: req.apiKey?.userId, tool: externalToolForPolicy });
+      if (policyResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+      }
 
       try {
         const result = await pool.callTool(server, originalToolName, params || body || {});

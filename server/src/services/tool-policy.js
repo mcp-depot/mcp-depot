@@ -18,9 +18,11 @@ function toolResourceId(tool) {
 // independent of this policy layer. Anonymous callers are simply not yet
 // governed by it.
 //
-// NOTE: does not yet cover tools proxied from an external MCP server
-// (routes/mcp.js's isExternal branch calls pool.callTool() directly, with
-// no local Tool row) - deferred as a known follow-up, not silently dropped.
+// Tools proxied from an external MCP server (routes/mcp.js's isExternal
+// branch) have no local Tool row, so that branch builds a minimal stand-in
+// object with the same id/name/exposedName/integrationId shape and passes
+// it here - toolResourceId() only needs those fields, not a real Tool
+// instance.
 async function checkToolPolicy({ user, userId, tool }) {
   let resolvedUser = user;
   if (!resolvedUser && userId) {

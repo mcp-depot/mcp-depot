@@ -95,7 +95,7 @@ const loadModels = () => {
     associationsDefined = true;
   }
 
-  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent, PolicyRule, PolicyDecision, PolicyChainState, Group, GroupMembership };
+  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, ExternalMcpTool, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent, PolicyRule, PolicyDecision, PolicyChainState, Group, GroupMembership };
 };
 
 const generatePassword = () => {

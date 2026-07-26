@@ -3,6 +3,7 @@
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
+const { isUrlSafe } = require('../utils/ssrfGuard');
 const logger = require('./logger');
 
 const SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
@@ -93,6 +94,15 @@ class McpConnectionPool {
       });
     } else {
       // http / sse
+      // isUrlSafe is also checked when the server config is saved
+      // (routes/external-mcp.js), but that only catches a bad URL at
+      // write time. Connections here are pooled, reused, and reconnected
+      // on idle timeout or reload - re-checking right before every actual
+      // connection is what catches DNS rebinding (public IP at save time,
+      // internal/metadata address by the time this runs).
+      if (!(await isUrlSafe(server.url))) {
+        throw new Error(`Refusing to connect to "${server.name}": URL points to a blocked or unresolvable internal address`);
+      }
       const headers = this._buildAuthHeaders(server);
       transport = new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers } });
     }
