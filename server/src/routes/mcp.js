@@ -17,9 +17,12 @@ const config = require('../config/env');
 const INTERNAL_SECRET = config.internalSecret;
 const { getTools: stdioGetTools, callTool: stdioCallTool, validateJsonRpcResponse } = require('../services/stdio-mcp');
 const { checkRateLimit } = require('../services/rate-limiter');
+const { checkToolPolicy } = require('../services/tool-policy');
+const notifyBus = require('../services/state/notify-bus');
 const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
 const { isUrlSafe } = require('../utils/ssrfGuard');
+const { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration, isToolVisibleToCaller } = require('../utils/builtInIntegrations');
 
 function getCallerId(req) {
   if (
@@ -376,15 +379,12 @@ router.post('/session-channels', optionalAuth, async (req, res) => {
       message,
       createdBy: callerId
     });
-    const channelEmitter = require('../services/channel-events');
-    channelEmitter.emit(channel, entry.toJSON());
-    const mcpServer = require('../mcp/server');
-    if (mcpServer._pushChannelNotification) {
-      mcpServer._pushChannelNotification(channel, entry);
-    }
-    if (mcpServer._pushResourceUpdate) {
-      mcpServer._pushResourceUpdate(channel);
-    }
+    // One publish reaches every local delivery mechanism on every replica -
+    // this route's own channelEmitter listeners plus session-channel.js's
+    // /stream SSE and mcp/server.js's MCP session subscribers, all
+    // registered as notify-bus subscribers. See notify-bus.js.
+    notifyBus.publish('channel-msg', { channel, entry: entry.toJSON() });
+    notifyBus.publish('resource-update', { channel });
     res.json({ success: true, channel });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -649,7 +649,15 @@ const fetchExternalMcpTools = async (userId, role) => {
   try {
     const { ExternalMcpServer, ExternalMcpTool } = loadModels();
 
-    const servers = await ExternalMcpServer.findAll({ where: { isActive: true } });
+    // External MCP servers are per-user (no visibility/sharing concept, unlike
+    // Integrations) - listing every user's servers here regardless of owner
+    // was a bug, not a design choice, and it's what made the servers callable
+    // by anyone who saw them in this list.
+    const where = { isActive: true };
+    if (role !== 'admin') {
+      where.userId = userId;
+    }
+    const servers = await ExternalMcpServer.findAll({ where });
 
     if (servers.length === 0) return [];
 
@@ -749,16 +757,12 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
         model: Integration,
         as: 'integration',
         where: { isActive: true },
-        attributes: ['userId', 'visibility']
+        attributes: ['userId', 'visibility', 'name']
       }],
       attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type', 'exposedName', 'title']
     });
 
-    const visibleTools = tools.filter(t => {
-      if (!t.integration) return false;
-      if (role === 'admin') return true;
-      return t.integration.visibility === 'shared' || t.integration.userId === userId;
-    });
+    const visibleTools = tools.filter(t => isToolVisibleToCaller(t.integration, userId, role));
 
     const localTools = visibleTools.map(t => {
       if (t.type === 'composite') {
@@ -907,10 +911,21 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
   }
 });
 
-router.get('/skills', async (req, res) => {
+router.get('/skills', checkMcpAuth, async (req, res) => {
   try {
     const { PromptLibrary } = loadModels();
+    const { Op } = require('sequelize');
+    const userId = req.user?.id || null;
+    const role = req.user?.role || 'user';
+    // Skills carry the same private-by-default expectation as any other
+    // owned resource - listing every skill regardless of owner/isShared
+    // (including the full prompt text on the :name route below) leaked
+    // private prompts to anyone, authenticated or not.
+    const where = role === 'admin'
+      ? {}
+      : { [Op.or]: [{ isShared: true }, { userId }] };
     const skills = await PromptLibrary.findAll({
+      where,
       attributes: ['id', 'name', 'description', 'inputs', 'prompt', 'outputFormat', 'isShared', 'isDefault', 'userId']
     });
     
@@ -932,7 +947,7 @@ router.get('/skills', async (req, res) => {
   }
 });
 
-router.get('/skills/:name', async (req, res) => {
+router.get('/skills/:name', checkMcpAuth, async (req, res) => {
   try {
     const { PromptLibrary } = loadModels();
     const skill = await PromptLibrary.findOne({
@@ -943,15 +958,29 @@ router.get('/skills/:name', async (req, res) => {
       return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
     }
 
+    const userId = req.user?.id || null;
+    const role = req.user?.role || 'user';
+    if (role !== 'admin' && !skill.isShared && skill.userId !== userId) {
+      return res.status(404).json({ error: `Skill "${req.params.name}" not found` });
+    }
+
+    const mcpServer = require('../mcp/server');
+    const mcpToolName = 'skill_' + mcpServer.sanitizeToolName(skill.name);
+
+    // MCP Depot is storage/transport, not a per-vendor file installer - the
+    // reliable, universal way to use a skill is to call it as a regular MCP
+    // tool (works identically for any MCP client). Saving a local SKILL.md
+    // is an optional convenience for clients that separately support that
+    // specific convention (e.g. Claude's Agent Skills feature); it is not
+    // something every AI client understands, so it's no longer presented
+    // as the primary or only way to use this skill.
     res.json({
       name:        skill.name,
       description: skill.description,
       content:     skill.prompt,
-      install: {
-        fileName:    'SKILL.md',
-        directory:   skill.name,
-        location:    'your global user-specific skills directory',
-        instructions: `Save the content field as a file named SKILL.md inside a sub-directory called "${skill.name}" in your global user-specific skills directory. Once saved the skill will be available as /${skill.name}.`
+      usage: {
+        mcpTool: mcpToolName,
+        note: `This skill is already callable as the MCP tool "${mcpToolName}" - no installation needed, and this works the same for any MCP client. If your AI client separately supports loading local skill files by its own convention (e.g. Claude's SKILL.md), you may optionally save the "content" field that way yourself - MCP Depot does not know or guess any particular client's local file format.`
       }
     });
   } catch (error) {
@@ -960,15 +989,31 @@ router.get('/skills/:name', async (req, res) => {
   }
 });
 
-router.post('/skills/invoke/:id', async (req, res) => {
+router.post('/skills/invoke/:id', checkMcpAuth, async (req, res) => {
   try {
     const { PromptLibrary } = loadModels();
     const skill = await PromptLibrary.findByPk(req.params.id);
-    
+
     if (!skill) {
       return res.status(404).json({ error: 'Skill not found' });
     }
-    
+
+    const userId = req.user?.id || null;
+    const role = req.user?.role || 'user';
+    if (role !== 'admin' && !skill.isShared && skill.userId !== userId) {
+      return res.status(404).json({ error: 'Skill not found' });
+    }
+
+    // Same resourceId a policy rule would target via the MCP protocol path
+    // (server.js's registerSkill) - one rule governs both entry points.
+    const mcpServer = require('../mcp/server');
+    const skillToolName = 'skill_' + mcpServer.sanitizeToolName(skill.name);
+    const skillForPolicy = { id: skillToolName, name: skillToolName, exposedName: null, integrationId: null };
+    const policyResult = await checkToolPolicy({ user: req.user, userId, tool: skillForPolicy });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+    }
+
     const { inputs = {} } = req.body;
     const renderedPrompt = renderSkillPrompt(skill.prompt, inputs);
     
@@ -1023,7 +1068,7 @@ router.post('/register-integration', checkMcpAuth, async (req, res) => {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_integration');
     if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
-    const result = await entry.handler(req.body);
+    const result = await entry.handler(req.body, { user: req.user });
     const text = result.content?.[0]?.text || JSON.stringify(result);
     res.status(result.isError ? 400 : 201).json({ result: text });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1034,7 +1079,7 @@ router.post('/register-tool', checkMcpAuth, async (req, res) => {
     const mcpServer = require('../mcp/server');
     const entry = mcpServer.toolsMap?.get('mcp_register_tool');
     if (!entry) return res.status(503).json({ error: 'AI Tools not initialized' });
-    const result = await entry.handler(req.body);
+    const result = await entry.handler(req.body, { user: req.user });
     const text = result.content?.[0]?.text || JSON.stringify(result);
     res.status(result.isError ? 400 : 201).json({ result: text });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1243,8 +1288,27 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
         return res.status(404).json({ error: 'External MCP server not found or inactive' });
       }
 
+      // External MCP servers are a per-user resource, same as any other
+      // private one - a 404 (not 403) so ownership of someone else's server
+      // isn't confirmed/denied by the response.
+      const callerId = req.user?.id || req.apiKey?.userId || null;
+      const callerRole = req.user?.role || 'user';
+      if (callerRole !== 'admin' && server.userId !== callerId) {
+        return res.status(404).json({ error: 'External MCP server not found or inactive' });
+      }
+
       // Strip namespace prefix to get original tool name for the server
       const originalToolName = externalToolName;
+
+      // External tools have no local Tool row, so build a minimal stand-in
+      // with the same shape checkToolPolicy/toolResourceId expect - this was
+      // previously skipped entirely, letting external tool calls bypass
+      // policy no matter what rules were configured.
+      const externalToolForPolicy = { id: toolId, name: toolId, exposedName: null, integrationId: null };
+      const policyResult = await checkToolPolicy({ user: req.user, userId: req.apiKey?.userId, tool: externalToolForPolicy });
+      if (policyResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+      }
 
       try {
         const result = await pool.callTool(server, originalToolName, params || body || {});
@@ -1277,6 +1341,15 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
 
     if (!tool) {
       return res.status(404).json({ error: 'Tool not found' });
+    }
+
+    // Covers the composite/meta/simple branches below - all resolve to a
+    // local Tool row. Does NOT cover the isExternal branch above (tools
+    // proxied from an external MCP server have no local Tool row) - deferred
+    // as a known follow-up, see services/tool-policy.js.
+    const policyResult = await checkToolPolicy({ user: req.user, userId: req.apiKey?.userId, tool });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
     if (tool.type === 'composite') {
@@ -1323,12 +1396,21 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       return res.status(400).json({ error: 'Integration is not active' });
     }
 
+    // Mirrors the ownership check routes/consume.js already enforces for
+    // its own tool-execute endpoint - this parallel endpoint never had it,
+    // so a private, non-shared integration's tools were executable by any
+    // authenticated caller who supplied the toolId directly, bypassing the
+    // ownership filtering the /tools listing applies.
+    if (integration.visibility !== 'shared' && integration.userId !== userId && req.user?.role !== 'admin' && !isBuiltInIntegration(integration)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     if (userId) {
       const toolLimit = tool.rateLimit || 0;
       const intLimit = integration.rateLimit || {};
       const integrationLimitRpm = intLimit.requestsPerMinute || 0;
       const integrationLimitRph = intLimit.requestsPerHour || 0;
-      const rateCheck = checkRateLimit(tool.id, userId, toolLimit, integrationLimitRpm, integrationLimitRph, integration.id);
+      const rateCheck = await checkRateLimit(tool.id, userId, toolLimit, integrationLimitRpm, integrationLimitRph, integration.id);
       if (!rateCheck.allowed) {
         return res.status(429).json({
           error: 'Rate limit exceeded',
@@ -1394,7 +1476,7 @@ router.post('/execute', checkMcpAuth, async (req, res) => {
       config.auth = { ...integration.config.auth, credentials: userCreds };
     }
     
-    if (integration.name === 'MCP Depot' || integration.name === 'MCP Depot Sessions' || integration.name === 'MCP Depot - AI Tools') {
+    if (BUILT_IN_INTEGRATION_NAMES.includes(integration.name)) {
       const apiKey = req.headers['x-api-key'];
       const jwt = req.headers['authorization'];
       if (apiKey) {
@@ -1874,32 +1956,16 @@ function serializeTools(tools) {
   return tools;
 }
 
-function generateInstallConfig(agent, clientType, tools) {
+// See the identical comment on this function in routes/agents.js - MCP
+// Depot is storage/transport only, so it always returns a vendor-neutral
+// agent definition rather than guessing at a client's own local file format.
+function generateInstallConfig(agent, tools) {
   const toolsList = normalizeTools(tools);
-  const toolsStr = toolsList.length ? toolsList.join(', ') : 'read, grep, bash';
-
-  if (clientType === 'claude-code') {
-    return {
-      clientType: 'claude-code',
-      installPath: `.claude/agents/${agent.name}/AGENT.md`,
-      content: `---
-description: ${agent.description || `${agent.role} agent`}
-tools: [${toolsStr}]
-model: ${agent.model || ''}
----
-${agent.systemPrompt}`
-    };
-  }
-
-  if (clientType === 'opencode') {
-    return {
-      clientType: 'opencode',
-      installPath: `.opencode/agents/${agent.name}.md`,
-      content: `# ${agent.name}\n\n${agent.systemPrompt}`
-    };
-  }
-
-  return { clientType: 'generic', agent: { ...agent.toJSON(), tools: toolsList } };
+  return {
+    clientType: 'generic',
+    agent: { ...agent.toJSON(), tools: toolsList },
+    note: 'MCP Depot returns a vendor-neutral agent definition (systemPrompt/tools/model), not a pre-formatted client file. If your AI client supports installing agents as local files (e.g. Claude Code\'s .claude/agents/*.md, OpenCode\'s .opencode/agents/*.md), translate this definition into your own client\'s format yourself - MCP Depot does not execute agents or guess at other vendors\' file conventions.'
+  };
 }
 
 router.get('/agents', optionalAuth, async (req, res) => {
@@ -1937,10 +2003,7 @@ router.get('/agents/:name', optionalAuth, async (req, res) => {
     }
     const response = agent.toJSON();
     response.tools = normalizeTools(agent.tools);
-    const clientType = req.query.clientType;
-    if (clientType) {
-      response.installConfig = generateInstallConfig(agent, clientType.toLowerCase(), response.tools);
-    }
+    response.installConfig = generateInstallConfig(agent, response.tools);
     res.json(response);
   } catch (error) {
     logger.error({ error: error.message }, 'Get agent error');

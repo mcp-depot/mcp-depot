@@ -85,12 +85,38 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
       - ALLOWED_FRAME_ORIGINS=${ALLOWED_FRAME_ORIGINS:-}
       - HEALTH_CORS_ORIGINS=${HEALTH_CORS_ORIGINS:-*}
-      - MCP_PACKAGES_PATH=/opt/mcp-packages
-    volumes:
-      - mcp_packages:/opt/mcp-packages
+      # Stdio external MCP servers (arbitrary local process spawning +
+      # package installs) run in the mcp-runner sidecar instead of this
+      # container by default - it has no DATABASE_URL/JWT_SECRET/
+      # ENCRYPTION_KEY to leak if a spawned command misbehaves. Set
+      # MCP_RUNNER_URL="" to fall back to spawning directly in this
+      # container instead (not recommended - only for local debugging).
+      - MCP_RUNNER_URL=${MCP_RUNNER_URL-http://mcp-runner:9500}
+      - MCP_RUNNER_TOKEN=${MCP_RUNNER_TOKEN}
     depends_on:
       postgres:
         condition: service_healthy
+      mcp-runner:
+        condition: service_started
+    networks:
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
+
+  mcp-runner:
+    image: ghcr.io/mcp-depot/mcp-depot-mcp-runner:${TAG:-latest}
+    build:
+      context: ./mcp-runner
+      dockerfile: Dockerfile
+    container_name: mcp-depot-mcp-runner
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=9500
+      - MCP_PACKAGES_PATH=/opt/mcp-packages
+      - MCP_RUNNER_TOKEN=${MCP_RUNNER_TOKEN}
+    volumes:
+      - mcp_packages:/opt/mcp-packages
     networks:
       mcp-depot-network:
         aliases:

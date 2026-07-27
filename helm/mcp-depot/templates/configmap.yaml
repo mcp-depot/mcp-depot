@@ -15,6 +15,9 @@ data:
   API_BASE_URL: {{ printf "https://%s" .Values.ingress.host | quote }}
   {{- end }}
   MCP_PACKAGES_PATH: "/opt/mcp-packages"
+  {{- if .Values.mcpRunner.enabled }}
+  MCP_RUNNER_URL: "http://localhost:{{ .Values.mcpRunner.port }}"
+  {{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap

@@ -1,9 +1,15 @@
 'use strict';
 
+// zod/v3, matching this app's own package.json dependency - see the note
+// in server.js's import for the real root cause (server.tool() vs
+// server.registerTool(), not a zod version issue).
 const { z } = require('zod/v3');
 const { loadModels } = require('../config/database');
 const { refreshToolsIfEnabled } = require('./server');
 const { slugify, computeExposedName } = require('../utils/slugify');
+const { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration } = require('../utils/builtInIntegrations');
+const { checkIntegrationPolicy } = require('../services/resource-policy');
+const audit = require('../services/audit');
 const logger = require('../services/logger');
 
 const INTEGRATION_NAME = 'MCP Depot - AI Tools';
@@ -17,15 +23,85 @@ async function guardIntegrationActive() {
   return null;
 }
 
+// Resolves who is actually calling a meta-tool, so actions like "share this
+// company-wide" can be policy-checked against the real caller instead of a
+// hardcoded admin. Two paths feed this: the live MCP session (stdio/SSE),
+// where the API key or JWT presented at connect time already resolved a
+// userId onto the session (see server.js's authenticateAndRun/_sessionClientMap
+// - the same mechanism ordinary tool calls use for policy checks), and the
+// REST convenience wrapper under /api/v1/mcp/*, which resolves req.user via
+// checkMcpAuth and passes it straight through as extra.user. Returns null
+// (never guesses) if neither source identifies a real user.
+async function resolveCallerUser(extra, mcpServerInstance) {
+  const { User } = loadModels();
+  if (extra?.user) return extra.user;
+  const sessionId = extra?.sessionId;
+  const sessionData = sessionId && mcpServerInstance?._sessionClientMap?.get(sessionId);
+  if (sessionData?.userId) {
+    return User.findByPk(sessionData.userId);
+  }
+  return null;
+}
+
 function wrapHandler(handler) {
-  return async (params) => {
+  return async (params, extra) => {
     const disabled = await guardIntegrationActive();
     if (disabled) return { content: [{ type: 'text', text: disabled }], isError: true };
-    return handler(params);
+    return handler(params, extra);
   };
 }
 
-function registerMetaTools(server, toolsMap) {
+// Real per-tool schemas - every handler below was previously registered
+// with a hardcoded empty z.object({}), which made native MCP tools/call
+// invocations (unlike the REST/AI-chat wrapper, which calls handlers
+// directly) silently strip every argument to {} before the handler ever
+// ran, since zod's z.object() strips unrecognized keys by default. These
+// mirror what each handler actually reads from `params` below.
+const metaToolSpecs = {
+  mcp_list_integrations: {
+    description: 'List all registered integrations with their type, tool count, source, and active status.',
+    inputSchema: z.object({})
+  },
+  mcp_register_integration: {
+    description: 'Register a new integration (an external API) that tools can then be added to via mcp_register_tool. Created private by default.',
+    inputSchema: z.object({
+      name: z.string().describe('Unique name for the new integration'),
+      baseUrl: z.string().describe('Base URL of the API this integration will call'),
+      description: z.string().optional().describe('Human-readable description of the integration'),
+      type: z.string().optional().describe('Integration type (default: "custom")'),
+      shared: z.boolean().optional().describe('Request company-wide shared visibility - only takes effect if the caller has admin sharing rights, otherwise the integration is created private with a note explaining why')
+    })
+  },
+  mcp_register_tool: {
+    description: 'Add a new tool (a single API endpoint) to an existing integration.',
+    inputSchema: z.object({
+      name: z.string().describe('Name for the new tool'),
+      path: z.string().describe('API endpoint path - supports {placeholder} template variables filled from the tool\'s params'),
+      integration: z.string().optional().describe('Name of the integration to add this tool to. Omit only if there is exactly one eligible (non-built-in) integration - otherwise this is required'),
+      method: z.string().optional().describe('HTTP method (default: "GET")'),
+      description: z.string().optional().describe('Description of what this tool does'),
+      params: z.string().optional().describe('JSON object string describing query/path parameters, e.g. \'{"id": {"type": "string", "required": true}}\''),
+      body: z.string().optional().describe('JSON string of the request body template - supports {placeholder} substitution from params'),
+      responseFields: z.string().optional().describe('JSON array string of response field names to keep (response filtering)')
+    })
+  },
+  mcp_describe_tool: {
+    description: 'Get the full definition of a registered tool - its endpoint, input schema, response fields, and transformer.',
+    inputSchema: z.object({
+      name: z.string().describe('Tool name or exposed name to describe')
+    })
+  },
+  mcp_remove_tool: {
+    description: 'Remove a tool from an integration. Requires confirm: true to actually perform the deletion.',
+    inputSchema: z.object({
+      integration: z.string().describe('Name of the integration the tool belongs to'),
+      name: z.string().describe('Name of the tool to remove'),
+      confirm: z.boolean().optional().describe('Must be true to actually perform the deletion - a safety confirmation, calling without it returns an error instead of deleting')
+    })
+  }
+};
+
+function registerMetaTools(server, toolsMap, mcpServerInstance) {
   const handlerMap = {};
 
   handlerMap.mcp_list_integrations = wrapHandler(async () => {
@@ -54,29 +130,60 @@ function registerMetaTools(server, toolsMap) {
     };
   });
 
-  handlerMap.mcp_register_integration = wrapHandler(async (params) => {
+  handlerMap.mcp_register_integration = wrapHandler(async (params, extra) => {
     const { Integration, User } = loadModels();
     const existing = await Integration.findOne({ where: { name: params.name } });
     if (existing) {
       return { content: [{ type: 'text', text: `Integration "${params.name}" already exists. Use mcp_register_tool to add tools to it.` }], isError: true };
     }
-    const admin = await User.findOne({ where: { role: 'admin' } });
+    // Attribute to the real caller when the session/REST request identifies
+    // one; fall back to an admin only when it can't be resolved (e.g. a
+    // stdio session with no API key/JWT), so headless setups keep working.
+    const caller = await resolveCallerUser(extra, mcpServerInstance);
+    const owner = caller || await User.findOne({ where: { role: 'admin' } });
+    // Always created private first - sharing company-wide is a privileged
+    // action gated by the same 'share' policy the REST visibility-toggle
+    // route enforces, evaluated below against the real caller once the
+    // integration (and therefore its id) exists.
     const integration = await Integration.create({
-      userId: admin ? admin.id : null, type: params.type || 'custom', name: params.name,
+      userId: owner ? owner.id : null, type: params.type || 'custom', name: params.name,
       description: params.description || '',
       config: { baseUrl: params.baseUrl, auth: { type: 'none' }, headers: {}, timeout: 30000 },
       metadata: { source: 'ai-generated' },
-      visibility: params.shared ? 'shared' : 'private'
+      visibility: 'private'
     });
+
+    let sharedNote = '';
+    if (params.shared) {
+      if (!caller) {
+        sharedNote = ' It was requested as company-wide shared, but the caller could not be identified from this session, so it was created private instead.';
+      } else {
+        const policyResult = await checkIntegrationPolicy({ user: { id: caller.id, role: caller.role }, action: 'share', integrationId: integration.id });
+        if (policyResult.decision === 'allow') {
+          await integration.update({ visibility: 'shared' });
+          await audit.log({
+            userId: caller.id,
+            action: 'update_visibility',
+            integrationType: integration.type,
+            integrationId: integration.id,
+            details: { visibility: 'shared', via: 'ai-chat' },
+            status: 'success'
+          });
+        } else {
+          sharedNote = ` It was requested as company-wide shared, but only admins can share an integration company-wide (${policyResult.reason || 'denied by policy'}), so it was created private instead.`;
+        }
+      }
+    }
+
     return {
       content: [{
         type: 'text',
-        text: `Integration "${params.name}" created (ID: ${integration.id}). Now call mcp_register_tool to add tools to it. Remember to configure credentials in the MCP Depot UI if the API requires authentication.`
+        text: `Integration "${params.name}" created (ID: ${integration.id}).${sharedNote} Now call mcp_register_tool to add tools to it. Remember to configure credentials in the MCP Depot UI if the API requires authentication.`
       }]
     };
   });
 
-  handlerMap.mcp_register_tool = wrapHandler(async (params) => {
+  handlerMap.mcp_register_tool = wrapHandler(async (params, extra) => {
     const { Integration, Tool, User } = loadModels();
     const { Op } = require('sequelize');
     let integration;
@@ -85,10 +192,12 @@ function registerMetaTools(server, toolsMap) {
       if (!integration) {
         return { content: [{ type: 'text', text: `Integration "${params.integration}" not found. Create it first with mcp_register_integration.` }], isError: true };
       }
+      if (isBuiltInIntegration(integration)) {
+        return { content: [{ type: 'text', text: `"${integration.name}" is a built-in integration and is system-managed - tools cannot be added to it.` }], isError: true };
+      }
     } else {
-      const BUILT_IN_NAMES = ['MCP Depot', 'MCP Depot Sessions', 'MCP Depot Agents', INTEGRATION_NAME];
       const candidates = await Integration.findAll({
-        where: { isActive: true, name: { [Op.notIn]: BUILT_IN_NAMES } }
+        where: { isActive: true, name: { [Op.notIn]: BUILT_IN_INTEGRATION_NAMES } }
       });
       if (candidates.length === 0) {
         return { content: [{ type: 'text', text: 'No integration found. Create one first with mcp_register_integration.' }], isError: true };
@@ -137,10 +246,11 @@ function registerMetaTools(server, toolsMap) {
         .filter(([, p]) => p && p.required)
         .map(([key]) => key)
     } : {};
-    const admin = await User.findOne({ where: { role: 'admin' } });
+    const caller = await resolveCallerUser(extra, mcpServerInstance);
+    const owner = caller || await User.findOne({ where: { role: 'admin' } });
     const exposedName = computeExposedName(integration.slug || slugify(integration.name), params.name);
     const tool = await Tool.create({
-      userId: admin ? admin.id : null, integrationId: integration.id, name: params.name,
+      userId: owner ? owner.id : null, integrationId: integration.id, name: params.name,
       description: params.description,
       endpoint: {
         path: params.path, method: (params.method || 'GET').toUpperCase(),
@@ -195,6 +305,9 @@ function registerMetaTools(server, toolsMap) {
     if (!integration) {
       return { content: [{ type: 'text', text: `Integration "${params.integration}" not found.` }], isError: true };
     }
+    if (isBuiltInIntegration(integration)) {
+      return { content: [{ type: 'text', text: `"${integration.name}" is a built-in integration and is system-managed - its tools cannot be removed.` }], isError: true };
+    }
     const tool = await Tool.findOne({ where: { integrationId: integration.id, name: params.name } });
     if (!tool) {
       return { content: [{ type: 'text', text: `Tool "${params.name}" not found in "${params.integration}".` }], isError: true };
@@ -206,12 +319,13 @@ function registerMetaTools(server, toolsMap) {
 
   // Register on MCP server for stdio/SSE transport
   Object.entries(handlerMap).forEach(([name, handler]) => {
+    const spec = metaToolSpecs[name] || { description: `Meta-tool: ${name}`, inputSchema: z.object({}) };
     try {
-      server.tool(
+      server.registerTool(
         name,
         {
-          description: handler._description || `Meta-tool: ${name}`,
-          inputSchema: z.object({})
+          description: spec.description,
+          inputSchema: spec.inputSchema
         },
         handler
       );

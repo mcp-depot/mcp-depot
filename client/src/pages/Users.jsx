@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { Users as UsersIcon, Plus, Trash2, RotateCcw, X } from 'lucide-react';
+import { Users as UsersIcon, Users2, Plus, Trash2, RotateCcw, X } from 'lucide-react';
+import { StyledSelect } from '../components/StyledSelect';
 import { showSuccess, showError } from '../utils/toast';
 import { formatDate } from '../utils/date';
 import { getApiError } from '../utils/apiError';
@@ -29,6 +30,15 @@ function Users() {
   const resetModalRef = useModalA11y(() => setShowResetModal(false), showResetModal);
   const credentialTitleId = useId();
   const credentialModalRef = useModalA11y(() => setCredentialInfo(null), !!credentialInfo);
+  const [groupsUser, setGroupsUser] = useState(null);
+  const [userGroups, setUserGroups] = useState([]);
+  const [allGroups, setAllGroups] = useState([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [groupToAdd, setGroupToAdd] = useState(null);
+  const [addAsGroupAdmin, setAddAsGroupAdmin] = useState(false);
+  const [groupSubmitting, setGroupSubmitting] = useState(false);
+  const groupsTitleId = useId();
+  const groupsModalRef = useModalA11y(() => setGroupsUser(null), !!groupsUser);
 
   useEffect(() => {
     fetchUsers();
@@ -114,6 +124,58 @@ function Users() {
     setShowResetModal(true);
   };
 
+  const openGroups = async (user) => {
+    setGroupsUser(user);
+    setGroupToAdd(null);
+    setAddAsGroupAdmin(false);
+    setGroupsLoading(true);
+    try {
+      const [userGroupsRes, allGroupsRes] = await Promise.all([
+        api.get('/groups', { params: { memberUserId: user.id } }),
+        api.get('/groups')
+      ]);
+      setUserGroups(userGroupsRes.data);
+      setAllGroups(allGroupsRes.data);
+    } catch (err) {
+      showError(`Failed to load groups: ${getApiError(err)}`);
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+
+  const handleAddToGroup = async (e) => {
+    e.preventDefault();
+    if (!groupToAdd) return;
+    setGroupSubmitting(true);
+    try {
+      await api.post(`/groups/${groupToAdd.value}/members`, {
+        userId: groupsUser.id,
+        role: addAsGroupAdmin ? 'admin' : 'member'
+      });
+      const userGroupsRes = await api.get('/groups', { params: { memberUserId: groupsUser.id } });
+      setUserGroups(userGroupsRes.data);
+      setGroupToAdd(null);
+      setAddAsGroupAdmin(false);
+      showSuccess(`Added to ${groupToAdd.label}`);
+    } catch (err) {
+      showError(`Failed to add to group: ${getApiError(err)}`);
+    } finally {
+      setGroupSubmitting(false);
+    }
+  };
+
+  const handleRemoveFromGroup = async (group) => {
+    const ok = await confirmDialog(`Remove ${groupsUser.email} from "${group.name}"?`, { danger: true, confirmLabel: 'Remove' });
+    if (!ok) return;
+    try {
+      await api.delete(`/groups/${group.id}/members/${groupsUser.id}`);
+      setUserGroups(userGroups.filter(g => g.id !== group.id));
+      showSuccess('Removed from group');
+    } catch (err) {
+      showError(`Failed to remove from group: ${getApiError(err)}`);
+    }
+  };
+
   return (
     <div className="container">
       <div className="page-header">
@@ -139,7 +201,7 @@ function Users() {
                 <th>Name</th>
                 <th>Role</th>
                 <th>Created</th>
-                <th style={{ width: '150px' }}>Actions</th>
+                <th style={{ width: '190px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -156,6 +218,9 @@ function Users() {
                   <td>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button className="btn btn-small btn-secondary" onClick={() => openEdit(user)}>Edit</button>
+                      <button className="btn btn-small btn-secondary" onClick={() => openGroups(user)} title="Manage Groups">
+                        <Users2 size={14} />
+                      </button>
                       <button className="btn btn-small btn-secondary" onClick={() => openReset(user)} title="Reset Password">
                         <RotateCcw size={14} />
                       </button>
@@ -255,6 +320,63 @@ function Users() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-primary" onClick={() => setCredentialInfo(null)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {groupsUser && (
+        <div className="modal-overlay" onClick={() => setGroupsUser(null)}>
+          <div ref={groupsModalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby={groupsTitleId} tabIndex={-1} onClick={e => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+            <div className="modal-header">
+              <h2 id={groupsTitleId}>Groups: {groupsUser.name}</h2>
+              <button className="modal-close" aria-label="Close" onClick={() => setGroupsUser(null)}>&times;</button>
+            </div>
+            <div className="modal-body">
+              {groupsLoading ? (
+                <div className="loading-overlay"><div className="spinner"></div></div>
+              ) : (
+                <>
+                  {userGroups.length === 0 ? (
+                    <p style={{ color: 'var(--text-light)', fontSize: '0.9rem', marginBottom: '1rem' }}>Not a member of any group yet.</p>
+                  ) : (
+                    <div style={{ marginBottom: '1rem' }}>
+                      {userGroups.map(group => (
+                        <div key={group.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span>{group.name}</span>
+                            <span className={`badge ${group.membershipRole === 'admin' ? 'badge-warning' : 'badge-info'}`}>{group.membershipRole}</span>
+                          </div>
+                          <button className="btn btn-small btn-danger" onClick={() => handleRemoveFromGroup(group)} title="Remove from group">
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleAddToGroup} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 500 }}>Add to group</label>
+                    <StyledSelect
+                      options={allGroups.filter(g => !userGroups.some(ug => ug.id === g.id)).map(g => ({ value: g.id, label: g.name }))}
+                      value={groupToAdd}
+                      onChange={setGroupToAdd}
+                      placeholder="Select a group..."
+                      isClearable
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <input type="checkbox" checked={addAsGroupAdmin} onChange={e => setAddAsGroupAdmin(e.target.checked)} style={{ width: 'auto' }} />
+                      <label style={{ marginBottom: 0 }}>Add as group admin</label>
+                    </div>
+                    <button type="submit" className="btn btn-primary btn-small" disabled={!groupToAdd || groupSubmitting} style={{ alignSelf: 'flex-start' }}>
+                      {groupSubmitting ? 'Adding...' : 'Add'}
+                    </button>
+                  </form>
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setGroupsUser(null)}>Done</button>
             </div>
           </div>
         </div>

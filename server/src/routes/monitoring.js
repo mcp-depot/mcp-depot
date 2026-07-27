@@ -8,7 +8,7 @@ const circuitBreaker = require('../services/circuit-breaker');
 const router = express.Router();
 
 router.get('/circuit-breaker-status', auth, requireAdmin, async (req, res) => {
-  res.json(circuitBreaker.getStatus());
+  res.json(await circuitBreaker.getStatus());
 });
 
 router.get('/audit-log', auth, requireAdmin, async (req, res) => {

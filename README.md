@@ -87,6 +87,8 @@ kubectl port-forward -n mcp-depot svc/mcp-depot-client 8080:80
 
 See [docs/KUBERNETES.md](./docs/KUBERNETES.md) for ingress setup, production values, and full configuration reference.
 
+Running more than one replica (Compose or Kubernetes)? See [docs/HA-SCALING.md](./docs/HA-SCALING.md) - rate limiting, the circuit breaker, and session notifications need a shared Redis to stay correct across replicas.
+
 ---
 
 ## Connecting to Claude Code

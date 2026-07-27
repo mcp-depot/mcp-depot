@@ -1,3 +1,8 @@
+{{- $replicas := int .Values.replicaCount -}}
+{{- $maxReplicas := ternary (int .Values.autoscaling.maxReplicas) $replicas .Values.autoscaling.enabled -}}
+{{- if and (gt (max $replicas $maxReplicas) 1) (not .Values.redis.enabled) -}}
+{{- fail "replicaCount/autoscaling.maxReplicas allow more than one server pod, but redis.enabled is false. Without Redis, rate limits, circuit breakers, and Session Channel/MCP session notifications are only correct per-pod (each replica has its own counters and doesn't see other replicas' events) - this silently fragments state across replicas. Set redis.enabled: true (with redis.bundled: true for a chart-managed instance, or redis.bundled: false plus redis.externalUrl for your own), or pin replicaCount: 1 and autoscaling.enabled: false." -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +12,15 @@ metadata:
     app.kubernetes.io/component: server
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if and .Values.mcpPackages.enabled (eq .Values.mcpPackages.accessMode "ReadWriteOnce") }}
+  # A ReadWriteOnce PVC can only be mounted by one pod at a time - the
+  # default RollingUpdate strategy tries to start the new pod before the
+  # old one releases the volume, which deadlocks. Recreate accepts a
+  # brief gap in availability during upgrades instead of a stuck rollout;
+  # not needed with ReadWriteMany, where both pods can mount at once.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "mcp-depot.selectorLabels" . | nindent 6 }}
@@ -45,6 +59,10 @@ spec:
             - name: DATABASE_URL
               value: {{ .Values.externalDatabase.url | quote }}
             {{- end }}
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              value: {{ if .Values.redis.bundled }}"redis://{{ include "mcp-depot.fullname" . }}-redis:6379"{{ else }}{{ .Values.redis.externalUrl | quote }}{{ end }}
+            {{- end }}
             {{- if .Values.extraEnv }}
             {{- toYaml .Values.extraEnv | nindent 12 }}
             {{- end }}
@@ -66,12 +84,43 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources.server | nindent 12 }}
+          {{- if not .Values.mcpRunner.enabled }}
           volumeMounts:
             - name: mcp-packages
               mountPath: /opt/mcp-packages
+          {{- end }}
+        {{- if .Values.mcpRunner.enabled }}
+        - name: mcp-runner
+          image: "{{ .Values.image.mcpRunner.repository }}:{{ .Values.image.mcpRunner.tag }}"
+          imagePullPolicy: {{ .Values.image.mcpRunner.pullPolicy }}
+          ports:
+            - name: mcp-runner
+              containerPort: {{ .Values.mcpRunner.port }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.mcpRunner.port | quote }}
+            - name: MCP_PACKAGES_PATH
+              value: "/opt/mcp-packages"
+            - name: MCP_RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "mcp-depot.fullname" .)) }}
+                  key: MCP_RUNNER_TOKEN
+          resources:
+            {{- toYaml .Values.mcpRunner.resources | nindent 12 }}
+          volumeMounts:
+            - name: mcp-packages
+              mountPath: /opt/mcp-packages
+        {{- end }}
       volumes:
         - name: mcp-packages
+          {{- if .Values.mcpPackages.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.mcpPackages.existingClaim | default (printf "%s-mcp-packages" (include "mcp-depot.fullname" .)) }}
+          {{- else }}
           emptyDir: {}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -82,6 +131,20 @@ metadata:
     app.kubernetes.io/component: server
 spec:
   type: {{ .Values.service.type }}
+  {{- if gt (int .Values.replicaCount) 1 }}
+  # Persistent MCP sessions (Streamable HTTP / stdio-bridge, and Session
+  # Channel /watch, /stream) need to keep hitting the same pod. ClientIP is
+  # the floor - it has the same NAT-collapsing weakness as the Compose HA
+  # overlay's nginx ip_hash (clients sharing one NAT'd/proxied IP collapse
+  # onto one pod). If ingress.enabled is true, prefer the Ingress
+  # controller's own cookie-affinity annotation instead (e.g. nginx-ingress's
+  # nginx.ingress.kubernetes.io/affinity: cookie) - Kubernetes Services
+  # can't do cookie affinity themselves, only an Ingress/mesh layer can.
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  {{- end }}
   ports:
     - port: 3000
       targetPort: http

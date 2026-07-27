@@ -12,12 +12,14 @@ const { auth, requireAdmin } = require('../middleware/auth');
 const router = express.Router();
 
 const rateLimit = require('express-rate-limit');
+const redisClient = require('../services/state/redis-client');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
   message: { error: 'Too many login attempts, please try again later' },
-  skipSuccessfulRequests: true
+  skipSuccessfulRequests: true,
+  store: redisClient.buildExpressRateLimitStore('auth')
 });
 
 const registerSchema = Joi.object({

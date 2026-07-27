@@ -148,5 +148,245 @@ describe('HTTP integration', () => {
 
       expect(res.status).toBe(401);
     });
+
+    test('canShare on each row reflects the policy engine (read-only preview), not a hardcoded role check', async () => {
+      const { User, Integration, PolicyRule } = loadModels();
+      // This file never calls createDefaultPolicyRules(), so without an
+      // explicit rule here 'share' would default-allow for everyone - the
+      // same deny-all/allow-admin pair createDefaultPolicyRules seeds at
+      // real boot, added directly here to keep this test self-contained.
+      await PolicyRule.create({
+        resourceType: 'integration', resourceMatch: '*', action: 'share',
+        subjectType: '*', subjectId: null, effect: 'deny', isActive: true
+      });
+      await PolicyRule.create({
+        resourceType: 'integration', resourceMatch: '*', action: 'share',
+        subjectType: 'role', subjectId: 'admin', effect: 'allow', isActive: true
+      });
+
+      await Integration.create({
+        userId: (await User.findOne({ where: { email: 'integrationstest@example.com' } })).id,
+        type: 'custom', name: 'canShare probe',
+        config: { baseUrl: 'http://localhost', auth: { type: 'none' } },
+        isActive: true, visibility: 'private'
+      });
+
+      const admin = await User.create({ email: 'canshare-admin@example.com', password: 'password123', name: 'Admin', role: 'admin', mustResetPassword: false });
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config/env');
+      const adminToken = jwt.sign({ userId: admin.id }, config.jwtSecret, { expiresIn: config.jwtExpire });
+
+      const asUser = await request(app).get('/api/v1/integrations').set('Authorization', `Bearer ${accessToken}`);
+      expect(asUser.body.every(i => i.canShare === false)).toBe(true);
+
+      const asAdmin = await request(app).get('/api/v1/integrations').set('Authorization', `Bearer ${adminToken}`);
+      expect(asAdmin.body.some(i => i.canShare === true)).toBe(true);
+    });
+  });
+
+  describe('POST /api/v1/mcp/execute - policy enforcement', () => {
+    let accessToken, tool;
+
+    beforeAll(async () => {
+      const { User, Integration, Tool, PolicyRule } = loadModels();
+      const user = await User.create({
+        email: 'policytest@example.com',
+        password: 'password123',
+        name: 'Policy Test',
+        role: 'user',
+        mustResetPassword: false
+      });
+      const integration = await Integration.create({
+        userId: user.id,
+        type: 'custom',
+        name: 'Policy Test Integration',
+        config: { baseUrl: 'http://localhost', auth: { type: 'none' } },
+        isActive: true,
+        visibility: 'private'
+      });
+      tool = await Tool.create({
+        userId: user.id,
+        integrationId: integration.id,
+        name: 'policy_test_tool',
+        endpoint: { path: '/test', method: 'GET', params: {}, headers: {} },
+        isActive: true
+      });
+      await PolicyRule.create({
+        resourceType: 'tool',
+        resourceMatch: 'policy_test_tool',
+        action: 'execute',
+        subjectType: 'role',
+        subjectId: 'user',
+        effect: 'deny',
+        isActive: true
+      });
+
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config/env');
+      accessToken = jwt.sign({ userId: user.id }, config.jwtSecret, { expiresIn: config.jwtExpire });
+    });
+
+    test('a real HTTP call to a tool blocked by policy gets 403, never reaches the adapter', async () => {
+      const res = await request(app)
+        .post('/api/v1/mcp/execute')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ toolName: tool.name, params: {} });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('Access denied by policy');
+    });
+
+    test('the denial is actually recorded in the policy decision chain', async () => {
+      const { PolicyDecision } = loadModels();
+      const record = await PolicyDecision.findOne({
+        where: { resourceId: 'policy_test_tool', decision: 'deny' },
+        order: [['createdAt', 'DESC']]
+      });
+      expect(record).not.toBeNull();
+      expect(record.recordHash).toBeDefined();
+    });
+  });
+
+  describe('Policy REST API (/api/v1/policy)', () => {
+    let adminToken, userToken;
+
+    beforeAll(async () => {
+      const { User } = loadModels();
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config/env');
+
+      const admin = await User.create({
+        email: 'policyapi-admin@example.com', password: 'password123', name: 'Admin',
+        role: 'admin', mustResetPassword: false
+      });
+      const nonAdmin = await User.create({
+        email: 'policyapi-user@example.com', password: 'password123', name: 'User',
+        role: 'user', mustResetPassword: false
+      });
+      adminToken = jwt.sign({ userId: admin.id }, config.jwtSecret, { expiresIn: config.jwtExpire });
+      userToken = jwt.sign({ userId: nonAdmin.id }, config.jwtSecret, { expiresIn: config.jwtExpire });
+    });
+
+    test('a non-admin cannot list, create, or delete policy rules', async () => {
+      const list = await request(app).get('/api/v1/policy/rules').set('Authorization', `Bearer ${userToken}`);
+      expect(list.status).toBe(403);
+
+      const create = await request(app)
+        .post('/api/v1/policy/rules')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ resourceType: 'tool', subjectType: '*', effect: 'deny' });
+      expect(create.status).toBe(403);
+    });
+
+    test('admin can create a rule, list it, update it, then delete it', async () => {
+      const create = await request(app)
+        .post('/api/v1/policy/rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ resourceType: 'tool', resourceMatch: 'api_test_tool', action: 'execute', subjectType: '*', effect: 'deny', description: 'API test rule' });
+      expect(create.status).toBe(201);
+      expect(create.body.id).toBeDefined();
+      const ruleId = create.body.id;
+
+      const list = await request(app).get('/api/v1/policy/rules').set('Authorization', `Bearer ${adminToken}`);
+      expect(list.status).toBe(200);
+      expect(list.body.some(r => r.id === ruleId)).toBe(true);
+
+      const update = await request(app)
+        .put(`/api/v1/policy/rules/${ruleId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ isActive: false });
+      expect(update.status).toBe(200);
+      expect(update.body.isActive).toBe(false);
+
+      const del = await request(app).delete(`/api/v1/policy/rules/${ruleId}`).set('Authorization', `Bearer ${adminToken}`);
+      expect(del.status).toBe(200);
+
+      const listAfter = await request(app).get('/api/v1/policy/rules').set('Authorization', `Bearer ${adminToken}`);
+      expect(listAfter.body.some(r => r.id === ruleId)).toBe(false);
+    });
+
+    test('rejects a rule with subjectType=role but no subjectId', async () => {
+      const res = await request(app)
+        .post('/api/v1/policy/rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ resourceType: 'tool', subjectType: 'role', effect: 'deny' });
+      expect(res.status).toBe(400);
+    });
+
+    test('rejects a limit rule with no limitConfig', async () => {
+      const res = await request(app)
+        .post('/api/v1/policy/rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ resourceType: 'tool', subjectType: '*', effect: 'limit' });
+      expect(res.status).toBe(400);
+    });
+
+    test('accepts subjectType=group through the real REST API (regression: Joi schema previously rejected it after the engine already supported it)', async () => {
+      const res = await request(app)
+        .post('/api/v1/policy/rules')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ resourceType: 'integration', resourceMatch: 'some-integration-id', action: 'manage_others', subjectType: 'group', subjectId: 'some-group-id', effect: 'allow' });
+      expect(res.status).toBe(201);
+      expect(res.body.subjectType).toBe('group');
+
+      await request(app).delete(`/api/v1/policy/rules/${res.body.id}`).set('Authorization', `Bearer ${adminToken}`);
+    });
+
+    test('lists policy decisions and confirms the chain verifies intact', async () => {
+      const decisions = await request(app).get('/api/v1/policy/decisions').set('Authorization', `Bearer ${adminToken}`);
+      expect(decisions.status).toBe(200);
+      expect(Array.isArray(decisions.body.decisions)).toBe(true);
+      expect(decisions.body.total).toBeGreaterThan(0);
+
+      const verify = await request(app).get('/api/v1/policy/decisions/verify-chain').set('Authorization', `Bearer ${adminToken}`);
+      expect(verify.status).toBe(200);
+      expect(verify.body.valid).toBe(true);
+    });
+  });
+
+  describe('PUT /api/v1/users/:id', () => {
+    let adminToken, targetUser;
+
+    beforeAll(async () => {
+      const { User } = loadModels();
+      const jwt = require('jsonwebtoken');
+      const config = require('../src/config/env');
+
+      const admin = await User.create({ email: 'useredit-admin@example.com', password: 'password123', name: 'Admin', role: 'admin', mustResetPassword: false });
+      adminToken = jwt.sign({ userId: admin.id }, config.jwtSecret, { expiresIn: config.jwtExpire });
+
+      targetUser = await User.create({ email: 'useredit-target@example.com', password: 'original-password', name: 'Target', role: 'user', mustResetPassword: false });
+    });
+
+    test('regression: the client always sends a password field (even blank) on every edit - this must not 400', async () => {
+      const res = await request(app)
+        .put(`/api/v1/users/${targetUser.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ email: targetUser.email, name: 'Target Renamed', role: 'user', password: '' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Target Renamed');
+      expect(res.body.password).toBeUndefined();
+    });
+
+    test('a blank password on edit does not touch the existing password', async () => {
+      const login = await request(app).post('/api/v1/auth/login').send({ email: targetUser.email, password: 'original-password' });
+      expect(login.status).toBe(200);
+    });
+
+    test('a non-blank password on edit sets a new password and clears mustResetPassword', async () => {
+      const res = await request(app)
+        .put(`/api/v1/users/${targetUser.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ password: 'a-brand-new-password' });
+      expect(res.status).toBe(200);
+      expect(res.body.mustResetPassword).toBe(false);
+
+      const oldPasswordRejected = await request(app).post('/api/v1/auth/login').send({ email: targetUser.email, password: 'original-password' });
+      expect(oldPasswordRejected.status).toBe(401);
+
+      const newPasswordAccepted = await request(app).post('/api/v1/auth/login').send({ email: targetUser.email, password: 'a-brand-new-password' });
+      expect(newPasswordAccepted.status).toBe(200);
+    });
   });
 });

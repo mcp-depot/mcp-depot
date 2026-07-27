@@ -13,6 +13,13 @@ function getFocusable(container) {
 export function useModalA11y(onClose, isOpen = true) {
   const containerRef = useRef(null);
   const previouslyFocused = useRef(null);
+  // Callers pass an inline onClose that gets a new identity on every render
+  // (e.g. every keystroke in the modal's form). Reading it through a ref
+  // keeps the effect below from depending on that identity, so it only
+  // (re)runs - and steals focus to the first focusable element - when the
+  // modal actually opens or closes, not on every keystroke.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -25,7 +32,7 @@ export function useModalA11y(onClose, isOpen = true) {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose?.();
+        onCloseRef.current?.();
         return;
       }
       if (e.key === 'Tab') {
@@ -48,7 +55,7 @@ export function useModalA11y(onClose, isOpen = true) {
       document.removeEventListener('keydown', handleKeyDown, true);
       previouslyFocused.current?.focus?.();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   return containerRef;
 }

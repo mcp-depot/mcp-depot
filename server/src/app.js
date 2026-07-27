@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const redisClient = require('./services/state/redis-client');
 const logger = require('./services/logger');
 const promClient = require('prom-client');
 const { middleware: metricsMiddleware } = require('./services/metrics');
@@ -23,6 +24,8 @@ const oauthRoutes = require('./routes/oauth');
 const agentsRoutes = require('./routes/agents');
 const healthRoutes = require('./routes/health');
 const usersRoutes = require('./routes/users');
+const policyRoutes = require('./routes/policy');
+const groupsRoutes = require('./routes/groups');
 
 const app = express();
 
@@ -51,7 +54,8 @@ app.use(express.urlencoded({ extended: true }));
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
-  message: { error: 'Too many requests, please try again later' }
+  message: { error: 'Too many requests, please try again later' },
+  store: redisClient.buildExpressRateLimitStore('global')
 });
 app.use('/api', limiter);
 app.use(metricsMiddleware);
@@ -100,6 +104,8 @@ v1Router.use('/agents', agentsRoutes);
 v1Router.use('/personas', agentsRoutes);
 v1Router.use('/health', healthRoutes);
 v1Router.use('/users', usersRoutes);
+v1Router.use('/policy', policyRoutes);
+v1Router.use('/groups', groupsRoutes);
 
 app.use('/api/v1', v1Router);
 app.use('/api', v1Router); // Backward compatibility

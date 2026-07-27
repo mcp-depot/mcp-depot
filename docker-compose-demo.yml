@@ -50,15 +50,20 @@ services:
       - DEMO_MODE=true
       - API_BASE_URL=${DEMO_API_URL:-http://localhost:3010}
       - ALLOWED_ORIGINS=${DEMO_ALLOWED_ORIGINS:-http://localhost:3011,https://demo.mcpdepot.dev}
-      - MCP_PACKAGES_PATH=/opt/mcp-packages
       - ALLOW_SELF_SIGNED_CERTS=true
       - TOOLS_CACHE_ENABLED=true
       - TOOLS_CACHE_TTL=60000
       - MCP_ENABLED=true
       - SECRET_STORE_ENABLED=false
+      # Stdio external MCP servers run in the mcp-runner sidecar, not here -
+      # a public open-registration demo is exactly where isolating arbitrary
+      # process spawning away from JWT_SECRET/ENCRYPTION_KEY matters most.
+      - MCP_RUNNER_URL=http://mcp-runner:9500
+      - MCP_RUNNER_TOKEN=${DEMO_MCP_RUNNER_TOKEN:-demo-mcp-runner-token-replace-before-deploy}
     volumes:
       - demo_data:/data
-      - demo_packages:/opt/mcp-packages
+    depends_on:
+      - mcp-runner
     networks:
       - mcp-demo-network
     healthcheck:
@@ -67,6 +72,23 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  # ── mcp-runner sidecar (isolated stdio spawn + package installs) ───────────
+  mcp-runner:
+    build:
+      context: ./mcp-runner
+      dockerfile: Dockerfile
+    container_name: mcp-depot-demo-mcp-runner
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PORT=9500
+      - MCP_PACKAGES_PATH=/opt/mcp-packages
+      - MCP_RUNNER_TOKEN=${DEMO_MCP_RUNNER_TOKEN:-demo-mcp-runner-token-replace-before-deploy}
+    volumes:
+      - demo_packages:/opt/mcp-packages
+    networks:
+      - mcp-demo-network
 
   # ── React admin UI ───────────────────────────────────────────────────────────
   client:

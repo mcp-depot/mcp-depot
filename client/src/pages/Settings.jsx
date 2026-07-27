@@ -26,7 +26,7 @@ function LoadingDots({ text = 'Loading' }) {
 function MCPServerSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [mcpSettings, setMcpSettings] = useState({ authMode: 'optional', apiKey: '' });
+  const [mcpSettings, setMcpSettings] = useState({ authMode: 'optional', apiKey: '', compactToolMode: false });
   const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
@@ -36,7 +36,7 @@ function MCPServerSettings() {
   async function fetchSettings() {
     try {
       const res = await api.get('/system/mcp');
-      setMcpSettings({ ...res.data, apiKey: '' });
+      setMcpSettings({ compactToolMode: false, ...res.data, apiKey: '' });
     } catch (err) {
       console.error('Failed to fetch MCP settings:', err);
     } finally {
@@ -84,6 +84,20 @@ function MCPServerSettings() {
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
           {mcpSettings.authMode === 'none' && 'No authentication - MCP endpoints are publicly accessible.'}
           {mcpSettings.authMode === 'required' && 'Require API key - AI assistants must provide the API key generated in "My API Access" tab.'}
+        </p>
+      </div>
+
+      <div className="form-group" style={{ marginTop: '1rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={mcpSettings.compactToolMode}
+            onChange={(e) => setMcpSettings({ ...mcpSettings, compactToolMode: e.target.checked })}
+          />
+          Compact tool mode
+        </label>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+          Expose only <code>search_tools</code> and <code>execute_tool</code> to AI clients instead of every registered tool individually - avoids loading every tool's schema into the AI's context up front. Recommended once your catalog grows large. Existing tools remain fully usable via <code>execute_tool</code>; this only changes what appears in the tool list.
         </p>
       </div>
 

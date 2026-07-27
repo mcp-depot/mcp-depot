@@ -1,0 +1,164 @@
+# High-availability overlay - adds Redis-backed shared state, a load
+# balancer, and two extra server replicas, without changing default
+# `docker compose up -d` behavior at all (nothing here applies unless this
+# file is explicitly included).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose-ha.yml up -d
+#
+# Three server replicas are declared explicitly (server, server-2,
+# server-3) rather than using `docker compose up --scale server=N`:
+# Compose's scaled-replica DNS names are `<project>-<service>-<index>`,
+# which depends on the project name (normally the directory name) - not
+# portable enough for a static nginx upstream block committed to this repo.
+# Explicit services with fixed network aliases sidestep that entirely. To
+# add more replicas, copy the server-3 block and give it a new alias, then
+# add a matching `server server-N:3000 ...;` line to docker/nginx-ha.conf.
+#
+# The env var list on server-2/server-3 is a duplicate of docker-compose.yml's
+# `server` service (Compose can't share YAML anchors across files) plus
+# REDIS_URL - keep it in sync if the base file's server env vars change.
+
+x-server-env: &server-env
+  - NODE_ENV=production
+  - PORT=3000
+  - DATABASE_URL=postgres://admin:${POSTGRES_PASSWORD:-admin123}@postgres:5432/${POSTGRES_DB:-mcp-depot}
+  - JWT_SECRET=${JWT_SECRET}
+  - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+  - JWT_EXPIRE=15m
+  - JWT_REFRESH_EXPIRE=7d
+  - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+  - ALLOW_SELF_SIGNED_CERTS=${ALLOW_SELF_SIGNED_CERTS:-true}
+  - TOOLS_CACHE_ENABLED=${TOOLS_CACHE_ENABLED:-true}
+  - TOOLS_CACHE_TTL=${TOOLS_CACHE_TTL:-300000}
+  - MCP_ENABLED=${MCP_ENABLED:-true}
+  - SECRET_STORE_ENABLED=${SECRET_STORE_ENABLED:-false}
+  - SECRET_STORE_SITE_URL=${SECRET_STORE_SITE_URL:-https://app.infisical.com}
+  - SECRET_STORE_CLIENT_ID=${SECRET_STORE_CLIENT_ID}
+  - SECRET_STORE_CLIENT_SECRET=${SECRET_STORE_CLIENT_SECRET}
+  - SECRET_STORE_WORKSPACE_ID=${SECRET_STORE_WORKSPACE_ID}
+  - SECRET_STORE_ENVIRONMENT=${SECRET_STORE_ENVIRONMENT:-dev}
+  - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@mcp-depot.com}
+  - ALLOW_REGISTRATION=${ALLOW_REGISTRATION:-false}
+  - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+  - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+  - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+  - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+  - OIDC_ENABLED=${OIDC_ENABLED:-false}
+  - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-http://keycloak:8080/realms/mcp-depot}
+  - OIDC_ISSUER_PUBLIC_URL=${OIDC_ISSUER_PUBLIC_URL:-http://localhost:8180/realms/mcp-depot}
+  - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-mcp-depot}
+  - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
+  - OIDC_DISPLAY_NAME=${OIDC_DISPLAY_NAME:-Login with SSO}
+  - API_BASE_URL=${API_BASE_URL:-http://localhost:3000}
+  - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
+  - ALLOWED_FRAME_ORIGINS=${ALLOWED_FRAME_ORIGINS:-}
+  - HEALTH_CORS_ORIGINS=${HEALTH_CORS_ORIGINS:-*}
+  - MCP_RUNNER_URL=${MCP_RUNNER_URL-http://mcp-runner:9500}
+  - MCP_RUNNER_TOKEN=${MCP_RUNNER_TOKEN}
+  - REDIS_URL=redis://redis-ha:6379
+
+x-server-depends-on: &server-depends-on
+  postgres:
+    condition: service_healthy
+  mcp-runner:
+    condition: service_started
+  redis-ha:
+    condition: service_started
+
+services:
+  # redis-ha is separate from the `valkey` service (which is gated behind
+  # the secret-store profile and used only by the bundled Infisical
+  # container) - keeping them independent means debugging one never
+  # requires reasoning about the other's traffic.
+  redis-ha:
+    image: valkey/valkey:8
+    container_name: mcp-depot-redis-ha
+    restart: unless-stopped
+    expose:
+      - "6379"
+    networks:
+      mcp-depot-network:
+        aliases:
+          - redis-ha
+
+  # Replica 1 - this is the base file's `server` service, with its fixed
+  # host port and container_name removed (both are incompatible with
+  # running more than one server instance), Redis wired in, and a fixed
+  # network alias added for nginx to target.
+  server:
+    container_name: !reset null
+    ports: !reset []
+    environment: *server-env
+    depends_on: *server-depends-on
+    networks:
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
+          - server-1
+
+  server-2:
+    image: ghcr.io/mcp-depot/mcp-depot-server:${TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: mcp-depot-server-2
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "mcpdepot.local:host-gateway"
+    environment: *server-env
+    depends_on: *server-depends-on
+    networks:
+      mcp-depot-network:
+        aliases:
+          - server-2
+
+  server-3:
+    image: ghcr.io/mcp-depot/mcp-depot-server:${TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: mcp-depot-server-3
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "mcpdepot.local:host-gateway"
+    environment: *server-env
+    depends_on: *server-depends-on
+    networks:
+      mcp-depot-network:
+        aliases:
+          - server-3
+
+  lb:
+    image: nginx:1.27-alpine
+    container_name: mcp-depot-lb
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./docker/nginx-ha.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - server
+      - server-2
+      - server-3
+    networks:
+      mcp-depot-network:
+        aliases:
+          - mcpdepot.local
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # The client's internal API proxy must go through the load balancer too,
+  # not directly at `server:3000` - otherwise every request would land on
+  # replica 1 regardless of nginx's own routing.
+  client:
+    environment:
+      - VITE_API_URL=http://lb:80
+      - ALLOWED_FRAME_ORIGINS=${ALLOWED_FRAME_ORIGINS:-}
+    depends_on:
+      - lb

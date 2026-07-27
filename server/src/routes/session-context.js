@@ -5,11 +5,14 @@ const { loadModels } = require('../config/database');
 const { readableWhere } = require('../utils/queryHelpers');
 const audit = require('../services/audit');
 const logger = require('../services/logger');
+const { checkSessionContextPolicy } = require('../services/resource-policy');
 
 const router = express.Router();
 
 const DEFAULT_TTL_HOURS = 168; // 7 days
 
+// Not policy-gated: a list spans many contexts with no single resourceId to
+// evaluate a rule against. Per-context reads are gated at GET /:name.
 router.get('/', auth, async (req, res) => {
   try {
     const { SessionContext } = loadModels();
@@ -45,6 +48,12 @@ router.get('/:name', auth, async (req, res) => {
       where: { name: req.params.name, ...readableWhere(req.user.id, req.user.role) }
     });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
+
+    const policyResult = await checkSessionContextPolicy({ user: req.user, action: 'read', name: req.params.name });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+    }
+
     res.json(ctx);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -62,6 +71,11 @@ router.post('/', auth, async (req, res) => {
   const ttlProvided = Object.prototype.hasOwnProperty.call(req.body, 'ttlHours');
   const { error, value } = upsertSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
+
+  const policyResult = await checkSessionContextPolicy({ user: req.user, action: 'write', name: value.name });
+  if (policyResult.decision === 'deny') {
+    return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+  }
 
   try {
     const { SessionContext } = loadModels();
@@ -83,8 +97,11 @@ router.post('/', auth, async (req, res) => {
     });
 
     if (!created) {
-      if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'You do not own this context' });
+      if (ctx.createdBy !== req.user.id && ctx.createdBy != null) {
+        const bypassResult = await checkSessionContextPolicy({ user: req.user, action: 'manage_others', name: value.name });
+        if (bypassResult.decision === 'deny') {
+          return res.status(403).json({ error: 'You do not own this context' });
+        }
       }
       const updateData = { content: value.content, isShared: value.shared };
       if (ttlProvided) updateData.ttlHours = ttlHours;
@@ -102,8 +119,17 @@ router.patch('/:name/share', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'You do not own this context' });
+
+    const policyResult = await checkSessionContextPolicy({ user: req.user, action: 'write', name: req.params.name });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+    }
+
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null) {
+      const bypassResult = await checkSessionContextPolicy({ user: req.user, action: 'manage_others', name: req.params.name });
+      if (bypassResult.decision === 'deny') {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
     }
     const isShared = typeof req.body.shared === 'boolean' ? req.body.shared : !ctx.isShared;
     await ctx.update({ isShared });
@@ -118,8 +144,17 @@ router.patch('/:name', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'You do not own this context' });
+
+    const policyResult = await checkSessionContextPolicy({ user: req.user, action: 'write', name: req.params.name });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+    }
+
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null) {
+      const bypassResult = await checkSessionContextPolicy({ user: req.user, action: 'manage_others', name: req.params.name });
+      if (bypassResult.decision === 'deny') {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
     }
     const updates = {};
     if (typeof req.body.shared === 'boolean') updates.isShared = req.body.shared;
@@ -136,8 +171,17 @@ router.delete('/:name', auth, async (req, res) => {
     const { SessionContext } = loadModels();
     const ctx = await SessionContext.findOne({ where: { name: req.params.name } });
     if (!ctx) return res.status(404).json({ error: 'Context not found' });
-    if (ctx.createdBy !== req.user.id && ctx.createdBy != null && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'You do not own this context' });
+
+    const policyResult = await checkSessionContextPolicy({ user: req.user, action: 'delete', name: req.params.name });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
+    }
+
+    if (ctx.createdBy !== req.user.id && ctx.createdBy != null) {
+      const bypassResult = await checkSessionContextPolicy({ user: req.user, action: 'manage_others', name: req.params.name });
+      if (bypassResult.decision === 'deny') {
+        return res.status(403).json({ error: 'You do not own this context' });
+      }
     }
     await ctx.destroy();
 

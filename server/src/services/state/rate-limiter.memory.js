@@ -1,0 +1,135 @@
+const DEFAULT_RPM = parseInt(process.env.RATE_LIMIT_DEFAULT_RPM || '300', 10);
+const DEFAULT_RPH = parseInt(process.env.RATE_LIMIT_DEFAULT_RPH || '5000', 10);
+
+const windows = new Map();
+
+function getWindowKey(resourceId, windowMs) {
+  const bucket = Math.floor(Date.now() / windowMs);
+  return `${resourceId}:${bucket}`;
+}
+
+function incrementCounter(key) {
+  const entry = windows.get(key) || { count: 0, timestamp: Date.now() };
+  entry.count++;
+  windows.set(key, entry);
+  return entry;
+}
+
+function getCounter(key) {
+  return windows.get(key) || { count: 0, timestamp: Date.now() };
+}
+
+function cleanupExpired() {
+  const now = Date.now();
+  const maxAge = 2 * 60 * 60 * 1000;
+  for (const [key, entry] of windows.entries()) {
+    if (now - entry.timestamp > maxAge) {
+      windows.delete(key);
+    }
+  }
+}
+
+setInterval(cleanupExpired, 5 * 60 * 1000);
+
+async function checkSlidingWindow(resourceId, limit, windowMs) {
+  if (!limit || limit <= 0) return { allowed: true, remaining: Infinity };
+
+  const now = Date.now();
+  const windowOffset = now % windowMs;
+  const currentWindowStart = now - windowOffset;
+  const currentWindowKey = getWindowKey(resourceId, windowMs);
+  const prevWindowKey = `${resourceId}:${Math.floor(currentWindowStart / windowMs) - 1}`;
+
+  const current = getCounter(currentWindowKey);
+  const prev = getCounter(prevWindowKey);
+
+  const elapsedInCurrent = now - currentWindowStart;
+  const prevWeight = Math.max(0, 1 - elapsedInCurrent / windowMs);
+  const weightedCount = current.count + prev.count * prevWeight;
+
+  if (weightedCount >= limit) {
+    return { allowed: false, remaining: 0, resetInSeconds: Math.max(1, Math.ceil((windowMs - elapsedInCurrent) / 1000)) };
+  }
+
+  incrementCounter(currentWindowKey);
+
+  const newWeightedCount = weightedCount + 1;
+  const remaining = Math.max(0, Math.floor(limit - newWeightedCount));
+
+  return { allowed: true, remaining, resetInSeconds: Math.max(1, Math.ceil((windowMs - elapsedInCurrent) / 1000)) };
+}
+
+async function checkRateLimit(toolId, userId, toolLimit, integrationLimitRpm, integrationLimitRph, integrationId) {
+  const toolKey = `tool:${toolId}:${userId}`;
+  // Pooled across every user and every tool on this integration - a shared
+  // Jira/Confluence-style integration has one real upstream quota, and no
+  // single user's per-user budget should be able to exhaust the whole pool.
+  // Falls back to the old per-tool-per-user key when no integrationId is
+  // supplied (e.g. composite/meta tools with no backing integration).
+  const poolId = integrationId || toolId;
+  const integrationKey = `integration:${poolId}`;
+
+  const effectiveToolLimit = toolLimit || DEFAULT_RPM;
+  const effectiveIntegrationLimitRpm = integrationLimitRpm || DEFAULT_RPM;
+  const effectiveIntegrationLimitRph = integrationLimitRph || DEFAULT_RPH;
+
+  const toolCheck = await checkSlidingWindow(toolKey, effectiveToolLimit, 60 * 1000);
+  if (!toolCheck.allowed) {
+    return {
+      allowed: false,
+      level: 'tool',
+      limit: effectiveToolLimit,
+      remaining: 0,
+      resetInSeconds: toolCheck.resetInSeconds
+    };
+  }
+
+  const integrationMinCheck = await checkSlidingWindow(integrationKey, effectiveIntegrationLimitRpm, 60 * 1000);
+  if (!integrationMinCheck.allowed) {
+    return {
+      allowed: false,
+      level: 'integration',
+      limit: effectiveIntegrationLimitRpm,
+      remaining: 0,
+      resetInSeconds: integrationMinCheck.resetInSeconds
+    };
+  }
+
+  const integrationHourCheck = await checkSlidingWindow(`${integrationKey}:hour`, effectiveIntegrationLimitRph, 60 * 60 * 1000);
+  if (!integrationHourCheck.allowed) {
+    return {
+      allowed: false,
+      level: 'integration',
+      limit: effectiveIntegrationLimitRph,
+      remaining: 0,
+      resetInSeconds: integrationHourCheck.resetInSeconds
+    };
+  }
+
+  return {
+    allowed: true,
+    remaining: toolCheck.remaining,
+    integrationRemaining: Math.min(integrationMinCheck.remaining, integrationHourCheck.remaining),
+    resetInSeconds: toolCheck.resetInSeconds
+  };
+}
+
+function rateLimitMiddleware(req, res, next) {
+  const toolId = req.body?.toolId;
+  const userId = req.user?.id || req.apiKey?.userId;
+
+  if (!toolId || !userId) {
+    return next();
+  }
+
+  req.rateLimit = { toolId, userId };
+  next();
+}
+
+module.exports = {
+  checkRateLimit,
+  rateLimitMiddleware,
+  checkSlidingWindow,
+  DEFAULT_RPM,
+  DEFAULT_RPH
+};

@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -17,6 +17,8 @@ import {
   Layers,
   MessagesSquare,
   Users,
+  Users2,
+  Shield,
   HeartPulse,
   Sun,
   Moon,
@@ -99,8 +101,12 @@ function Sidebar() {
       { path: '/monitoring', icon: Activity, label: 'Monitoring', feature: 'monitoring' },
       { path: '/health', icon: HeartPulse, label: 'Health', feature: 'health' },
     ])},
-    { section: 'System', items: [
+    { section: 'Identity', items: [
+      { path: '/groups', icon: Users2, label: 'Groups' },
       ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users', feature: 'users' }] : []),
+    ]},
+    { section: 'System', items: [
+      ...(user?.role === 'admin' ? [{ path: '/policy', icon: Shield, label: 'Policy' }] : []),
       { path: '/settings', icon: Settings, label: 'Settings' },
     ]},
   ];

@@ -17,7 +17,8 @@ const createUserSchema = Joi.object({
 const updateUserSchema = Joi.object({
   email: Joi.string().email().optional(),
   name: Joi.string().optional(),
-  role: Joi.string().valid('user', 'admin').optional()
+  role: Joi.string().valid('user', 'admin').optional(),
+  password: Joi.string().allow('').optional()
 });
 
 router.get('/', auth, requireAdmin, async (req, res) => {
@@ -96,13 +97,26 @@ router.put('/:id', auth, requireAdmin, async (req, res) => {
     }
 
     const roleChanged = value.role !== undefined && value.role !== user.role;
-    await user.update(value);
+    // Mirrors "leave empty to keep current" in the UI: an empty/absent
+    // password must never overwrite the existing one. Only a genuinely
+    // non-empty value is applied (and, like admin-created accounts with an
+    // explicit password, doesn't force a reset - the admin now knows it).
+    const { password, ...rest } = value;
+    if (password) {
+      rest.password = password;
+      rest.mustResetPassword = false;
+    }
+    await user.update(rest);
 
     await audit.log({
       userId: req.user.id,
       action: roleChanged ? 'change_user_role' : 'update_user',
       integrationType: 'user_management',
-      details: { targetUserId: user.id, email: user.email, ...(roleChanged ? { newRole: value.role } : {}) },
+      details: {
+        targetUserId: user.id, email: user.email,
+        ...(roleChanged ? { newRole: value.role } : {}),
+        ...(password ? { passwordChanged: true } : {})
+      },
       status: 'success'
     });
 

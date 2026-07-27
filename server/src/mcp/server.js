@@ -11,10 +11,28 @@ const { executeCompositeTool } = require('../services/compositeExecutor');
 const { pruneNulls } = require('../services/body-utils');
 const { deriveAnnotations } = require('../services/annotations');
 const { checkRateLimit: checkToolRateLimit } = require('../services/rate-limiter');
+const notifyBus = require('../services/state/notify-bus');
+const { checkToolPolicy } = require('../services/tool-policy');
+const { isBuiltInIntegration, isToolVisibleToCaller } = require('../utils/builtInIntegrations');
 const { filterFields } = require('../utils/fieldFilter');
 const { filterLines } = require('../utils/lineFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
 const transformerLoader = require('../transformers/loader');
+// zod/v3 - matches this app's own package.json dependency. The real, pre-
+// existing bug this codebase had was NOT a zod version mismatch: every
+// {description, inputSchema, annotations}-shaped call was going through
+// server.tool(name, configObject, handler) - the *variadic positional-args*
+// overload, which only accepts a raw shape/schema as its 2nd arg, not a
+// config object. The SDK's own argument-sniffing (isZodRawShapeCompat)
+// misclassified that config object as a raw shape (since one of its values,
+// inputSchema, happens to look like a schema) and fed the whole
+// {description, inputSchema, annotations} blob into z.object() as if each
+// key were a shape field. With zod/v3 this only surfaced lazily, at
+// tools/call time ("keyValidator._parse is not a function", since
+// "description" isn't a real schema). The fix is to call
+// server.registerTool(name, config, handler) - the dedicated config-object
+// API - wherever a config object (not a raw shape) is passed. Confirmed
+// live via a minimal repro against the actual SDK.
 const { z } = require('zod/v3');
 const jwt = require('jsonwebtoken');
 const config = require('../config/env');
@@ -44,6 +62,15 @@ function fmtDuration(ms) {
 
 const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
 const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
+
+// Fresh, uncached read on every tools/list call - same convention as
+// meta-tools.js's guardIntegrationActive(), so an admin toggling this in
+// Settings takes effect immediately without a refreshTools()/reconnect.
+async function isCompactToolModeEnabled() {
+  const SystemSetting = require('../models/SystemSetting');
+  const setting = await SystemSetting.findByPk('mcp');
+  return setting?.value?.compactToolMode === true;
+}
 
 function buildZodSchema(schema, required = []) {
   const shape = {};
@@ -194,6 +221,16 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           }
         }
       }, 30_000);
+
+      // Cross-replica fan-out: routes/session-channel.js publishes here
+      // instead of calling _pushChannelNotification/_pushResourceUpdate
+      // directly, so every replica (each with its own locally-connected MCP
+      // sessions) delivers to its own subscribers - not just whichever
+      // replica happened to receive the original POST. In single-instance
+      // mode (no REDIS_URL) this is a same-process publish/subscribe
+      // indirection around the exact same call graph as before.
+      notifyBus.subscribe('channel-msg', (payload) => this._pushChannelNotification(payload.channel, payload.entry));
+      notifyBus.subscribe('resource-update', (payload) => this._pushResourceUpdate(payload.channel));
     }
 
     for (const tool of tools) {
@@ -206,18 +243,23 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     }
 
     this.registerMetaTools();
+    this.registerCatalogTools();
+
+    // Meta-tools always register at least one tool, guaranteeing the SDK's
+    // default tools/list handler is installed by this point even on a
+    // fresh install with zero configured tools/skills yet.
+    this._installToolsListFilter();
 
     this.registerWatchUntilDone();
 
     logger.info({ toolCount: tools.length, skillCount: skills.length }, 'MCP Server initialized');
   }
 
-  registerTool(tool) {
-    if (tool.type === 'meta') return;
-
-    const toolName = tool.exposedName || this.sanitizeToolName(tool.name);
+  // Schema-shape-only (no Zod) so search_tools (catalog-tools.js) can return
+  // it directly to an AI as a plain descriptor, and registerTool can convert
+  // it to Zod below - one schema-construction implementation, not two.
+  buildToolInputSchemaDescriptor(tool) {
     const endpoint = tool.endpoint || {};
-
     let schema = {};
     let required = [];
 
@@ -249,9 +291,20 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     }
 
-    const adapter = tool.Integration ? AdapterFactory.create(
-      tool.Integration.type,
-      { ...tool.Integration.config, integrationId: tool.Integration.id }
+    return { schema, required };
+  }
+
+  registerTool(tool) {
+    if (tool.type === 'meta') return;
+
+    const toolName = tool.exposedName || this.sanitizeToolName(tool.name);
+    const endpoint = tool.endpoint || {};
+
+    const { schema, required } = this.buildToolInputSchemaDescriptor(tool);
+
+    const adapter = tool.integration ? AdapterFactory.create(
+      tool.integration.type,
+      { ...tool.integration.config, integrationId: tool.integration.id }
     ) : null;
 
     this.toolsMap.set(toolName, { tool, adapter });
@@ -272,7 +325,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     };
 
     try {
-      this.server.tool(
+      this.server.registerTool(
         toolName,
         {
           description: (tool.description || toolName) +
@@ -292,11 +345,19 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
           const currentTool = entry.tool;
 
           try {
+            const policyResult = await checkToolPolicy({ userId: sessionData.userId ?? null, tool: currentTool });
+            if (policyResult.decision === 'deny') {
+              return {
+                content: [{ type: 'text', text: `Access denied: ${policyResult.reason}` }],
+                isError: true
+              };
+            }
+
             const toolLimit = currentTool.rateLimit || 0;
-            const intLimit = currentTool.Integration?.rateLimit || {};
+            const intLimit = currentTool.integration?.rateLimit || {};
             const integrationLimitRpm = intLimit.requestsPerMinute || 0;
             const integrationLimitRph = intLimit.requestsPerHour || 0;
-            const rateCheck = checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph, currentTool.Integration?.id);
+            const rateCheck = await checkToolRateLimit(currentTool.id, currentTool.userId, toolLimit, integrationLimitRpm, integrationLimitRph, currentTool.integration?.id);
             if (!rateCheck.allowed) {
               return {
                 content: [{
@@ -352,10 +413,27 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     }
 
     const endpoint = tool.endpoint || {};
-    const integration = tool.Integration;
-    
+    const integration = tool.integration;
+
     if (!integration) {
       throw new Error('Tool has no associated integration');
+    }
+
+    // Same ownership check the REST endpoints (routes/consume.js,
+    // routes/mcp.js) already enforce for their own tool-execute routes -
+    // the native MCP protocol path (this function) never had it, so any
+    // connected session could execute any other user's private tool, since
+    // checkToolPolicy only evaluates explicit allow/deny rules and has no
+    // inherent concept of ownership.
+    if (integration.visibility !== 'shared' && integration.userId !== callerUserId && !isBuiltInIntegration(integration)) {
+      let callerRole = null;
+      if (callerUserId) {
+        const caller = await User.findByPk(callerUserId);
+        callerRole = caller?.role ?? null;
+      }
+      if (callerRole !== 'admin') {
+        throw new Error('Access denied: you do not have permission to use this tool');
+      }
     }
 
     const secretStore = require('../services/secret-store');
@@ -550,6 +628,73 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     return name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 64);
   }
 
+  async invokeSkill(skillName, params, extra) {
+    try {
+      // Look up the current skill record, not whatever was passed at
+      // registration time - isShared/userId/prompt can all change after
+      // this tool was registered, and a stale closure would keep
+      // enforcing (or leaking) an outdated state.
+      const entry = this.toolsMap.get(skillName);
+      const currentSkill = entry?.skill;
+      if (!currentSkill) {
+        return { content: [{ type: 'text', text: `Skill "${skillName}" is not registered - run /mcp to reconnect` }], isError: true };
+      }
+
+      const sessionId = extra?.sessionId || 'stdio';
+      const sessionData = this._sessionClientMap.get(sessionId) ?? {};
+      const callerUserId = sessionData.userId ?? null;
+
+      let callerRole = null;
+      if (callerUserId) {
+        const caller = await User.findByPk(callerUserId);
+        callerRole = caller?.role ?? null;
+      }
+
+      if (!currentSkill.isShared && callerRole !== 'admin' && currentSkill.userId !== callerUserId) {
+        return {
+          content: [{ type: 'text', text: 'Access denied: this skill is private to another user' }],
+          isError: true
+        };
+      }
+
+      const skillForPolicy = { id: skillName, name: skillName, exposedName: null, integrationId: null };
+      const policyResult = await checkToolPolicy({ userId: callerUserId, tool: skillForPolicy });
+      if (policyResult.decision === 'deny') {
+        return {
+          content: [{ type: 'text', text: `Access denied: ${policyResult.reason}` }],
+          isError: true
+        };
+      }
+
+      const renderedPrompt = this.renderSkillPrompt(currentSkill, params);
+
+      let result;
+      if (currentSkill.outputFormat === 'json') {
+        try {
+          result = JSON.parse(renderedPrompt);
+        } catch {
+          result = { output: renderedPrompt };
+        }
+      } else if (currentSkill.outputFormat === 'markdown') {
+        result = { format: 'markdown', content: renderedPrompt };
+      } else {
+        result = renderedPrompt;
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+        }]
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+
   registerSkill(skill) {
     const skillName = 'skill_' + this.sanitizeToolName(skill.name);
     const schema = {};
@@ -567,50 +712,19 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     }
 
-    this.toolsMap.set(skillName, { skill, type: 'skill' });
+    const handler = (params, extra) => this.invokeSkill(skillName, params, extra);
+    this.toolsMap.set(skillName, { skill, type: 'skill', handler });
 
     const zodSchema = z.object(buildZodSchema(schema, required));
 
     try {
-      this.server.tool(
+      this.server.registerTool(
         skillName,
         {
           description: skill.description || `Skill: ${skill.name}`,
           inputSchema: zodSchema
         },
-        async (params) => {
-          try {
-            const renderedPrompt = this.renderSkillPrompt(skill, params);
-            
-            let result;
-            if (skill.outputFormat === 'json') {
-              try {
-                result = JSON.parse(renderedPrompt);
-              } catch {
-                result = { output: renderedPrompt };
-              }
-            } else if (skill.outputFormat === 'markdown') {
-              result = { format: 'markdown', content: renderedPrompt };
-            } else {
-              result = renderedPrompt;
-            }
-
-            return {
-              content: [{
-                type: 'text',
-                text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-              }]
-            };
-          } catch (error) {
-            return {
-              content: [{
-                type: 'text',
-                text: `Error: ${error.message}`
-              }],
-              isError: true
-            };
-          }
-        }
+        handler
       );
     } catch (e) {
       if (!e.message?.includes('already registered')) {
@@ -624,7 +738,69 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
   registerMetaTools() {
     const { registerMetaTools } = require('./meta-tools');
     // Always register — each handler checks isActive at call time
-    registerMetaTools(this.server, this.toolsMap);
+    registerMetaTools(this.server, this.toolsMap, this);
+  }
+
+  registerCatalogTools() {
+    const { registerCatalogTools } = require('./catalog-tools');
+    // Always register, same convention as meta-tools - compactToolMode
+    // (checked in _installToolsListFilter) only controls tools/list
+    // visibility, not whether these work if called directly.
+    registerCatalogTools(this.server, this.toolsMap, this);
+  }
+
+  // The MCP SDK's default tools/list handler (installed the first time
+  // .tool() is ever called) takes no request/session context at all - it
+  // unconditionally returns every tool ever registered, so a private,
+  // non-shared integration's tools (and non-shared skills) were visible to
+  // every connected client regardless of ownership. This wraps that default
+  // handler (retrieved once, the same way the SDK itself looks it up) with
+  // an ownership/visibility filter, using the same rules the REST /tools
+  // listing already applies - without needing to reimplement the SDK's own
+  // Zod-to-JSON-Schema conversion.
+  _installToolsListFilter() {
+    if (this._toolsListFilterInstalled) return;
+    const requestHandlers = this.server?.server?._requestHandlers;
+    const originalHandler = requestHandlers?.get('tools/list');
+    if (!originalHandler) return;
+
+    const { ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
+    this.server.server.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
+      const fullResult = await originalHandler(req, extra);
+
+      const sessionId = extra?.sessionId || 'stdio';
+      const sessionData = this._sessionClientMap.get(sessionId) ?? {};
+      const callerUserId = sessionData.userId ?? null;
+
+      let callerRole = null;
+      if (callerUserId) {
+        const caller = await User.findByPk(callerUserId);
+        callerRole = caller?.role ?? null;
+      }
+
+      // compactToolMode collapses the list for everyone, admins included -
+      // it's about reducing what's advertised to the AI, not an ownership
+      // rule, so it can't be shortcut by the admin-sees-everything early
+      // return the way visibility checks below still are.
+      const compactToolMode = await isCompactToolModeEnabled();
+
+      const visibleTools = (fullResult.tools || []).filter(t => {
+        const entry = this.toolsMap.get(t.name);
+        if (!entry) return true;
+        if (entry.type === 'catalog-search') return compactToolMode;
+        if (entry.type === 'meta') return true;
+        if (compactToolMode) return false;
+        if (callerRole === 'admin') return true;
+        if (entry.type === 'skill') {
+          return !!entry.skill?.isShared || entry.skill?.userId === callerUserId;
+        }
+        return isToolVisibleToCaller(entry.tool?.integration, callerUserId, callerRole);
+      });
+
+      return { ...fullResult, tools: visibleTools };
+    });
+
+    this._toolsListFilterInstalled = true;
   }
 
   registerWatchUntilDone() {
@@ -708,7 +884,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     };
 
     try {
-      this.server.tool('watch_until_done', {
+      this.server.registerTool('watch_until_done', {
         description: 'Wait for an asynchronous external process (CI build, deployment, pipeline) to complete. Polls internally and sends progress notifications. Returns structured summary on completion.',
         inputSchema: watchSchema
       }, watchHandler);
@@ -732,7 +908,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       timeoutSeconds: z.number().optional().describe('Maximum wait time in seconds (default 120)')
     });
 
-    this.server.tool('watch_channel', {
+    this.server.registerTool('watch_channel', {
       description: 'Long-poll a session channel until a new message arrives. Returns the message and metadata. Useful for waiting on a collaborator\'s reply.',
       inputSchema: watchSchema
     }, async (args, extra) => {
@@ -1038,6 +1214,12 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     }
 
     this.registerMetaTools();
+    this.registerCatalogTools();
+
+    // Meta-tools always register at least one tool, guaranteeing the SDK's
+    // default tools/list handler is installed by this point even on a
+    // fresh install with zero configured tools/skills yet.
+    this._installToolsListFilter();
 
     this.registerWatchUntilDone();
 

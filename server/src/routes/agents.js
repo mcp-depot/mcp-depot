@@ -84,10 +84,10 @@ router.get('/:name', auth, async (req, res) => {
 
     const response = agent.toJSON();
     response.tools = normalizeTools(agent.tools);
+    response.installConfig = generateInstallConfig(agent, response.tools);
 
     const clientType = req.query.clientType;
     if (clientType) {
-      response.installConfig = generateInstallConfig(agent, clientType.toLowerCase(), response.tools);
       response.modelCompatibility = checkModelCompatibility(agent.model, clientType.toLowerCase());
     }
 
@@ -148,30 +148,23 @@ function checkModelCompatibility(agentModel, clientType) {
   return { compatible: true };
 }
 
-function generateInstallConfig(agent, clientType, tools) {
+// MCP Depot is a storage/transport layer, not an execution engine, and it
+// has no reliable way to track every AI client's own local subagent file
+// convention (Claude Code's frontmatter, OpenCode's, or anyone else's) -
+// hardcoding those here just goes stale as clients evolve their formats,
+// which is exactly what previously made the opencode branch of this
+// function emit a file OpenCode couldn't load. Instead this always returns
+// the same vendor-neutral agent definition; the AI running inside whatever
+// client asked for it already knows its own host's local file convention
+// natively, and can translate this into a local file itself if the client
+// supports installing agents that way.
+function generateInstallConfig(agent, tools) {
   const toolsList = normalizeTools(tools);
-  const toolsStr = toolsList.length ? toolsList.join(', ') : 'read, grep, bash';
-
-  if (clientType === 'claude-code') {
-    return {
-      clientType: 'claude-code',
-      installPath: `.claude/agents/${agent.name}/AGENT.md`,
-      content: `---
-description: ${agent.description || `${agent.role} agent`}
-tools: [${toolsStr}]
-model: ${agent.model || ''}
----
-${agent.systemPrompt}`
-    };
-  }
-  if (clientType === 'opencode') {
-    return {
-      clientType: 'opencode',
-      installPath: `.opencode/agents/${agent.name}.md`,
-      content: `# ${agent.name}\n\n${agent.systemPrompt}`
-    };
-  }
-  return { clientType: 'generic', agent: { ...agent.toJSON(), tools: toolsList } };
+  return {
+    clientType: 'generic',
+    agent: { ...agent.toJSON(), tools: toolsList },
+    note: 'MCP Depot returns a vendor-neutral agent definition (systemPrompt/tools/model), not a pre-formatted client file. If your AI client supports installing agents as local files (e.g. Claude Code\'s .claude/agents/*.md, OpenCode\'s .opencode/agents/*.md), translate this definition into your own client\'s format yourself - MCP Depot does not execute agents or guess at other vendors\' file conventions.'
+  };
 }
 
 router.post('/', auth, async (req, res) => {

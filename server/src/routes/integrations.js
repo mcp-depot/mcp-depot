@@ -16,6 +16,8 @@ const { executeComposite, executeCompositeTool } = require('../services/composit
 const { refreshMcpTools } = require('../utils/mcpHelpers');
 const { ownerWhereId } = require('../utils/queryHelpers');
 const { slugify, computeExposedName } = require('../utils/slugify');
+const { checkIntegrationPolicy, evaluateIntegrationPolicy } = require('../services/resource-policy');
+const { isBuiltInIntegration, BUILT_IN_INTEGRATION_NAMES } = require('../utils/builtInIntegrations');
 
 const router = express.Router();
 
@@ -81,7 +83,11 @@ router.get('/', authWithApiKey, async (req, res) => {
         where: {
           [Op.or]: [
             { userId: req.user.id },
-            { visibility: 'shared', userId: { [Op.in]: adminIds } }
+            { visibility: 'shared', userId: { [Op.in]: adminIds } },
+            // Built-ins are core platform resources, not a user's shareable
+            // asset - every user must see them regardless of who technically
+            // owns the row or what its visibility flag happens to be set to.
+            { name: { [Op.in]: BUILT_IN_INTEGRATION_NAMES } }
           ]
         },
         order: [['createdAt', 'DESC']]
@@ -131,7 +137,12 @@ router.get('/', authWithApiKey, async (req, res) => {
     }) : [];
     const ownerMap = owners.reduce((acc, o) => { acc[o.id] = o; return acc; }, {});
     
-    const sanitized = integrations.map(i => {
+    // canShare is a read-only preview (evaluateIntegrationPolicy, not the
+    // audited checkIntegrationPolicy) - it only decides whether the client
+    // shows the Share button, it never gates the actual PUT/PATCH that sets
+    // visibility=shared. Using the audited path here would write a policy
+    // decision record on every row of every list load.
+    const sanitized = await Promise.all(integrations.map(async i => {
       const authType = i.config.auth?.type || 'none';
       const requiresCredentials = authType !== 'none';
       const hasUserCredentials = !!userCredsMap[i.id];
@@ -139,7 +150,8 @@ router.get('/', authWithApiKey, async (req, res) => {
       const isOwner = i.userId === req.user.id;
       const isShared = i.visibility === 'shared' && !isOwner;
       const owner = ownerMap[i.userId];
-      
+      const sharePreview = await evaluateIntegrationPolicy({ user: req.user, action: 'share', integrationId: i.id });
+
       return {
         _id: i.id,
         type: i.type,
@@ -153,19 +165,26 @@ router.get('/', authWithApiKey, async (req, res) => {
         hasUserCredentials,
         hasIntegrationCredentials,
         canUse: !requiresCredentials || hasUserCredentials || hasIntegrationCredentials || req.user.role === 'admin',
+        canShare: sharePreview.decision === 'allow',
+        isBuiltIn: isBuiltInIntegration(i),
         isActive: i.isActive,
         visibility: i.visibility || 'private',
         isOwner,
-        sharedByName: isShared ? (owner?.name || 'Admin') : null,
-        sharedByEmail: isShared ? (owner?.email || '') : null,
-        metadata: { 
+        // Built-in integrations are attributed to whichever account happened
+        // to be the seed-time admin (an installation-specific accident, not
+        // a meaningful fact) - showing "Shared by <that person>" reads as if
+        // a colleague personally chose to share their own integration, when
+        // it's actually a permanent system resource nobody chose to share.
+        sharedByName: isShared && !isBuiltInIntegration(i) ? (owner?.name || 'Admin') : null,
+        sharedByEmail: isShared && !isBuiltInIntegration(i) ? (owner?.email || '') : null,
+        metadata: {
           ...i.metadata,
           toolCount: toolCountMap[i.id] || 0
         },
         createdAt: i.createdAt,
         updatedAt: i.updatedAt
       };
-    });
+    }));
 
     res.json(sanitized);
   } catch (error) {
@@ -480,6 +499,18 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    // Built-in integrations may only have isActive toggled (the sanctioned
+    // "disable instead of delete" path) - everything else about them
+    // (name, config, tags, tools) is system-managed. Unconditional, same
+    // as the delete guard.
+    if (isBuiltInIntegration(integration)) {
+      const attemptedKeys = Object.keys(req.body);
+      const disallowed = attemptedKeys.filter(k => k !== 'isActive');
+      if (disallowed.length > 0) {
+        return res.status(403).json({ error: 'Built-in integrations cannot be edited. Use the active toggle to enable/disable instead.' });
+      }
+    }
+
     const { name, description, config, metadata, isActive, visibility, tags, slug: newSlug } = req.body;
 
     if (name !== undefined) integration.name = name;
@@ -491,8 +522,11 @@ router.put('/:id', authWithApiKey, async (req, res) => {
       if (!['private', 'shared'].includes(visibility)) {
         return res.status(400).json({ error: 'Invalid visibility value' });
       }
-      if (visibility === 'shared' && req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+      if (visibility === 'shared') {
+        const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'share', integrationId: integration.id });
+        if (policyResult.decision === 'deny') {
+          return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+        }
       }
       integration.visibility = visibility;
     }
@@ -584,8 +618,28 @@ router.delete('/:id', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    if (integration.metadata?.source === 'built-in') {
+    // Absolute, code-level block - unconditional, not overridable by any
+    // policy rule (a determined admin deleting the rule that "protects"
+    // this must not be enough to then delete the integration itself).
+    if (isBuiltInIntegration(integration)) {
+      logger.warn({ userId: req.user.id, integrationId: integration.id, name: integration.name }, 'Blocked attempt to delete a built-in integration');
+      await audit.log({
+        userId: req.user.id,
+        action: 'delete_integration_blocked',
+        integrationType: integration.type,
+        integrationId: integration.id,
+        details: { name: integration.name, reason: 'built-in' },
+        status: 'denied'
+      });
       return res.status(403).json({ error: 'Built-in integrations cannot be deleted. Use the active toggle to disable instead.' });
+    }
+
+    // Policy-editable layer for everything else - default-allow (owner/
+    // admin can delete their own as before) unless an admin writes a
+    // 'delete' deny rule for a specific integration.
+    const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'delete', integrationId: integration.id });
+    if (policyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: policyResult.reason });
     }
 
     // Delete associated tool_calls first (they reference tools)
@@ -728,7 +782,7 @@ router.post('/:id/tools', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
-    if (integration.metadata?.source === 'built-in') {
+    if (isBuiltInIntegration(integration)) {
       return res.status(403).json({ error: 'Tools cannot be added to built-in integrations. Create a new integration instead.' });
     }
 
@@ -1278,12 +1332,19 @@ router.patch('/:id/visibility', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    if (isBuiltInIntegration(integration)) {
+      return res.status(403).json({ error: 'Built-in integrations are always available to every user - visibility cannot be changed.' });
+    }
+
     const { visibility } = req.body;
     if (!['private', 'shared'].includes(visibility)) {
       return res.status(400).json({ error: 'Invalid visibility value' });
     }
-    if (visibility === 'shared' && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+    if (visibility === 'shared') {
+      const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'share', integrationId: integration.id });
+      if (policyResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Only admins can share an integration company-wide' });
+      }
     }
 
     await integration.update({ visibility });
@@ -1316,9 +1377,13 @@ router.patch('/:id/credentials', authWithApiKey, async (req, res) => {
       return res.status(400).json({ error: 'Credentials are required' });
     }
     
-    const isOwnerOrAdmin = integration.userId === req.user.id || req.user.role === 'admin';
+    let isOwnerOrAdmin = integration.userId === req.user.id;
+    if (!isOwnerOrAdmin) {
+      const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'manage_others', integrationId: integration.id });
+      isOwnerOrAdmin = policyResult.decision === 'allow';
+    }
     const isSharedForOthers = integration.visibility === 'shared' && !isOwnerOrAdmin;
-    
+
     if (isSharedForOthers) {
       const { UserIntegrationCredentials } = loadModels();
       const encryptedCreds = encryption.encrypt(JSON.stringify(credentials));
@@ -1370,8 +1435,12 @@ router.delete('/:id/credentials', authWithApiKey, async (req, res) => {
     }
     
     const { UserIntegrationCredentials } = loadModels();
-    const isOwnerOrAdmin = integration.userId === req.user.id || req.user.role === 'admin';
-    
+    let isOwnerOrAdmin = integration.userId === req.user.id;
+    if (!isOwnerOrAdmin) {
+      const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'manage_others', integrationId: integration.id });
+      isOwnerOrAdmin = policyResult.decision === 'allow';
+    }
+
     if (isOwnerOrAdmin) {
       const config = { ...integration.config };
       delete config.auth.credentials;
@@ -1399,7 +1468,8 @@ router.delete('/:id/credentials', authWithApiKey, async (req, res) => {
 
 router.get('/:id/users', authWithApiKey, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
+    const policyResult = await checkIntegrationPolicy({ user: req.user, action: 'view_users', integrationId: req.params.id });
+    if (policyResult.decision === 'deny') {
       return res.status(403).json({ error: 'Admin only' });
     }
 
@@ -1408,12 +1478,12 @@ router.get('/:id/users', authWithApiKey, async (req, res) => {
       return res.status(404).json({ error: 'Integration not found' });
     }
 
+    const { UserIntegrationCredentials, User } = loadModels();
     const userCreds = await UserIntegrationCredentials.findAll({
       where: { integrationId: req.params.id },
       attributes: ['userId', 'updatedAt']
     });
 
-    const { User } = loadModels();
     const users = await Promise.all(
       userCreds.map(async (uc) => {
         const user = await User.findByPk(uc.userId, { attributes: ['id', 'name', 'email'] });

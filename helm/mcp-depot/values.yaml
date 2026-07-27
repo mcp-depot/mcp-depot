@@ -14,6 +14,14 @@ image:
     repository: ghcr.io/mcp-depot/mcp-depot-client
     tag: "latest"
     pullPolicy: Always
+  mcpRunner:
+    repository: ghcr.io/mcp-depot/mcp-depot-mcp-runner
+    tag: "latest"
+    pullPolicy: Always
+  redis:
+    repository: valkey/valkey
+    tag: "8"
+    pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 nameOverride: ""
@@ -55,6 +63,75 @@ autoscaling:
   maxReplicas: 3
   targetCPUUtilizationPercentage: 70
 
+mcpRunner:
+  # Stdio external MCP servers (arbitrary local process spawning + package
+  # installs) run in this sidecar container instead of the server container -
+  # it has no DATABASE_URL/JWT_SECRET/ENCRYPTION_KEY to leak if a spawned
+  # command misbehaves. Runs in the same pod as the server (not a separate
+  # Deployment/Service - no need for one, they only ever talk to each other
+  # over localhost within the pod's shared network namespace).
+  enabled: true
+  port: 9500
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+redis:
+  # Rate limiting, the circuit breaker, and Session Channel/MCP session
+  # notifications are only correct per-pod without this - each replica
+  # would keep its own independent counters and never see another
+  # replica's events. Required whenever replicaCount > 1 or
+  # autoscaling.enabled (enforced by a {{ fail }} guard, same pattern as
+  # mcpPackages.accessMode's guard below) - a single pod never needs it.
+  enabled: false
+  # true: this chart deploys its own single-pod Redis (parity with
+  # postgres.enabled - lowest friction for a first HA deployment). false:
+  # bring your own via externalUrl.
+  #
+  # A single-pod bundled Redis has no HA of its own - it is itself a new
+  # single point of failure for an otherwise-HA deployment. It holds only
+  # a coordination cache (rate-limit counters, breaker state, pub/sub),
+  # not source-of-truth data, so losing it just resets counters and drops
+  # any in-flight notification, not real data - but if you need this
+  # deployment to survive a Redis pod restart without a blip in rate
+  # limiting/circuit breaking, point externalUrl at a managed Redis
+  # (e.g. ElastiCache, Memorystore) instead.
+  bundled: true
+  resources:
+    limits:
+      cpu: 250m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  # Set when bundled: false, e.g. "redis://user:pass@my-redis-host:6379"
+  externalUrl: ""
+
+mcpPackages:
+  # Persists packages installed via the External MCP Servers "install"
+  # button (npm -g / pip --target) across pod restarts and rolling
+  # upgrades. Without this, they live on an emptyDir and vanish the
+  # next time the pod is rescheduled - which happens far more often in
+  # Kubernetes than in a plain Docker Compose deployment.
+  enabled: true
+  size: 1Gi
+  storageClassName: ""
+  # ReadWriteOnce is fine at replicaCount: 1, but every replica of the
+  # server Deployment mounts the *same* PVC (unlike postgres's
+  # per-replica volumeClaimTemplates) - if replicaCount > 1 or
+  # autoscaling.enabled, this MUST be ReadWriteMany, which requires an
+  # RWX-capable StorageClass (e.g. EFS on AWS, Filestore on GCP, Azure
+  # Files, or an NFS provisioner) - most default cloud StorageClasses
+  # (EBS, GCE-PD) are ReadWriteOnce only.
+  accessMode: ReadWriteOnce
+  # Set to use a PVC you've already created yourself instead of one
+  # created by this chart.
+  existingClaim: ""
+
 postgres:
   enabled: true
   image:
@@ -79,6 +156,12 @@ secrets:
   jwtSecret: ""
   sessionSecret: ""
   encryptionKey: ""
+  # Shared secret between the server and mcp-runner containers - auto-
+  # generated if left blank (see templates/secret.yaml). Both containers
+  # are in the same pod, so this mainly guards against another workload
+  # in the same namespace/cluster reaching the sidecar's WS/HTTP port
+  # directly, not against anything crossing the pod boundary normally.
+  mcpRunnerToken: ""
   existingSecret: ""
 
 env:

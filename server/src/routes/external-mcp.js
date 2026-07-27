@@ -1,22 +1,70 @@
 const express = require('express');
 const Joi = require('joi');
 const axios = require('axios');
+const path = require('path');
+const os = require('os');
 const { spawn, execSync } = require('child_process');
-const { auth, requireAdmin } = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { loadModels } = require('../config/database');
 const encryption = require('../services/encryption');
 const ExternalMcpTool = require('../models/ExternalMcpTool');
 const { isUrlSafe } = require('../utils/ssrfGuard');
 const audit = require('../services/audit');
+const { checkExternalMcpPolicy } = require('../services/resource-policy');
+const mcpRunnerClient = require('../services/mcp-runner-client');
 
 const router = express.Router();
 const pool = require('../services/mcp-connection-pool');
 
 const ALLOWED_STDIO_COMMANDS = ['node', 'python', 'python3', 'uvx', 'npx'];
-const SHELL_SAFE_ARGS = /^[a-zA-Z0-9_\-\.\/\\@:]+$/;
+const SHELL_SAFE_ARG = /^[a-zA-Z0-9_\-\.\/\\@:]+$/;
+
+// args is stored (and sent by the UI, see client/src/pages/Settings.jsx) as a
+// JSON-encoded array string, e.g. '["-y", "bitbucket-mcp"]' - mirrors
+// mcp-connection-pool.js's _parseJson / normalizeArgs below. Each element is
+// checked against SHELL_SAFE_ARG individually so a legitimate multi-flag
+// argument list isn't rejected just for containing JSON's own [ ] " , syntax.
+function isSafeStdioArgs(value) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch (e) {
+    return false;
+  }
+  return Array.isArray(parsed) && parsed.every(arg => typeof arg === 'string' && SHELL_SAFE_ARG.test(arg));
+}
 
 const PACKAGE_NAME_RE = /^(@?[\w\-\.]+\/)?[\w\-\.]+(@[\w\.\-]+)?$/;
+
+// Mirrors mcp-connection-pool.js's _parseJson - args/env are stored as JSON
+// strings on the model, but mcp-runner's /register expects them already
+// parsed (an array / a plain object respectively).
+function normalizeArgs(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function normalizeEnv(value) {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+// Same default as index.js's MCP_PACKAGES_PATH - installs must land here to
+// actually be found later (PATH/NODE_PATH/PYTHONPATH are all wired to this
+// exact location), and to survive a container rebuild when this is a
+// volume-mounted path (docker-compose.yml mounts mcp_packages here).
+const MCP_PACKAGES_PATH = process.env.MCP_PACKAGES_PATH || path.join(os.homedir(), '.mcphub', 'packages');
 
 function isCommandAvailable(cmd) {
   try {
@@ -179,17 +227,30 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ error: 'URL points to a blocked or unresolvable internal address' });
     }
 
+    // Registering a server at all is governed by policy too (default: no
+    // seeded rule, so it stays open/self-service unless an admin adds one) -
+    // but this is a real management action, not just tool execution, so it
+    // goes through the same governance as everything else, not a REST-only
+    // free-for-all.
+    const createPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'create', resourceId: value.name });
+    if (createPolicyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: createPolicyResult.reason });
+    }
+
     if (value.transportType === 'stdio') {
-      // stdio servers run as a local child process on the shared host - this is
-      // equivalent to arbitrary code execution, so only admins may register them.
-      // http/sse servers stay self-service since they carry no RCE risk.
-      if (req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'Only admins may register stdio-based MCP servers. Ask an admin to add it, or connect via http/sse instead.' });
+      // stdio servers run as a local child process on the shared host - this
+      // is equivalent to arbitrary code execution, so this is deny-unless-
+      // admin by default (see createDefaultPolicyRules) - policy-based now
+      // instead of a hardcoded role check, so an admin can delegate it to a
+      // specific group without granting full site-admin.
+      const stdioPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'configure_stdio', resourceId: value.name });
+      if (stdioPolicyResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Only admins may register stdio-based MCP servers by default. Ask an admin to add it, connect via http/sse instead, or have an admin grant this via a policy rule.', reason: stdioPolicyResult.reason });
       }
       if (!ALLOWED_STDIO_COMMANDS.includes(value.command)) {
         return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
       }
-      if (value.args && !SHELL_SAFE_ARGS.test(value.args)) {
+      if (value.args && !isSafeStdioArgs(value.args)) {
         return res.status(400).json({ error: 'Arguments contain unsafe characters' });
       }
     }
@@ -208,6 +269,24 @@ router.post('/', auth, async (req, res) => {
     });
 
     if (clearToolsCache) clearToolsCache();
+
+    // Fire-and-forget: eagerly push this stdio server's spawn config to the
+    // mcp-runner sidecar. Not strictly required - the connection pool's
+    // reactive retry (see mcp-connection-pool.js's _connectStdioViaRunner)
+    // would register it on first failure anyway - but without this, the very
+    // first connect attempt below would always hit that failure path first,
+    // which is needless log noise for what's actually completely normal
+    // first-time registration.
+    if (server.transportType === 'stdio' && mcpRunnerClient.isEnabled()) {
+      mcpRunnerClient.registerServer({
+        serverId: server.id,
+        command: server.command,
+        args: normalizeArgs(server.args),
+        env: normalizeEnv(server.env)
+      }).catch(err =>
+        logger.warn({ serverId: server.id, err: err.message }, 'Eager mcp-runner registration failed (will retry on first connect)')
+      );
+    }
 
     // Fire-and-forget: pre-warm connection pool
     if (server.isActive) {
@@ -260,13 +339,14 @@ router.put('/:id', auth, async (req, res) => {
 
     const effectiveTransportType = value.transportType || server.transportType;
     if (effectiveTransportType === 'stdio') {
-      if (req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'Only admins may configure stdio-based MCP servers.' });
+      const stdioPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'configure_stdio', resourceId: server.name });
+      if (stdioPolicyResult.decision === 'deny') {
+        return res.status(403).json({ error: 'Only admins may configure stdio-based MCP servers by default.', reason: stdioPolicyResult.reason });
       }
       if (value.command && !ALLOWED_STDIO_COMMANDS.includes(value.command)) {
         return res.status(400).json({ error: `Command "${value.command}" is not allowed. Allowed: ${ALLOWED_STDIO_COMMANDS.join(', ')}` });
       }
-      if (value.args && !SHELL_SAFE_ARGS.test(value.args)) {
+      if (value.args && !isSafeStdioArgs(value.args)) {
         return res.status(400).json({ error: 'Arguments contain unsafe characters' });
       }
     }
@@ -281,6 +361,20 @@ router.put('/:id', auth, async (req, res) => {
     await server.update(updates);
 
     pool.disconnect(server.id);
+
+    // Fire-and-forget: push the (possibly changed) spawn config to mcp-runner
+    // again - same rationale as the create route, and necessary here even if
+    // registered before, since command/args/env may have just changed.
+    if (server.transportType === 'stdio' && mcpRunnerClient.isEnabled()) {
+      mcpRunnerClient.registerServer({
+        serverId: server.id,
+        command: server.command,
+        args: normalizeArgs(server.args),
+        env: normalizeEnv(server.env)
+      }).catch(err =>
+        logger.warn({ serverId: server.id, err: err.message }, 'Eager mcp-runner re-registration failed (will retry on first connect)')
+      );
+    }
 
     // Fire-and-forget: re-connect with new config
     if (server.isActive) {
@@ -329,6 +423,10 @@ router.delete('/:id', auth, async (req, res) => {
     await server.destroy();
 
     pool.disconnect(req.params.id);
+
+    if (deletedInfo.transportType === 'stdio' && mcpRunnerClient.isEnabled()) {
+      mcpRunnerClient.unregisterServer(req.params.id);
+    }
 
     if (clearToolsCache) clearToolsCache();
 
@@ -392,43 +490,72 @@ router.post('/:id/execute', auth, async (req, res) => {
   }
 });
 
-router.post('/install', auth, requireAdmin, async (req, res) => {
+router.post('/install', auth, async (req, res) => {
   try {
     const { packageName, runtime = 'node' } = req.body;
-    
+
     if (!packageName || !packageName.trim()) {
       return res.status(400).json({ error: 'Package name is required' });
     }
-    
+
+    // Was a hardcoded requireAdmin middleware - now policy-based (deny-
+    // unless-admin by default, see createDefaultPolicyRules) so an admin
+    // can delegate package installs to a specific group without granting
+    // full site-admin.
+    const installPolicyResult = await checkExternalMcpPolicy({ user: req.user, action: 'install_package', resourceId: packageName.trim() });
+    if (installPolicyResult.decision === 'deny') {
+      return res.status(403).json({ error: 'Access denied by policy', reason: installPolicyResult.reason });
+    }
+
+    // When mcp-runner is enabled, the install itself (and the npm/pip
+    // availability it depends on) happens over there instead of here - the
+    // whole point is that this container never needs to spawn arbitrary
+    // install commands locally. Response shape is preserved exactly
+    // (mcp-runner's http-api.js mirrors this route's original success/error
+    // JSON), so the client UI needs no changes either way.
+    if (mcpRunnerClient.isEnabled()) {
+      try {
+        const result = await mcpRunnerClient.installPackage({ packageName: packageName.trim(), runtime });
+        return res.status(200).json(result);
+      } catch (err) {
+        return res.status(err.status || 500).json({ error: err.message });
+      }
+    }
+
     if (runtime === 'python') {
       if (!isCommandAvailable('pip') && !isCommandAvailable('pip3')) {
         return res.status(422).json({
-          error: 'pip is not installed or not on PATH. Please install Python from https://python.org and restart MCP Depot.'
+          error: 'pip is not available on the machine running MCP Depot\'s server. If you don\'t manage that machine yourself (e.g. this is a Docker or Kubernetes deployment), ask your administrator to add Python/pip support to the image.'
         });
       }
     } else {
       if (!isCommandAvailable('npm')) {
         return res.status(422).json({
-          error: 'npm is not installed or not on PATH. Please install Node.js from https://nodejs.org and restart MCP Depot.'
+          error: 'npm is not available on the machine running MCP Depot\'s server. If you don\'t manage that machine yourself (e.g. this is a Docker or Kubernetes deployment), ask your administrator to add Node.js/npm support to the image.'
         });
       }
     }
-    
+
     const pkgName = packageName.trim();
 
     if (!PACKAGE_NAME_RE.test(pkgName)) {
       return res.status(400).json({ error: 'Invalid package name format' });
     }
-    
+
     return new Promise((resolve, reject) => {
       let cmd, args;
-      
+
+      // Install into MCP_PACKAGES_PATH, not npm/pip's own default global
+      // location - that's what index.js's PATH/NODE_PATH/PYTHONPATH wiring
+      // actually points at, and (in the Docker deployment) what
+      // docker-compose.yml mounts as a persistent volume, so an install
+      // survives a container rebuild instead of silently vanishing.
       if (runtime === 'python') {
         cmd = 'pip3';
-        args = ['install', '--break-system-packages', pkgName];
+        args = ['install', '--break-system-packages', '--target', path.join(MCP_PACKAGES_PATH, 'python'), pkgName];
       } else {
         cmd = 'npm';
-        args = ['install', '-g', pkgName];
+        args = ['install', '-g', '--prefix', path.join(MCP_PACKAGES_PATH, 'node'), pkgName];
       }
       
       const proc = spawn(cmd, args, {
@@ -446,22 +573,25 @@ router.post('/install', auth, requireAdmin, async (req, res) => {
         stderr += data.toString();
       });
       
+      const timeoutHandle = setTimeout(() => {
+        try { proc.kill(); } catch (e) {}
+        reject(new Error('Installation timed out'));
+      }, 120000);
+
       proc.on('close', (code) => {
+        clearTimeout(timeoutHandle);
         if (code === 0) {
+          resolve();
           res.json({ success: true, message: `Successfully installed ${packageName}` });
         } else {
           reject(new Error(stderr || `Exit code ${code}`));
         }
       });
-      
+
       proc.on('error', (err) => {
+        clearTimeout(timeoutHandle);
         reject(err);
       });
-      
-      setTimeout(() => {
-        try { proc.kill(); } catch (e) {}
-        reject(new Error('Installation timed out'));
-      }, 120000);
     });
   } catch (error) {
     logger.error({ error: error.message }, 'Install npm package error');

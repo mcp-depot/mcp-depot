@@ -52,7 +52,12 @@ const loadModels = () => {
   const SessionContext = require('../models/SessionContext')(sequelize);
   const SessionChannel = require('../models/SessionChannel')(sequelize);
   const Agent = require('../models/Agent')(sequelize);
-  
+  const PolicyRule = require('../models/PolicyRule');
+  const PolicyDecision = require('../models/PolicyDecision');
+  const PolicyChainState = require('../models/PolicyChainState');
+  const Group = require('../models/Group');
+  const GroupMembership = require('../models/GroupMembership');
+
   if (!associationsDefined) {
     User.hasMany(Integration, { foreignKey: 'userId', as: 'integrations' });
     User.hasMany(Tool, { foreignKey: 'userId', as: 'tools' });
@@ -73,11 +78,24 @@ const loadModels = () => {
     SessionContext.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
     
     Agent.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
-    
+
+    PolicyRule.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+    PolicyDecision.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    // constraints: false - the association is for the /policy/decisions
+    // include (join) only. No DB-level FK: see PolicyDecision.js's
+    // matchedRuleId comment for why this must stay a soft reference.
+    PolicyDecision.belongsTo(PolicyRule, { foreignKey: 'matchedRuleId', as: 'matchedRule', constraints: false });
+
+    Group.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+    Group.hasMany(GroupMembership, { foreignKey: 'groupId', as: 'members' });
+    GroupMembership.belongsTo(Group, { foreignKey: 'groupId', as: 'group' });
+    GroupMembership.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+    GroupMembership.belongsTo(User, { foreignKey: 'addedBy', as: 'addedByUser' });
+
     associationsDefined = true;
   }
-  
-  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent };
+
+  return { User, Integration, Tool, ToolCall, UserIntegrationCredentials, ExternalMcpServer, ExternalMcpTool, PromptLibrary, SystemSetting, SessionContext, SessionChannel, Agent, PolicyRule, PolicyDecision, PolicyChainState, Group, GroupMembership };
 };
 
 const generatePassword = () => {
@@ -361,8 +379,8 @@ const createDefaultTool = async () => {
       },
       {
         name: 'get-agent',
-        description: 'Get a specific agent by name, optionally including an install config snippet for a given AI client format (claude-code, opencode, generic).',
-        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' }, clientType: { type: 'string', required: false, description: 'AI client format: claude-code, opencode, or generic' } }, headers: {} }
+        description: 'Get a specific agent by name. Returns a vendor-neutral agent definition (systemPrompt, tools, model) - translate it into your own client\'s local agent-file format yourself if your client supports installing agents locally.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' } }, headers: {} }
       },
       {
         name: 'create-agent',
@@ -585,7 +603,7 @@ const createDefaultTool = async () => {
       },
       {
         name: 'get-skill',
-        description: 'Get the full content of a skill by name so it can be installed locally. Works with any AI assistant. Returns the file content and exact install path.',
+        description: 'Get the full content of a skill by name. The skill is already callable as an MCP tool (no installation needed) for any AI client; the response also includes the prompt content in case your client separately supports installing local skill files by its own convention.',
         endpoint: {
           path: '/api/mcp/skills/{name}',
           method: 'GET',
@@ -639,8 +657,8 @@ const createDefaultTool = async () => {
       },
       {
         name: 'get-agent',
-        description: 'Get a specific agent by name, optionally including an install config snippet for a given AI client format (claude-code, opencode, generic).',
-        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' }, clientType: { type: 'string', required: false, description: 'AI client format: claude-code, opencode, or generic' } }, headers: {} }
+        description: 'Get a specific agent by name. Returns a vendor-neutral agent definition (systemPrompt, tools, model) - translate it into your own client\'s local agent-file format yourself if your client supports installing agents locally.',
+        endpoint: { path: '/api/mcp/agents/{name}', method: 'GET', params: { name: { type: 'string', required: true, description: 'Agent name' } }, headers: {} }
       },
       {
         name: 'create-agent',
@@ -776,6 +794,141 @@ const createDefaultTool = async () => {
   }
 };
 
+// Seeds the default rules for every resourceType/action pair whose route
+// used to hardcode a `role === 'admin'` comparison for something other than
+// find-scoping (find-scoping ones - e.g. "list only my own integrations" -
+// stay as plain JS; there's no single resourceId to hang a rule on). Runs on
+// every boot (findOrCreate is idempotent per resourceType/action/subjectType/
+// subjectId), same as createDefaultUser/createDefaultTool - this is what
+// makes the admin-only behavior editable/auditable through the Policy UI
+// instead of a hardcoded JS comparison, while preserving the exact prior
+// behavior on the first boot after upgrade: nobody except role=admin gets
+// through, until an admin edits or adds to these seeded rules.
+const createDefaultPolicyRules = async () => {
+  const PolicyRule = require('../models/PolicyRule');
+
+  const seeds = [
+    {
+      resourceType: 'session_context', action: 'manage_others', subjectType: '*', subjectId: null, effect: 'deny',
+      description: "Only admins may modify or delete another user's session context by default (seeded rule)"
+    },
+    {
+      resourceType: 'session_context', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins bypass session context ownership (seeded rule)'
+    },
+    {
+      resourceType: 'session_channel', action: 'manage_others', subjectType: '*', subjectId: null, effect: 'deny',
+      description: "Only admins may clear another user's session channel by default (seeded rule)"
+    },
+    {
+      resourceType: 'session_channel', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins bypass session channel ownership (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'share', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may share an integration company-wide by default (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'share', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may share integrations company-wide (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'manage_others', subjectType: '*', subjectId: null, effect: 'deny',
+      description: "Only admins may manage another user's integration credentials by default (seeded rule)"
+    },
+    {
+      resourceType: 'integration', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins bypass integration credential ownership (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'view_users', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may view which users are connected to an integration by default (seeded rule)'
+    },
+    {
+      resourceType: 'integration', action: 'view_users', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may view integration connection lists (seeded rule)'
+    },
+    {
+      resourceType: 'group', action: 'manage_others', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may manage a group they are not a group-admin of by default (seeded rule)'
+    },
+    {
+      resourceType: 'group', action: 'manage_others', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may manage any group regardless of membership (seeded rule)'
+    },
+    {
+      resourceType: 'external_mcp_server', action: 'configure_stdio', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may register or reconfigure stdio-based external MCP servers by default (seeded rule) - stdio runs an arbitrary local command, equivalent to code execution'
+    },
+    {
+      resourceType: 'external_mcp_server', action: 'configure_stdio', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may register or reconfigure stdio-based external MCP servers (seeded rule)'
+    },
+    {
+      resourceType: 'external_mcp_server', action: 'install_package', subjectType: '*', subjectId: null, effect: 'deny',
+      description: 'Only admins may install packages for external MCP servers by default (seeded rule)'
+    },
+    {
+      resourceType: 'external_mcp_server', action: 'install_package', subjectType: 'role', subjectId: 'admin', effect: 'allow',
+      description: 'Admins may install packages for external MCP servers (seeded rule)'
+    }
+  ];
+
+  for (const seed of seeds) {
+    await PolicyRule.findOrCreate({
+      where: {
+        resourceType: seed.resourceType,
+        action: seed.action,
+        subjectType: seed.subjectType,
+        subjectId: seed.subjectId
+      },
+      defaults: {
+        resourceMatch: '*',
+        effect: seed.effect,
+        isActive: true,
+        priority: 0,
+        description: seed.description
+      }
+    });
+  }
+};
+
+// Seeds a per-installation, ID-specific 'delete' deny rule for each actual
+// built-in integration found - dynamic (unlike the seeds above, which use
+// resourceMatch '*') because these ids are assigned at creation time by
+// createDefaultTool(), not known ahead of time. Must run after that
+// function has already created them. isSystemManaged so an admin can see
+// this in the Policy UI as documentation of the protection, but can't
+// delete the rule itself as a step toward bypassing the unconditional,
+// code-level block in routes/integrations.js - this rule is a second,
+// defense-in-depth layer, not the only thing enforcing this.
+const protectBuiltInIntegrations = async () => {
+  const PolicyRule = require('../models/PolicyRule');
+  const Integration = require('../models/Integration');
+  const { BUILT_IN_INTEGRATION_NAMES } = require('../utils/builtInIntegrations');
+
+  const builtIns = await Integration.findAll({ where: { name: BUILT_IN_INTEGRATION_NAMES } });
+
+  for (const integration of builtIns) {
+    await PolicyRule.findOrCreate({
+      where: {
+        resourceType: 'integration',
+        resourceMatch: integration.id,
+        action: 'delete',
+        subjectType: '*',
+        subjectId: null
+      },
+      defaults: {
+        effect: 'deny',
+        isActive: true,
+        priority: 0,
+        isSystemManaged: true,
+        description: `Built-in integration "${integration.name}" cannot be deleted (seeded, system-managed)`
+      }
+    });
+  }
+};
+
 const connectDB = async (retries = 5, delay = 3000) => {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -810,10 +963,12 @@ const connectDB = async (retries = 5, delay = 3000) => {
   try {
     await createDefaultUser();
     await createDefaultTool();
+    await createDefaultPolicyRules();
+    await protectBuiltInIntegrations();
   } catch (error) {
     logger.fatal({ err: error.message }, 'Database setup error');
     process.exit(1);
   }
 };
 
-module.exports = { sequelize, connectDB, loadModels };
+module.exports = { sequelize, connectDB, loadModels, createDefaultPolicyRules, protectBuiltInIntegrations };
