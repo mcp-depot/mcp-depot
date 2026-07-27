@@ -14,9 +14,9 @@ import {
   LogOut,
   ChevronDown,
   User,
+  Bot,
   Layers,
   MessagesSquare,
-  Users,
   Users2,
   Shield,
   HeartPulse,
@@ -91,7 +91,7 @@ function Sidebar() {
     { section: 'Tools', items: filterItems([
       { path: '/tools', icon: Wrench, label: 'Tools', feature: 'tools' },
       { path: '/skills', icon: FileText, label: 'Skills', feature: 'skills' },
-      { path: '/agents', icon: User, label: 'Agents', feature: 'agents' },
+      { path: '/agents', icon: Bot, label: 'Agents', feature: 'agents' },
     ])},
     { section: 'Sessions', items: filterItems([
       { path: '/session-contexts', icon: Layers, label: 'Contexts', feature: 'sessions' },
@@ -103,7 +103,7 @@ function Sidebar() {
     ])},
     { section: 'Identity', items: [
       { path: '/groups', icon: Users2, label: 'Groups' },
-      ...(user?.role === 'admin' ? [{ path: '/users', icon: Users, label: 'Users', feature: 'users' }] : []),
+      ...(user?.role === 'admin' ? [{ path: '/users', icon: User, label: 'Users', feature: 'users' }] : []),
     ]},
     { section: 'System', items: [
       ...(user?.role === 'admin' ? [{ path: '/policy', icon: Shield, label: 'Policy' }] : []),

@@ -1368,22 +1368,22 @@ function Tools({ all: isAllTools }) {
                   <div style={{ borderTop: '1px solid var(--border, #333)', paddingTop: '1rem', marginTop: '0.5rem' }}>
                     <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>Annotations (hints for AI clients)</label>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <input type="checkbox" checked={form.readOnlyHint}
                           onChange={e => setForm({ ...form, readOnlyHint: e.target.checked })} />
                         <span style={{ fontSize: '0.85rem' }}>Read-only (safe to auto-approve)</span>
                       </label>
-                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <input type="checkbox" checked={form.destructiveHint}
                           onChange={e => setForm({ ...form, destructiveHint: e.target.checked })} />
                         <span style={{ fontSize: '0.85rem' }}>Destructive (may modify/delete data)</span>
                       </label>
-                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <input type="checkbox" checked={form.idempotentHint}
                           onChange={e => setForm({ ...form, idempotentHint: e.target.checked })} />
                         <span style={{ fontSize: '0.85rem' }}>Idempotent (same result on repeat calls)</span>
                       </label>
-                      <label className="flex items-center gap-2 cursor-pointer" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <input type="checkbox" checked={form.openWorldHint}
                           onChange={e => setForm({ ...form, openWorldHint: e.target.checked })} />
                         <span style={{ fontSize: '0.85rem' }}>External system interaction</span>
