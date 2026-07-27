@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Installed via `git config core.hooksPath githooks` (done automatically by
+# the root package.json's "prepare" script on `npm install`). Only does
+# anything when a package-lock.json is actually part of this commit - see
+# scripts/verify-lockfiles.sh for what it checks and why.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+exec scripts/verify-lockfiles.sh

@@ -18,7 +18,9 @@
   ],
   "scripts": {
     "build:client": "cd client && npm run build",
-    "prepublish": "npm run build:client"
+    "prepublish": "npm run build:client",
+    "prepare": "git config core.hooksPath githooks || true",
+    "verify-lockfiles": "bash scripts/verify-lockfiles.sh --all"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
