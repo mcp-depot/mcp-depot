@@ -56,8 +56,10 @@ class AuditService {
     if (integrationType) where.integrationType = integrationType;
     if (status) where.status = status;
 
+    const { User } = require('../config/database').loadModels();
     return AuditLog.findAndCountAll({
       where,
+      include: [{ model: User, as: 'user', attributes: ['id', 'email', 'name'] }],
       order: [['timestamp', 'DESC']],
       offset,
       limit

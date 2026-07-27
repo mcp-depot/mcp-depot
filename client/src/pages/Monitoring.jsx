@@ -7,6 +7,7 @@ import { showSuccess } from '../utils/toast';
 import { useModalA11y } from '../hooks/useModalA11y';
 
 function Monitoring() {
+  const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState(null);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -145,21 +146,35 @@ function Monitoring() {
   return (
     <div>
       <div className="container" style={{ marginTop: '2rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h1>Monitoring</h1>
-          <button 
-            className="btn btn-primary"
-            onClick={() => {
-              if (!showEndpoints) {
-                fetchEndpoints();
-              }
-              setShowEndpoints(!showEndpoints);
-            }}
-          >
-            {showEndpoints ? 'Hide' : 'Show'} API Endpoints
-          </button>
+          {activeTab === 'overview' && (
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (!showEndpoints) {
+                  fetchEndpoints();
+                }
+                setShowEndpoints(!showEndpoints);
+              }}
+            >
+              {showEndpoints ? 'Hide' : 'Show'} API Endpoints
+            </button>
+          )}
         </div>
-        
+
+        <div className="tabs" style={{ marginBottom: '1.5rem', gap: '0.5rem' }}>
+          <div className={`tab ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')} style={{ padding: '0.6rem 1rem', cursor: 'pointer' }}>
+            Overview
+          </div>
+          <div className={`tab ${activeTab === 'audit' ? 'active' : ''}`} onClick={() => setActiveTab('audit')} style={{ padding: '0.6rem 1rem', cursor: 'pointer' }}>
+            Audit Log
+          </div>
+        </div>
+
+        {activeTab === 'audit' && <AuditLogTab />}
+
+        {activeTab === 'overview' && (<>
         {showEndpoints && endpoints && endpoints.endpoints && (
           <div className="card" style={{ marginBottom: '2rem' }}>
             <h3 style={{ marginBottom: '1rem' }}>{String(endpoints.name)} v{String(endpoints.version)}</h3>
@@ -475,6 +490,7 @@ function Monitoring() {
             Unable to load monitoring data
           </div>
         )}
+        </>)}
 
         {testerModal.open && (
           <div className="modal-overlay" onClick={closeTesterModal}>
@@ -537,6 +553,169 @@ function Monitoring() {
           </Modal>
         )}
       </div>
+    </div>
+  );
+}
+
+function AuditLogTab() {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
+  const [limit, setLimit] = useState({ value: 25, label: '25' });
+  const [filters, setFilters] = useState({ action: '', integrationType: '', status: '' });
+
+  useEffect(() => {
+    fetchLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.page, filters, limit]);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('page', pagination.page);
+      params.append('limit', limit.value);
+      if (filters.action) params.append('action', filters.action);
+      if (filters.integrationType) params.append('integrationType', filters.integrationType);
+      if (filters.status) params.append('status', filters.status);
+
+      const res = await api.get(`/monitoring/audit-log?${params}`);
+      setLogs(res.data.logs);
+      setPagination(res.data.pagination);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      console.error('Failed to fetch audit log:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLimitChange = (newLimit) => {
+    setLimit(newLimit);
+    setPagination(p => ({ ...p, page: 1 }));
+  };
+
+  const handleFilterChange = (patch) => {
+    setFilters(f => ({ ...f, ...patch }));
+    setPagination(p => ({ ...p, page: 1 }));
+  };
+
+  const formatDate = (dateStr) => new Date(dateStr).toLocaleString();
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <h3>Audit Log</h3>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            placeholder="Filter by action..."
+            value={filters.action}
+            onChange={(e) => handleFilterChange({ action: e.target.value })}
+            style={{ padding: '0.5rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', width: '160px' }}
+          />
+          <input
+            type="text"
+            placeholder="Integration type..."
+            value={filters.integrationType}
+            onChange={(e) => handleFilterChange({ integrationType: e.target.value })}
+            style={{ padding: '0.5rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', width: '160px' }}
+          />
+          <div style={{ width: '140px' }}>
+            <StyledSelect
+              options={[
+                { value: 'success', label: 'Success' },
+                { value: 'failure', label: 'Failure' },
+                { value: 'pending', label: 'Pending' }
+              ]}
+              value={filters.status ? { value: filters.status, label: filters.status } : { value: '', label: 'All Statuses' }}
+              onChange={(opt) => handleFilterChange({ status: opt?.value || '' })}
+              placeholder="All Statuses"
+              isClearable
+              isSearchable={false}
+            />
+          </div>
+          <div style={{ width: '80px' }}>
+            <StyledSelect
+              options={[
+                { value: 25, label: '25' },
+                { value: 50, label: '50' },
+                { value: 100, label: '100' }
+              ]}
+              value={limit}
+              onChange={handleLimitChange}
+              isSearchable={false}
+            />
+          </div>
+        </div>
+      </div>
+
+      {logs.length === 0 && loading ? (
+        <div className="loading-overlay"><div className="spinner"></div></div>
+      ) : logs.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>No audit log entries yet</div>
+      ) : (
+        <>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Integration Type</th>
+                <th>Status</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map(entry => (
+                <tr key={entry.id}>
+                  <td>{formatDate(entry.timestamp)}</td>
+                  <td>{entry.user?.email || entry.userId || '-'}</td>
+                  <td>{entry.action}</td>
+                  <td>{entry.integrationType || '-'}</td>
+                  <td>
+                    <span className={`badge ${entry.status === 'success' ? 'badge-success' : entry.status === 'failure' ? 'badge-danger' : 'badge-warning'}`}>
+                      {entry.status}
+                    </span>
+                  </td>
+                  <td
+                    style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={entry.errorMessage || (entry.details && Object.keys(entry.details).length > 0 ? JSON.stringify(entry.details) : '')}
+                  >
+                    {entry.errorMessage || (entry.details && Object.keys(entry.details).length > 0 ? JSON.stringify(entry.details) : '-')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginTop: '1rem' }}>
+            <button
+              onClick={() => setPagination(p => ({ ...p, page: p.page - 1 }))}
+              disabled={pagination.page <= 1}
+              className="btn"
+              style={{ padding: '0.25rem 0.75rem' }}
+            >
+              Previous
+            </button>
+            <span style={{ padding: '0.25rem 0.75rem' }}>
+              Page {pagination.page} of {pagination.pages} ({pagination.total} total)
+            </span>
+            <button
+              onClick={() => setPagination(p => ({ ...p, page: p.page + 1 }))}
+              disabled={pagination.page >= pagination.pages}
+              className="btn"
+              style={{ padding: '0.25rem 0.75rem' }}
+            >
+              Next
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
