@@ -22,7 +22,7 @@ const notifyBus = require('../services/state/notify-bus');
 const logger = require('../services/logger');
 const pool = require('../services/mcp-connection-pool');
 const { isUrlSafe } = require('../utils/ssrfGuard');
-const { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration } = require('../utils/builtInIntegrations');
+const { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration, isToolVisibleToCaller } = require('../utils/builtInIntegrations');
 
 function getCallerId(req) {
   if (
@@ -762,11 +762,7 @@ router.get('/tools', checkMcpAuth, async (req, res) => {
       attributes: ['id', 'name', 'description', 'endpoint', 'inputSchema', 'type', 'exposedName', 'title']
     });
 
-    const visibleTools = tools.filter(t => {
-      if (!t.integration) return false;
-      if (role === 'admin') return true;
-      return t.integration.visibility === 'shared' || t.integration.userId === userId || isBuiltInIntegration(t.integration);
-    });
+    const visibleTools = tools.filter(t => isToolVisibleToCaller(t.integration, userId, role));
 
     const localTools = visibleTools.map(t => {
       if (t.type === 'composite') {

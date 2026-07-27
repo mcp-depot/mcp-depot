@@ -13,11 +13,26 @@ const { deriveAnnotations } = require('../services/annotations');
 const { checkRateLimit: checkToolRateLimit } = require('../services/rate-limiter');
 const notifyBus = require('../services/state/notify-bus');
 const { checkToolPolicy } = require('../services/tool-policy');
-const { isBuiltInIntegration } = require('../utils/builtInIntegrations');
+const { isBuiltInIntegration, isToolVisibleToCaller } = require('../utils/builtInIntegrations');
 const { filterFields } = require('../utils/fieldFilter');
 const { filterLines } = require('../utils/lineFilter');
 const { isBinary, isImage, buildBinaryResult } = require('../services/binaryResponse');
 const transformerLoader = require('../transformers/loader');
+// zod/v3 - matches this app's own package.json dependency. The real, pre-
+// existing bug this codebase had was NOT a zod version mismatch: every
+// {description, inputSchema, annotations}-shaped call was going through
+// server.tool(name, configObject, handler) - the *variadic positional-args*
+// overload, which only accepts a raw shape/schema as its 2nd arg, not a
+// config object. The SDK's own argument-sniffing (isZodRawShapeCompat)
+// misclassified that config object as a raw shape (since one of its values,
+// inputSchema, happens to look like a schema) and fed the whole
+// {description, inputSchema, annotations} blob into z.object() as if each
+// key were a shape field. With zod/v3 this only surfaced lazily, at
+// tools/call time ("keyValidator._parse is not a function", since
+// "description" isn't a real schema). The fix is to call
+// server.registerTool(name, config, handler) - the dedicated config-object
+// API - wherever a config object (not a raw shape) is passed. Confirmed
+// live via a minimal repro against the actual SDK.
 const { z } = require('zod/v3');
 const jwt = require('jsonwebtoken');
 const config = require('../config/env');
@@ -47,6 +62,15 @@ function fmtDuration(ms) {
 
 const VALID_SCHEMA_KEY = /^[a-zA-Z0-9_\-]{1,64}$/;
 const OPENAPI_KEYWORDS = new Set(['allOf', 'oneOf', 'anyOf', 'not', '$ref']);
+
+// Fresh, uncached read on every tools/list call - same convention as
+// meta-tools.js's guardIntegrationActive(), so an admin toggling this in
+// Settings takes effect immediately without a refreshTools()/reconnect.
+async function isCompactToolModeEnabled() {
+  const SystemSetting = require('../models/SystemSetting');
+  const setting = await SystemSetting.findByPk('mcp');
+  return setting?.value?.compactToolMode === true;
+}
 
 function buildZodSchema(schema, required = []) {
   const shape = {};
@@ -219,6 +243,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     }
 
     this.registerMetaTools();
+    this.registerCatalogTools();
 
     // Meta-tools always register at least one tool, guaranteeing the SDK's
     // default tools/list handler is installed by this point even on a
@@ -230,12 +255,11 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     logger.info({ toolCount: tools.length, skillCount: skills.length }, 'MCP Server initialized');
   }
 
-  registerTool(tool) {
-    if (tool.type === 'meta') return;
-
-    const toolName = tool.exposedName || this.sanitizeToolName(tool.name);
+  // Schema-shape-only (no Zod) so search_tools (catalog-tools.js) can return
+  // it directly to an AI as a plain descriptor, and registerTool can convert
+  // it to Zod below - one schema-construction implementation, not two.
+  buildToolInputSchemaDescriptor(tool) {
     const endpoint = tool.endpoint || {};
-
     let schema = {};
     let required = [];
 
@@ -267,6 +291,17 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       }
     }
 
+    return { schema, required };
+  }
+
+  registerTool(tool) {
+    if (tool.type === 'meta') return;
+
+    const toolName = tool.exposedName || this.sanitizeToolName(tool.name);
+    const endpoint = tool.endpoint || {};
+
+    const { schema, required } = this.buildToolInputSchemaDescriptor(tool);
+
     const adapter = tool.integration ? AdapterFactory.create(
       tool.integration.type,
       { ...tool.integration.config, integrationId: tool.integration.id }
@@ -290,7 +325,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     };
 
     try {
-      this.server.tool(
+      this.server.registerTool(
         toolName,
         {
           description: (tool.description || toolName) +
@@ -683,7 +718,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     const zodSchema = z.object(buildZodSchema(schema, required));
 
     try {
-      this.server.tool(
+      this.server.registerTool(
         skillName,
         {
           description: skill.description || `Skill: ${skill.name}`,
@@ -704,6 +739,14 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     const { registerMetaTools } = require('./meta-tools');
     // Always register — each handler checks isActive at call time
     registerMetaTools(this.server, this.toolsMap, this);
+  }
+
+  registerCatalogTools() {
+    const { registerCatalogTools } = require('./catalog-tools');
+    // Always register, same convention as meta-tools - compactToolMode
+    // (checked in _installToolsListFilter) only controls tools/list
+    // visibility, not whether these work if called directly.
+    registerCatalogTools(this.server, this.toolsMap, this);
   }
 
   // The MCP SDK's default tools/list handler (installed the first time
@@ -734,18 +777,24 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
         const caller = await User.findByPk(callerUserId);
         callerRole = caller?.role ?? null;
       }
-      if (callerRole === 'admin') return fullResult;
+
+      // compactToolMode collapses the list for everyone, admins included -
+      // it's about reducing what's advertised to the AI, not an ownership
+      // rule, so it can't be shortcut by the admin-sees-everything early
+      // return the way visibility checks below still are.
+      const compactToolMode = await isCompactToolModeEnabled();
 
       const visibleTools = (fullResult.tools || []).filter(t => {
         const entry = this.toolsMap.get(t.name);
         if (!entry) return true;
+        if (entry.type === 'catalog-search') return compactToolMode;
+        if (entry.type === 'meta') return true;
+        if (compactToolMode) return false;
+        if (callerRole === 'admin') return true;
         if (entry.type === 'skill') {
           return !!entry.skill?.isShared || entry.skill?.userId === callerUserId;
         }
-        if (entry.type === 'meta') return true;
-        const integration = entry.tool?.integration;
-        if (!integration) return true;
-        return integration.visibility === 'shared' || integration.userId === callerUserId || isBuiltInIntegration(integration);
+        return isToolVisibleToCaller(entry.tool?.integration, callerUserId, callerRole);
       });
 
       return { ...fullResult, tools: visibleTools };
@@ -835,7 +884,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     };
 
     try {
-      this.server.tool('watch_until_done', {
+      this.server.registerTool('watch_until_done', {
         description: 'Wait for an asynchronous external process (CI build, deployment, pipeline) to complete. Polls internally and sends progress notifications. Returns structured summary on completion.',
         inputSchema: watchSchema
       }, watchHandler);
@@ -859,7 +908,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
       timeoutSeconds: z.number().optional().describe('Maximum wait time in seconds (default 120)')
     });
 
-    this.server.tool('watch_channel', {
+    this.server.registerTool('watch_channel', {
       description: 'Long-poll a session channel until a new message arrives. Returns the message and metadata. Useful for waiting on a collaborator\'s reply.',
       inputSchema: watchSchema
     }, async (args, extra) => {
@@ -1165,6 +1214,7 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     }
 
     this.registerMetaTools();
+    this.registerCatalogTools();
 
     // Meta-tools always register at least one tool, guaranteeing the SDK's
     // default tools/list handler is installed by this point even on a

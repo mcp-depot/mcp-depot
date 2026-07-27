@@ -17,4 +17,18 @@ function isBuiltInIntegration(integration) {
   return BUILT_IN_INTEGRATION_NAMES.includes(integration.name) || integration.metadata?.source === 'built-in';
 }
 
-module.exports = { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration };
+// The one visibility rule for "can this caller see/use a tool belonging to
+// this integration" - previously duplicated (and subtly diverged: one copy
+// treated a missing integration as visible, the other as not) between
+// mcp/server.js's tools/list filter and routes/mcp.js's REST tool listing.
+// Fails closed on a missing integration, matching the stricter of the two
+// prior copies - both source queries inner-join to an active integration
+// already, so this only ever matters as a defensive default, not a real
+// behavior change for existing callers.
+function isToolVisibleToCaller(integration, callerUserId, role) {
+  if (!integration) return false;
+  if (role === 'admin') return true;
+  return integration.visibility === 'shared' || integration.userId === callerUserId || isBuiltInIntegration(integration);
+}
+
+module.exports = { BUILT_IN_INTEGRATION_NAMES, isBuiltInIntegration, isToolVisibleToCaller };

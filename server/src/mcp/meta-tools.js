@@ -1,5 +1,8 @@
 'use strict';
 
+// zod/v3, matching this app's own package.json dependency - see the note
+// in server.js's import for the real root cause (server.tool() vs
+// server.registerTool(), not a zod version issue).
 const { z } = require('zod/v3');
 const { loadModels } = require('../config/database');
 const { refreshToolsIfEnabled } = require('./server');
@@ -47,6 +50,56 @@ function wrapHandler(handler) {
     return handler(params, extra);
   };
 }
+
+// Real per-tool schemas - every handler below was previously registered
+// with a hardcoded empty z.object({}), which made native MCP tools/call
+// invocations (unlike the REST/AI-chat wrapper, which calls handlers
+// directly) silently strip every argument to {} before the handler ever
+// ran, since zod's z.object() strips unrecognized keys by default. These
+// mirror what each handler actually reads from `params` below.
+const metaToolSpecs = {
+  mcp_list_integrations: {
+    description: 'List all registered integrations with their type, tool count, source, and active status.',
+    inputSchema: z.object({})
+  },
+  mcp_register_integration: {
+    description: 'Register a new integration (an external API) that tools can then be added to via mcp_register_tool. Created private by default.',
+    inputSchema: z.object({
+      name: z.string().describe('Unique name for the new integration'),
+      baseUrl: z.string().describe('Base URL of the API this integration will call'),
+      description: z.string().optional().describe('Human-readable description of the integration'),
+      type: z.string().optional().describe('Integration type (default: "custom")'),
+      shared: z.boolean().optional().describe('Request company-wide shared visibility - only takes effect if the caller has admin sharing rights, otherwise the integration is created private with a note explaining why')
+    })
+  },
+  mcp_register_tool: {
+    description: 'Add a new tool (a single API endpoint) to an existing integration.',
+    inputSchema: z.object({
+      name: z.string().describe('Name for the new tool'),
+      path: z.string().describe('API endpoint path - supports {placeholder} template variables filled from the tool\'s params'),
+      integration: z.string().optional().describe('Name of the integration to add this tool to. Omit only if there is exactly one eligible (non-built-in) integration - otherwise this is required'),
+      method: z.string().optional().describe('HTTP method (default: "GET")'),
+      description: z.string().optional().describe('Description of what this tool does'),
+      params: z.string().optional().describe('JSON object string describing query/path parameters, e.g. \'{"id": {"type": "string", "required": true}}\''),
+      body: z.string().optional().describe('JSON string of the request body template - supports {placeholder} substitution from params'),
+      responseFields: z.string().optional().describe('JSON array string of response field names to keep (response filtering)')
+    })
+  },
+  mcp_describe_tool: {
+    description: 'Get the full definition of a registered tool - its endpoint, input schema, response fields, and transformer.',
+    inputSchema: z.object({
+      name: z.string().describe('Tool name or exposed name to describe')
+    })
+  },
+  mcp_remove_tool: {
+    description: 'Remove a tool from an integration. Requires confirm: true to actually perform the deletion.',
+    inputSchema: z.object({
+      integration: z.string().describe('Name of the integration the tool belongs to'),
+      name: z.string().describe('Name of the tool to remove'),
+      confirm: z.boolean().optional().describe('Must be true to actually perform the deletion - a safety confirmation, calling without it returns an error instead of deleting')
+    })
+  }
+};
 
 function registerMetaTools(server, toolsMap, mcpServerInstance) {
   const handlerMap = {};
@@ -266,12 +319,13 @@ function registerMetaTools(server, toolsMap, mcpServerInstance) {
 
   // Register on MCP server for stdio/SSE transport
   Object.entries(handlerMap).forEach(([name, handler]) => {
+    const spec = metaToolSpecs[name] || { description: `Meta-tool: ${name}`, inputSchema: z.object({}) };
     try {
-      server.tool(
+      server.registerTool(
         name,
         {
-          description: handler._description || `Meta-tool: ${name}`,
-          inputSchema: z.object({})
+          description: spec.description,
+          inputSchema: spec.inputSchema
         },
         handler
       );
