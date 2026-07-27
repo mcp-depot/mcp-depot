@@ -27,3 +27,4 @@ mcp-connect-wrapper/config.json
 docker/demo-cleanup.sh
 Dockerfile.demo-cleanup
 docker-compose.demo.yml
+.verify-lockfiles-tmp/

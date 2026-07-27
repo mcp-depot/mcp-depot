@@ -44,6 +44,7 @@ const loadModels = () => {
   const Integration = require('../models/Integration');
   const Tool = require('../models/Tool');
   const ToolCall = require('../models/ToolCall');
+  const AuditLog = require('../models/AuditLog');
   const UserIntegrationCredentials = require('../models/UserIntegrationCredentials');
   const ExternalMcpServer = require('../models/ExternalMcpServer');
   const ExternalMcpTool = require('../models/ExternalMcpTool');
@@ -72,7 +73,9 @@ const loadModels = () => {
     ToolCall.belongsTo(User, { foreignKey: 'userId', as: 'user' });
     ToolCall.belongsTo(Tool, { foreignKey: 'toolId', as: 'tool' });
     ToolCall.belongsTo(Integration, { foreignKey: 'integrationId', as: 'integration' });
-    
+
+    AuditLog.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
     ExternalMcpServer.belongsTo(User, { foreignKey: 'userId', as: 'user' });
     
     SessionContext.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });

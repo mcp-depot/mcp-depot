@@ -1,0 +1,5 @@
+# Shell scripts and git hooks must always check out with LF line endings,
+# regardless of the cloning platform's autocrlf setting - a CRLF shebang
+# line fails to execute on Linux/macOS (including CI).
+*.sh text eol=lf
+githooks/* text eol=lf

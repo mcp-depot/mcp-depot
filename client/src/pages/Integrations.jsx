@@ -1141,7 +1141,7 @@ function Integrations() {
               <input type="url" value={form.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://api.example.com" required />
             </div>
             <div className="form-group">
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.allowSelfSignedCerts}
                   onChange={e => setForm({ ...form, allowSelfSignedCerts: e.target.checked })} />
                 <span>Disable SSL certificate verification</span>
