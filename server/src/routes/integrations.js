@@ -18,6 +18,7 @@ const { ownerWhereId } = require('../utils/queryHelpers');
 const { slugify, computeExposedName } = require('../utils/slugify');
 const { checkIntegrationPolicy, evaluateIntegrationPolicy } = require('../services/resource-policy');
 const { isBuiltInIntegration, BUILT_IN_INTEGRATION_NAMES } = require('../utils/builtInIntegrations');
+const { mergeIntegrationConfig, hasCredentialValues } = require('../utils/mergeIntegrationConfig');
 
 const router = express.Router();
 
@@ -542,8 +543,9 @@ router.put('/:id', authWithApiKey, async (req, res) => {
     }
     
     if (config !== undefined) {
-      if (config.auth?.credentials && config.auth.type !== 'none') {
-        const credentials = config.auth.credentials;
+      const merged = mergeIntegrationConfig(integration.config, config);
+      if (hasCredentialValues(config.auth?.credentials) && merged.auth?.type !== 'none') {
+        const credentials = merged.auth.credentials;
         if (credentials.token && !encryption.isEncrypted(credentials.token) && !secretStore.isSecretRef(credentials.token)) {
           credentials.token = encryption.encrypt(credentials.token);
         }
@@ -554,7 +556,8 @@ router.put('/:id', authWithApiKey, async (req, res) => {
           credentials.apiKey = encryption.encrypt(credentials.apiKey);
         }
       }
-      integration.config = config;
+      integration.config = merged;
+      integration.changed('config', true);
     }
 
     if (req.body.allowSelfSignedCerts !== undefined) {
@@ -562,6 +565,7 @@ router.put('/:id', authWithApiKey, async (req, res) => {
         ...integration.config,
         allowSelfSignedCerts: req.body.allowSelfSignedCerts
       };
+      integration.changed('config', true);
     }
 
     const slugChanged = integration.changed() && integration.changed().includes('slug');
@@ -956,17 +960,20 @@ router.post('/discover', authWithApiKey, async (req, res) => {
     }
 
     let result;
-    const specTypeToTry = specType || 'auto';
-    
-    const discoveryBaseUrl = specUrl || baseUrl;
+    let lastError;
+    // A spec path/URL is an OpenAPI hint — skip the slow WADL probe that
+    // otherwise runs first in auto mode and masks the real fetch error.
+    const specTypeToTry = specType || ((openApiPath || specUrl) ? 'openapi' : 'auto');
+
     const discoveryAuth = specUrl ? null : authConfig;
 
     if (specTypeToTry === 'wadl' || specTypeToTry === 'auto') {
       try {
-        const wadlParser = new WADLParser(discoveryBaseUrl, discoveryAuth);
+        const wadlParser = new WADLParser(specUrl || baseUrl, discoveryAuth);
         result = await wadlParser.discover();
         return res.json({ success: true, specType: 'wadl', ...result });
       } catch (wadlError) {
+        lastError = wadlError;
         if (specTypeToTry === 'wadl') {
           return res.status(400).json({ success: false, error: `WADL discovery failed: ${wadlError.message}` });
         }
@@ -975,24 +982,24 @@ router.post('/discover', authWithApiKey, async (req, res) => {
 
     if (specTypeToTry === 'openapi' || specTypeToTry === 'auto') {
       try {
-        const parser = new OpenAPIParser(discoveryBaseUrl, discoveryAuth, filter);
-        if (openApiPath) {
-          result = await parser.discover(openApiPath);
-        } else {
-          result = await parser.discover();
-        }
+        const parser = new OpenAPIParser(baseUrl, discoveryAuth, filter);
+        const specLocation = specUrl || openApiPath;
+        result = specLocation ? await parser.discover(specLocation) : await parser.discover();
         logger.debug({ result: JSON.stringify(result).substring(0, 500) }, 'OpenAPI discovery result');
         return res.json({ success: true, specType: 'openapi', ...result });
       } catch (openApiError) {
+        lastError = openApiError;
         if (specTypeToTry === 'openapi') {
           return res.status(400).json({ success: false, error: `OpenAPI discovery failed: ${openApiError.message}` });
         }
       }
     }
 
-    res.status(400).json({ 
-      success: false, 
-      error: 'Could not discover API specification. Try specifying the spec type explicitly (openapi or wadl).' 
+    res.status(400).json({
+      success: false,
+      error: lastError
+        ? `Could not discover API specification: ${lastError.message}`
+        : 'Could not discover API specification. Try specifying the spec type explicitly (openapi or wadl).'
     });
   } catch (error) {
     logger.error({ err: error.message }, 'Discovery error');

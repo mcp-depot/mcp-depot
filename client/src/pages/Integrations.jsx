@@ -130,10 +130,18 @@ function Integrations() {
       const res = await api.post('/integrations/discover', {
         baseUrl: discoverForm.baseUrl,
         openApiPath: discoverForm.openApiPath || null,
+        specType: discoverForm.openApiPath ? 'openapi' : 'auto',
         auth: discoverForm.authType !== 'none' ? authConfig : null
       });
-      
+
       setDiscoveredEndpoints(res.data.endpoints || []);
+      const resolvedBase = res.data.baseUrl || discoverForm.baseUrl;
+      const discoveredName = res.data.info?.title || '';
+      setForm(prev => ({
+        ...prev,
+        baseUrl: resolvedBase,
+        name: prev.name || discoveredName
+      }));
     } catch (err) {
       showError(err.response?.data?.error || 'Failed to discover API');
     } finally {
@@ -168,22 +176,24 @@ function Integrations() {
   };
 
   const handleImportTools = async () => {
-    if (!form.name || !form.baseUrl) {
+    const name = (form.name || '').trim();
+    const baseUrl = (form.baseUrl || discoverForm.baseUrl || '').trim();
+    if (!name || !baseUrl) {
       showError('Please enter a name and base URL for the integration');
       return;
     }
-    
+
     setImporting(true);
     try {
       const config = {
-        baseUrl: form.baseUrl,
+        baseUrl,
         auth: {
           type: discoverForm.authType,
           credentials: discoverForm.authType === 'bearer' ? { token: discoverForm.token } : {}
         }
       };
-      
-      const payload = { type: 'custom', name: form.name, description: form.description || '', config };
+
+      const payload = { type: 'custom', name, description: form.description || '', config };
       const res = await api.post('/integrations', payload);
       
       if (res.data._id && selectedEndpoints.length > 0) {
@@ -213,22 +223,21 @@ function Integrations() {
       let payload;
 
       if (editingId) {
-        payload = { name: form.name, slug: form.slug || undefined, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts };
-        
+        const config = {
+          baseUrl: form.baseUrl,
+          allowSelfSignedCerts: form.allowSelfSignedCerts,
+          auth: {
+            type: form.authType
+          }
+        };
+
         const hasNewCredentials = (form.authType === 'basic' && (form.username || form.token)) ||
           (form.authType === 'bearer' && form.bearerToken) ||
+          (form.authType === 'token' && form.bearerToken) ||
+          (form.authType === 'custom' && form.bearerToken) ||
           (form.authType === 'apiKey' && (form.apiKeyName || form.apiKey));
-        
-        if (hasNewCredentials) {
-          const config = {
-            baseUrl: form.baseUrl,
-            auth: {
-              type: form.authType,
-              credentials: {}
-            },
-            allowSelfSignedCerts: form.allowSelfSignedCerts
-          };
 
+        if (hasNewCredentials) {
           if (form.authType === 'basic') {
             config.auth.credentials = { username: form.username, token: form.token };
           } else if (form.authType === 'bearer' || form.authType === 'token' || form.authType === 'custom') {
@@ -236,9 +245,9 @@ function Integrations() {
           } else if (form.authType === 'apiKey') {
             config.auth.credentials = { key: form.apiKeyName, value: form.apiKey, addTo: form.apiKeyIn };
           }
-          
-          payload.config = config;
         }
+
+        payload = { name: form.name, slug: form.slug || undefined, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts, config };
       } else {
         const config = {
           baseUrl: form.baseUrl,
@@ -998,6 +1007,7 @@ function Integrations() {
                 <div className="form-group">
                   <label>OpenAPI Spec Path (optional)</label>
                   <input type="text" value={discoverForm.openApiPath} onChange={e => setDiscoverForm({ ...discoverForm, openApiPath: e.target.value })} placeholder="/openapi.json or leave empty for auto-detect" />
+                  <small style={{ color: 'var(--text-secondary)' }}>Appended to the base URL. Example: /api/v3/openapi.yaml</small>
                 </div>
                 <div className="form-group">
                   <label>Authentication (if needed)</label>
@@ -1073,14 +1083,17 @@ function Integrations() {
                   <div className="form-row">
                     <div className="form-group">
                       <label>Name</label>
-                      <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="My API" />
+                      <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="My API" required />
                     </div>
                     <div className="form-group">
                       <label>Description</label>
                       <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional" />
                     </div>
                   </div>
-                  <input type="hidden" value={discoverForm.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} />
+                  <div className="form-group">
+                    <label>Base URL</label>
+                    <input type="url" value={form.baseUrl} onChange={e => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://api.example.com" required />
+                  </div>
                 </div>
               </div>
             )}
