@@ -2,38 +2,83 @@ const axios = require('axios');
 const yaml = require('js-yaml');
 const { shouldInclude } = require('../utils/openapiFilter');
 
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || ''));
+}
+
+// Append a spec path to a base URL. `new URL('/v3/foo', 'https://host/api')`
+// drops `/api` because a leading slash is origin-absolute — users entering a
+// spec path expect it to be joined onto the base they just typed.
+function joinBaseAndPath(baseUrl, path) {
+  if (!path) return baseUrl;
+  if (isHttpUrl(path)) return path;
+  const base = String(baseUrl || '').replace(/\/+$/, '');
+  const rel = String(path).replace(/^\/+/, '');
+  if (!base) return String(path);
+  return `${base}/${rel}`;
+}
+
+function resolveServerUrl(serverUrl, specUrl, fallbackBaseUrl) {
+  if (!serverUrl) return fallbackBaseUrl;
+  const url = String(serverUrl).trim();
+  if (!url || /\{[^}]+\}/.test(url)) return fallbackBaseUrl;
+  if (isHttpUrl(url)) return url.replace(/\/+$/, '');
+  try {
+    return new URL(url, specUrl || fallbackBaseUrl).href.replace(/\/+$/, '');
+  } catch {
+    return joinBaseAndPath(fallbackBaseUrl, url);
+  }
+}
+
 class OpenAPIParser {
   constructor(baseUrl, auth = null, filter = null) {
     this.baseUrl = baseUrl;
     this.auth = auth;
     this.spec = null;
+    this.specUrl = null;
     this.filter = filter;
   }
 
   async fetchSpec(urlOrPath) {
-    let specUrl = urlOrPath;
+    const specUrl = isHttpUrl(urlOrPath) ? urlOrPath : joinBaseAndPath(this.baseUrl, urlOrPath);
+    this.specUrl = specUrl;
 
-    if (!urlOrPath.startsWith('http')) {
-      specUrl = new URL(urlOrPath, this.baseUrl).href;
+    const response = await axios.get(specUrl, {
+      timeout: 15000,
+      headers: {
+        Accept: 'application/json, application/yaml, text/yaml, application/x-yaml, */*'
+      }
+    });
+
+    const contentType = String(response.headers?.['content-type'] || '').toLowerCase();
+    if (contentType.includes('text/html')) {
+      throw new Error(`Received HTML instead of an OpenAPI spec from ${specUrl}`);
     }
 
-    const response = await axios.get(specUrl, { timeout: 10000 });
     return response.data;
   }
 
   parseSpec(spec) {
     if (typeof spec === 'string') {
-      if (spec.trim().startsWith('{')) {
-        spec = JSON.parse(spec);
-      } else {
-        spec = yaml.load(spec);
+      try {
+        if (spec.trim().startsWith('{')) {
+          spec = JSON.parse(spec);
+        } else {
+          spec = yaml.load(spec);
+        }
+      } catch {
+        throw new Error('Document is not a valid OpenAPI/Swagger specification');
       }
+    }
+
+    if (!spec || typeof spec !== 'object' || Array.isArray(spec) || (!spec.openapi && !spec.swagger)) {
+      throw new Error('Document is not a valid OpenAPI/Swagger specification');
     }
 
     this.spec = spec;
     const info = spec.info || {};
     const servers = spec.servers || [];
-    const basePath = servers[0]?.url || this.baseUrl;
+    const basePath = resolveServerUrl(servers[0]?.url, this.specUrl, this.baseUrl);
     const definitions = spec.definitions || spec.components?.schemas || {};
 
     const resolving = new Set();
@@ -230,5 +275,8 @@ class OpenAPIParser {
     return knownPaths[service] || '/openapi.json';
   }
 }
+
+OpenAPIParser.joinBaseAndPath = joinBaseAndPath;
+OpenAPIParser.resolveServerUrl = resolveServerUrl;
 
 module.exports = OpenAPIParser;
