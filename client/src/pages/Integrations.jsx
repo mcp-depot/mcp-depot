@@ -223,22 +223,21 @@ function Integrations() {
       let payload;
 
       if (editingId) {
-        payload = { name: form.name, slug: form.slug || undefined, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts };
-        
+        const config = {
+          baseUrl: form.baseUrl,
+          allowSelfSignedCerts: form.allowSelfSignedCerts,
+          auth: {
+            type: form.authType
+          }
+        };
+
         const hasNewCredentials = (form.authType === 'basic' && (form.username || form.token)) ||
           (form.authType === 'bearer' && form.bearerToken) ||
+          (form.authType === 'token' && form.bearerToken) ||
+          (form.authType === 'custom' && form.bearerToken) ||
           (form.authType === 'apiKey' && (form.apiKeyName || form.apiKey));
-        
-        if (hasNewCredentials) {
-          const config = {
-            baseUrl: form.baseUrl,
-            auth: {
-              type: form.authType,
-              credentials: {}
-            },
-            allowSelfSignedCerts: form.allowSelfSignedCerts
-          };
 
+        if (hasNewCredentials) {
           if (form.authType === 'basic') {
             config.auth.credentials = { username: form.username, token: form.token };
           } else if (form.authType === 'bearer' || form.authType === 'token' || form.authType === 'custom') {
@@ -246,9 +245,9 @@ function Integrations() {
           } else if (form.authType === 'apiKey') {
             config.auth.credentials = { key: form.apiKeyName, value: form.apiKey, addTo: form.apiKeyIn };
           }
-          
-          payload.config = config;
         }
+
+        payload = { name: form.name, slug: form.slug || undefined, description: form.description, tags: form.tags, allowSelfSignedCerts: form.allowSelfSignedCerts, config };
       } else {
         const config = {
           baseUrl: form.baseUrl,

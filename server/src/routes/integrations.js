@@ -18,6 +18,7 @@ const { ownerWhereId } = require('../utils/queryHelpers');
 const { slugify, computeExposedName } = require('../utils/slugify');
 const { checkIntegrationPolicy, evaluateIntegrationPolicy } = require('../services/resource-policy');
 const { isBuiltInIntegration, BUILT_IN_INTEGRATION_NAMES } = require('../utils/builtInIntegrations');
+const { mergeIntegrationConfig, hasCredentialValues } = require('../utils/mergeIntegrationConfig');
 
 const router = express.Router();
 
@@ -542,8 +543,9 @@ router.put('/:id', authWithApiKey, async (req, res) => {
     }
     
     if (config !== undefined) {
-      if (config.auth?.credentials && config.auth.type !== 'none') {
-        const credentials = config.auth.credentials;
+      const merged = mergeIntegrationConfig(integration.config, config);
+      if (hasCredentialValues(config.auth?.credentials) && merged.auth?.type !== 'none') {
+        const credentials = merged.auth.credentials;
         if (credentials.token && !encryption.isEncrypted(credentials.token) && !secretStore.isSecretRef(credentials.token)) {
           credentials.token = encryption.encrypt(credentials.token);
         }
@@ -554,7 +556,8 @@ router.put('/:id', authWithApiKey, async (req, res) => {
           credentials.apiKey = encryption.encrypt(credentials.apiKey);
         }
       }
-      integration.config = config;
+      integration.config = merged;
+      integration.changed('config', true);
     }
 
     if (req.body.allowSelfSignedCerts !== undefined) {
@@ -562,6 +565,7 @@ router.put('/:id', authWithApiKey, async (req, res) => {
         ...integration.config,
         allowSelfSignedCerts: req.body.allowSelfSignedCerts
       };
+      integration.changed('config', true);
     }
 
     const slugChanged = integration.changed() && integration.changed().includes('slug');
