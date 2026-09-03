@@ -51,7 +51,7 @@ const authWithApiKey = async (req, res, next) => {
     let user = null;
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.replace('Bearer ', '');
+      const token = authHeader.replace('Bearer ', '').trim();
       try {
         const decoded = jwt.verify(token, config.jwtSecret);
         user = await User.findByPk(decoded.userId);
@@ -60,6 +60,12 @@ const authWithApiKey = async (req, res, next) => {
           req.token = token;
         }
       } catch (e) {
+        // Bearer may be an API key (mcp_...), not a JWT
+        user = await User.findOne({ where: { apiKey: hashApiKey(token) } });
+        if (user) {
+          authenticated = true;
+          req.apiKeyAuth = true;
+        }
       }
     }
     
@@ -68,6 +74,7 @@ const authWithApiKey = async (req, res, next) => {
       user = await User.findOne({ where: { apiKey: hashedKey } });
       if (user) {
         authenticated = true;
+        req.apiKeyAuth = true;
       }
     }
     
@@ -136,7 +143,7 @@ const optionalAuthWithApiKey = async (req, res, next) => {
     const authHeader = req.header('Authorization');
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.replace('Bearer ', '');
+      const token = authHeader.replace('Bearer ', '').trim();
       try {
         const decoded = jwt.verify(token, config.jwtSecret);
         const user = await User.findByPk(decoded.userId);
@@ -145,6 +152,11 @@ const optionalAuthWithApiKey = async (req, res, next) => {
           req.token = token;
         }
       } catch (e) {
+        const user = await User.findOne({ where: { apiKey: hashApiKey(token) } });
+        if (user) {
+          req.user = user;
+          req.apiKeyAuth = true;
+        }
       }
     }
     

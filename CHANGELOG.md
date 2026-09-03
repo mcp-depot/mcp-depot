@@ -2,6 +2,11 @@
 
 All notable changes to MCP Depot will be documented in this file.
 
+## Unreleased
+
+### Fixed
+- MCP `authMode=optional` now resolves `X-API-Key` and Bearer API keys (previously only JWT), so private integration tools appear in `/api/v1/mcp/tools` for CLI clients
+
 ## [1.0.1] - 2026-05-07
 
 ### Added

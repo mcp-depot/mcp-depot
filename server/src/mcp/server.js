@@ -34,13 +34,8 @@ const transformerLoader = require('../transformers/loader');
 // API - wherever a config object (not a raw shape) is passed. Confirmed
 // live via a minimal repro against the actual SDK.
 const { z } = require('zod/v3');
-const jwt = require('jsonwebtoken');
 const config = require('../config/env');
 const User = require('../models/User');
-
-function hashApiKey(apiKey) {
-  return require('crypto').createHash('sha256').update(apiKey).digest('hex');
-}
 
 function coerceParam(value, paramDefs, key) {
   const type = paramDefs?.[key]?.type;
@@ -1147,18 +1142,11 @@ require('@modelcontextprotocol/sdk/types.js').InitializeRequestSchema,
     const authenticateAndRun = async (req, res, body) => {
       let userId = null;
       try {
-        const apiKey = req.header('X-API-Key');
-        const authHeader = req.header('Authorization');
-        if (apiKey) {
-          const hashed = hashApiKey(apiKey);
-          const user = await User.findOne({ where: { apiKey: hashed } });
-          if (user) userId = user.id;
-        } else if (authHeader?.startsWith('Bearer ')) {
-          const token = authHeader.replace('Bearer ', '');
-          const decoded = jwt.verify(token, config.jwtSecret);
-          const user = await User.findByPk(decoded.userId);
-          if (user) userId = user.id;
-        }
+        // Prefer shared resolver so X-API-Key and Bearer (JWT or mcp_ API key)
+        // all resolve identity the same way as REST /api/v1/mcp/* routes.
+        const { resolveMcpUserFromRequest } = require('../middleware/mcpAuth');
+        const user = await resolveMcpUserFromRequest(req);
+        if (user) userId = user.id;
       } catch (e) {
       }
 
